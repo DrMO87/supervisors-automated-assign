@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, DoorOpen, Calendar,
-  FileText, Settings, Home, Zap, ChevronRight, TrendingUp,
+  FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut
 } from 'lucide-react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cn } from '@/lib/utils/cn';
 
 const navGroups = [
@@ -38,6 +39,14 @@ const navGroups = [
 
 export function Navigation() {
   const pathname = usePathname();
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
+  };
 
   return (
     <aside
@@ -105,8 +114,18 @@ export function Navigation() {
         ))}
       </nav>
 
-      {/* Bottom version badge */}
-      <div className="px-6 py-4 border-t border-white/10">
+      {/* Bottom section with sign out and version badge */}
+      <div className="px-6 py-4 border-t border-white/10 space-y-4">
+        {/* Sign Out Button */}
+        <button
+          onClick={handleSignOut}
+          className="flex w-full items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-white/60 hover:bg-white/5 hover:text-red-400 transition-colors"
+        >
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          <span>Sign Out</span>
+        </button>
+
+        {/* Version Badge */}
         <div className="flex items-center gap-2.5">
           <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center">
             <span className="text-white/60 text-[9px] font-bold">SM</span>
