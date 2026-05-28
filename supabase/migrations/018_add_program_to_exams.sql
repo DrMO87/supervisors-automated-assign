@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE public.exam_sessions 
+ADD COLUMN IF NOT EXISTS program VARCHAR(255);
+
+COMMIT;

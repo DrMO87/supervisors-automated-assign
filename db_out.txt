@@ -1,0 +1,281 @@
+{
+  "counts": {
+    "Exam Supervisor": 22,
+    "Committees Supervisor": 25,
+    "Invigilator": 34,
+    "Invigilator / Exam Supervisor": 15
+  },
+  "pfs": [
+    {
+      "id": "0f78631d-508d-4ab0-9f72-5755790f17b1",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "a1d1f5a1-a51a-4850-8e7b-db629b311278",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "ce04800a-140d-404a-9f04-2bb3060d2088",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "7e9f9a52-208d-4ade-b235-425a68f1134b",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "bbd7a740-ecdc-452f-8314-4f1d0a96b56f",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "70769b5e-e957-452f-9fa9-f817922ccf89",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "488e4296-e4c5-4ea9-b788-394849246034",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "8276156f-dac4-4e4e-a8b8-111d10278a84",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "a0be96ce-6e26-4eeb-9479-36fcece4dd6d",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "c7a2ae5e-e8dc-45e4-bb67-82878021275f",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "8c2829c9-83d3-460f-8eda-ff287f718a1d",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "2dcd6bd3-3145-4343-a114-c3b413fb63ce",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "751f9a4a-6192-47d4-9405-7d475a008160",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "91fda8c0-eeb4-4797-81fc-9d14b97f4ff6",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "f1467e4d-ae55-4e00-87a9-5e10a3b1ee29",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "05609df0-ab4f-442e-b4b9-0ec047db5042",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "2ee22f3f-63f1-4af3-a08c-ac7b59a6b36a",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "f0b7bd2d-dccf-45e4-ae00-fe6b889dc9c9",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "89595ff1-d157-43b5-9835-baadec8d508a",
+      "exam_date": "2026-05-23",
+      "period": 2,
+      "start_time": "13:00:00",
+      "staff_id": "1660311e-e736-43d3-96a6-809694a6d841",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "b9c17a80-257d-4e01-bd50-16041a60f86a",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "a1d1f5a1-a51a-4850-8e7b-db629b311278",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "629733be-0d71-4d6f-b797-1699a2bc4abe",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "4d7bb7b5-1038-4211-9c6b-11dc734ce3fc",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "dccae547-fbac-4fe1-a7c8-471069d69e59",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "19903ac9-1978-4c90-9514-a2c0bf29302f",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "fb218304-ae6a-426b-8b22-fe4eaf9754c4",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "e61534fb-4d16-412e-8f2c-2744c4df1db1",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "6f59c56e-a995-47b5-a94b-ec355337bf49",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "008ddbba-b901-4c67-a500-8cef0fc79f4f",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "bedbecaa-16bb-456c-8839-eb3e3a394330",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "7643e851-0a57-4c00-9f97-0410e0823382",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "165924ef-1eee-4661-94fb-56dc03354e36",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "c9a6a85d-52cd-4750-bc25-b09fe4ece16f",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "09a9987d-5044-4429-9033-9bc676516110",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "84b45150-3ba2-4d22-9245-6fd5224eaee6",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "a7988ac8-2d96-49aa-9d15-139bbd581411",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "ec08112e-7f4d-4ee0-bb40-f2e627237367",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "57371119-b105-4061-8be1-367dbfbe3d81",
+      "exam_date": "2026-05-24",
+      "period": 1,
+      "start_time": "10:00:00",
+      "staff_id": "e3d5128c-9e9a-43e4-81df-d034495d3df7",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "6754164a-de7d-420e-aa42-0a6457251819",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "3068f391-1e58-46ec-80c0-20dfb29ddc34",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "85e4eea7-1a33-4a00-b67f-657b20f70046",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "8e50159f-761c-4955-8a0c-f970f1a78411",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "ceb9afbc-81c9-47e6-8998-f08c78f26f3f",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "0b48f452-4034-4634-936a-a0099e31c4f8",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "cc638d9b-811a-4290-9cdd-39abf46040ae",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "80058d76-a1b1-46fc-883a-2c2e4226eaf8",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "9b6e64fa-f0e5-47d0-a676-d528941661c3",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "0b0f481e-56b4-4f90-bb67-adcf05cc2dc1",
+      "role": "Exam_Supervisor",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "1be92dae-7318-48bc-a930-79cbc224107b",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "2dcd6bd3-3145-4343-a114-c3b413fb63ce",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "f15281fa-4a1c-4c10-8bb4-6be6cecced16",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "fc2dfe00-874b-4347-8663-59e23e21b68e",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "14dd3c31-0d37-4b03-ac34-fd54543531ed",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "7e9f9a52-208d-4ade-b235-425a68f1134b",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "c2c57b57-f0ea-4b0a-a0f8-d60d02133438",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "ae54d0ed-2d36-4426-8f78-8cf44742869d",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    },
+    {
+      "id": "d55f7694-fb40-4cdb-99fc-27da13529faf",
+      "exam_date": "2026-05-24",
+      "period": 2,
+      "start_time": "13:30:00",
+      "staff_id": "a1d1f5a1-a51a-4850-8e7b-db629b311278",
+      "role": "Assistant",
+      "created_at": "2026-05-22T08:38:13.48392+00:00"
+    }
+  ],
+  "err2": null
+}

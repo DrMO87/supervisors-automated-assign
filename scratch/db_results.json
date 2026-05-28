@@ -1,0 +1,1258 @@
+[
+  {
+    "id": "356c8d21-f18e-4343-8182-c791deff3ad0",
+    "subject": "Sterile Dosage Forms & Radiopharmaceuticals",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 410",
+    "student_count": 32,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "منة الداودي"
+      ],
+      "Assistant": [
+        "هدير امين",
+        "ياسمينا منصور"
+      ]
+    }
+  },
+  {
+    "id": "37de2ba4-912f-45ad-94de-d5ef151a1333",
+    "subject": "Drug Quality Control",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P108",
+    "student_count": 42,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أمير حمودة"
+      ],
+      "Exam_Supervisor": [
+        "محمد مروان"
+      ],
+      "Assistant": [
+        "ليلى مجدى",
+        "ندا المدثر"
+      ]
+    }
+  },
+  {
+    "id": "316970ce-02ea-406d-bcf9-421554fa5876",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 202",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد زيدان"
+      ],
+      "Exam_Supervisor": [
+        "نورهان الصباغ"
+      ],
+      "Assistant": [
+        "منه شروش"
+      ]
+    }
+  },
+  {
+    "id": "093d63fc-e728-410d-bd89-78e278dc8a02",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 204",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد زيدان"
+      ],
+      "Exam_Supervisor": [
+        "هشام سامح"
+      ],
+      "Assistant": [
+        "غادة راضي"
+      ]
+    }
+  },
+  {
+    "id": "b4593547-2623-4da2-ac34-b33b023fa001",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 205",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد زيدان"
+      ],
+      "Exam_Supervisor": [
+        "هاجر الجزار"
+      ],
+      "Assistant": [
+        "ناريمان صقر"
+      ]
+    }
+  },
+  {
+    "id": "37267c4b-03e9-4aa7-8a6f-bf49f987f8f2",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 213",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد زيدان"
+      ],
+      "Exam_Supervisor": [
+        "مي عاطف"
+      ],
+      "Assistant": [
+        "هبة الله جمال"
+      ]
+    }
+  },
+  {
+    "id": "7a0fc27f-b31d-4ae9-a505-7e181fc75c81",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 217",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد صلاح"
+      ],
+      "Exam_Supervisor": [
+        "خالد أبو السعود"
+      ],
+      "Assistant": [
+        "نور عمرو"
+      ]
+    }
+  },
+  {
+    "id": "f23ba9a3-6c43-4d5d-b5e4-418b1dc8e034",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 322",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد صلاح"
+      ],
+      "Exam_Supervisor": [
+        "دينا إيهاب"
+      ],
+      "Assistant": [
+        "هاجر ابو المعاطى"
+      ]
+    }
+  },
+  {
+    "id": "d99cb2ce-a720-4d4a-a454-fb5adc1cd449",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 402",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد صلاح"
+      ],
+      "Exam_Supervisor": [
+        "منة عبد الشهيد"
+      ],
+      "Assistant": [
+        "هايدي رمضان"
+      ]
+    }
+  },
+  {
+    "id": "e5591a94-d338-43c0-bd31-7f6788dc8079",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 409",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد صلاح"
+      ],
+      "Exam_Supervisor": [
+        "نوران قنديل"
+      ],
+      "Assistant": [
+        "إسراء الشرباصي"
+      ]
+    }
+  },
+  {
+    "id": "48534ffb-ae70-423b-8b71-2a969f04b3d6",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 420",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد صلاح"
+      ],
+      "Exam_Supervisor": [
+        "أحمد وائل"
+      ],
+      "Assistant": [
+        "كريمه كارم"
+      ]
+    }
+  },
+  {
+    "id": "c24d2504-3891-4191-a2f7-03e1609b68ed",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 115",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد زيدان"
+      ],
+      "Exam_Supervisor": [
+        "ندى حسام"
+      ],
+      "Assistant": [
+        "ايه هدايت"
+      ]
+    }
+  },
+  {
+    "id": "9364f4de-62e1-469d-996a-60fd15d2195e",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P101",
+    "student_count": 65,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أمير حمودة"
+      ],
+      "Exam_Supervisor": [
+        "محمد ياسر الشبراوى"
+      ],
+      "Assistant": [
+        "غادة على",
+        "رحمه فرحات",
+        "عايدة عادل"
+      ]
+    }
+  },
+  {
+    "id": "ea0ca2b8-6181-4792-be7f-1540c1b87a49",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab F 403",
+    "student_count": 37,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد حمدان"
+      ],
+      "Exam_Supervisor": [
+        "منى عبد الرافع"
+      ],
+      "Assistant": [
+        "رحمه صلاح",
+        "روان البسيوني"
+      ]
+    }
+  },
+  {
+    "id": "4103f7e9-3e43-4dba-9794-a04eedecd4c3",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab F 404",
+    "student_count": 40,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد حمدان"
+      ],
+      "Exam_Supervisor": [
+        "آيه العساس"
+      ],
+      "Assistant": [
+        "روان عصر",
+        "مروه عرنسه"
+      ]
+    }
+  },
+  {
+    "id": "c4c7112c-c33b-4f18-ad30-a1be7e1bf2ba",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab F 411",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد حمدان"
+      ],
+      "Exam_Supervisor": [
+        "أميرة سمير"
+      ],
+      "Assistant": [
+        "جهاد جبريل",
+        "رقية إسماعيل"
+      ]
+    }
+  },
+  {
+    "id": "42fae025-baf0-410d-88b0-2029a151ed50",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab F 412",
+    "student_count": 40,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ محمد حمدان"
+      ],
+      "Exam_Supervisor": [
+        "أحمد موسى"
+      ],
+      "Assistant": [
+        "ايمان عثمان",
+        "ايه الغالي"
+      ]
+    }
+  },
+  {
+    "id": "6886f03a-562b-42fb-9c50-5552fe304143",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 412",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "أميرة مشالى"
+      ],
+      "Assistant": [
+        "ريهام هشام",
+        "سميحة حمدي"
+      ]
+    }
+  },
+  {
+    "id": "37e194c7-3180-45c8-a4a8-2563cdd9a312",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 413",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "ايمان ممدوح"
+      ],
+      "Assistant": [
+        "شيرين الحسيني",
+        "نهله عاشور"
+      ]
+    }
+  },
+  {
+    "id": "97c7b14f-760c-4767-93ea-fe94a3e8717c",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 402",
+    "student_count": 37,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ إيمان حمدي"
+      ],
+      "Exam_Supervisor": [
+        "مى صلاح"
+      ],
+      "Assistant": [
+        "سلمى داوود",
+        "شروق علي"
+      ]
+    }
+  },
+  {
+    "id": "9d6316d0-2011-42f5-b455-136e35b36873",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 415",
+    "student_count": 38,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "سمر الشربينى"
+      ],
+      "Assistant": [
+        "هند محسن",
+        "ايمان يوسف"
+      ]
+    }
+  },
+  {
+    "id": "801e7ee5-608e-4400-9756-fac2481c55fd",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 416",
+    "student_count": 38,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "إنجى أيمن"
+      ],
+      "Assistant": [
+        "دينا الحسيني",
+        "رحمه البابلي"
+      ]
+    }
+  },
+  {
+    "id": "c6c2bef4-c48d-4949-8b37-7e627aefb754",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 405",
+    "student_count": 15,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ إيمان حمدي"
+      ],
+      "Exam_Supervisor": [
+        "إيهاب السيد"
+      ],
+      "Assistant": [
+        "يوسف الحارتى"
+      ]
+    }
+  },
+  {
+    "id": "99078c63-9628-4aa3-9a96-f0a8e12e7719",
+    "subject": "Quality Control of Pharmaceuticals",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P108",
+    "student_count": 1,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أمير حمودة"
+      ],
+      "Exam_Supervisor": [
+        "محمد مروان"
+      ],
+      "Assistant": [
+        "ليلى مجدى",
+        "ندا المدثر"
+      ]
+    }
+  },
+  {
+    "id": "823ffbc4-ddf2-4657-8d8e-aa64f8d1236e",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 404",
+    "student_count": 37,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ إيمان حمدي"
+      ],
+      "Exam_Supervisor": [
+        "ندى كمال"
+      ],
+      "Assistant": [
+        "عمر حليم",
+        "عبير سراج"
+      ]
+    }
+  },
+  {
+    "id": "abb5fa14-4fe8-4aa1-bba1-74fa2a2f8400",
+    "subject": "Physical Pharmacy",
+    "date": "2026-05-23",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab A 410",
+    "student_count": 8,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أميرة المتولى"
+      ],
+      "Exam_Supervisor": [
+        "منة الداودي"
+      ],
+      "Assistant": [
+        "هدير امين",
+        "ياسمينا منصور"
+      ]
+    }
+  },
+  {
+    "id": "3277a1c0-ff28-4b17-9b83-0fda46f22fba",
+    "subject": "Pharmaceutical Organic Chemistry 3",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "P416",
+    "student_count": 1,
+    "roles": {
+      "Head_Supervisor": [
+        "د / منة أسامة"
+      ],
+      "Exam_Supervisor": [
+        "منى عبد الرافع"
+      ],
+      "Assistant": [
+        "شروق علي"
+      ]
+    }
+  },
+  {
+    "id": "8af54014-e521-4467-82df-22f5967f4401",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "M1.218",
+    "student_count": 74,
+    "roles": {
+      "Head_Supervisor": [
+        "د / محمد الجمال"
+      ],
+      "Exam_Supervisor": [
+        "هشام سامح"
+      ],
+      "Assistant": [
+        "أحمد وائل",
+        "رحمه فرحات",
+        "هند محسن"
+      ]
+    }
+  },
+  {
+    "id": "046e9338-8beb-4fc7-8c55-6e0281268096",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "M1.317",
+    "student_count": 74,
+    "roles": {
+      "Head_Supervisor": [
+        "د / محمد الجمال"
+      ],
+      "Exam_Supervisor": [
+        "أميرة سمير"
+      ],
+      "Assistant": [
+        "إسراء الشرباصي",
+        "نوران قنديل",
+        "غادة على"
+      ]
+    }
+  },
+  {
+    "id": "31ba293f-8b4a-41a6-9da7-a350b0ac78e5",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "M2.103",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ خالد علي"
+      ],
+      "Exam_Supervisor": [
+        "خالد أبو السعود"
+      ],
+      "Assistant": [
+        "مي عاطف",
+        "محمد مروان"
+      ]
+    }
+  },
+  {
+    "id": "f49fa178-6513-41b9-8a0f-b2a7da94420a",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "M2.215",
+    "student_count": 57,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ خالد علي"
+      ],
+      "Exam_Supervisor": [
+        "أحمد موسى"
+      ],
+      "Assistant": [
+        "ليلى مجدى",
+        "دينا الحسيني",
+        "رحمه صلاح"
+      ]
+    }
+  },
+  {
+    "id": "9dfab541-b278-479d-bb4b-f109fed4e500",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "P221",
+    "student_count": 42,
+    "roles": {
+      "Head_Supervisor": [
+        "د / منة أسامة"
+      ],
+      "Exam_Supervisor": [
+        "ايمان ممدوح"
+      ],
+      "Assistant": [
+        "هبة الله جمال",
+        "إنجى أيمن"
+      ]
+    }
+  },
+  {
+    "id": "e5a781b9-7284-4af3-968b-8e1b2c87db56",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "P408",
+    "student_count": 42,
+    "roles": {
+      "Head_Supervisor": [
+        "د / منة أسامة"
+      ],
+      "Exam_Supervisor": [
+        "أميرة مشالى"
+      ],
+      "Assistant": [
+        "ندى حسام",
+        "نور عمرو"
+      ]
+    }
+  },
+  {
+    "id": "c83b98cb-68d4-46d5-8cf9-a2270ed8c69c",
+    "subject": "Clinical Pharmacy Practice",
+    "date": "2026-05-23",
+    "start_time": "13:00:00",
+    "end_time": "15:00:00",
+    "room": "P416",
+    "student_count": 9,
+    "roles": {
+      "Head_Supervisor": [
+        "د / منة أسامة"
+      ],
+      "Exam_Supervisor": [
+        "منى عبد الرافع"
+      ],
+      "Assistant": [
+        "شروق علي"
+      ]
+    }
+  },
+  {
+    "id": "9f572ede-8874-4e24-bb4c-f812e1c8302b",
+    "subject": "Phytochemistry 1",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 202",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "منة عبد الشهيد"
+      ],
+      "Assistant": [
+        "محمد مروان"
+      ]
+    }
+  },
+  {
+    "id": "3706105d-57de-4f71-b571-f26e36a86dd1",
+    "subject": "Phytochemistry 1",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 204",
+    "student_count": 1,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "نوران قنديل"
+      ],
+      "Assistant": [
+        "هبة الله جمال"
+      ]
+    }
+  },
+  {
+    "id": "6c2bacbf-978a-48a9-8b56-d3af630e6f69",
+    "subject": "Pharmacy Practice (1)",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 204",
+    "student_count": 28,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "نوران قنديل"
+      ],
+      "Assistant": [
+        "هبة الله جمال"
+      ]
+    }
+  },
+  {
+    "id": "2190d9f6-ea1a-492c-895e-aaf425905c14",
+    "subject": "Pharmacy Practice (1)",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 205",
+    "student_count": 11,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "شروق علي"
+      ],
+      "Assistant": [
+        "عبير سراج"
+      ]
+    }
+  },
+  {
+    "id": "2e22fbb0-6f83-4cff-8c05-916315286a08",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P101",
+    "student_count": 5,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أمل الطوبشى"
+      ],
+      "Exam_Supervisor": [
+        "أحمد وائل"
+      ],
+      "Assistant": [
+        "رحمه البابلي",
+        "شيرين الحسيني",
+        "عايدة عادل"
+      ]
+    }
+  },
+  {
+    "id": "023299e0-be4e-49d2-bbba-f1dfaaaef013",
+    "subject": "Management of Dermatological, Reproductive & Musculoskeletal Diseases",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "M2.121",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "آية عادل"
+      ],
+      "Assistant": [
+        "كريمه كارم",
+        "مروه عرنسه"
+      ]
+    }
+  },
+  {
+    "id": "12499015-9721-48df-81b9-6e0558ed7888",
+    "subject": "Management of Dermatological, Reproductive & Musculoskeletal Diseases",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "P221",
+    "student_count": 42,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أمل الطوبشى"
+      ],
+      "Exam_Supervisor": [
+        "محمد ياسر الشبراوى"
+      ],
+      "Assistant": [
+        "هاجر ابو المعاطى",
+        "هايدي رمضان"
+      ]
+    }
+  },
+  {
+    "id": "ab411ae5-38e5-4e85-953f-0c709bd7e4b6",
+    "subject": "Management of Dermatological, Reproductive & Musculoskeletal Diseases",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "P408",
+    "student_count": 33,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أمل الطوبشى"
+      ],
+      "Exam_Supervisor": [
+        "رانيا اللايح"
+      ],
+      "Assistant": [
+        "محمود الشربينى",
+        "رحمه فرحات"
+      ]
+    }
+  },
+  {
+    "id": "85a9ef55-da99-4349-a76d-d451fe51f92f",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 213",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "إبراهيم  عرفان"
+      ],
+      "Assistant": [
+        "هدير امين"
+      ]
+    }
+  },
+  {
+    "id": "cb646ab9-73e8-4fa6-beff-2a2b26c6f0f2",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 217",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ أحمد صالح"
+      ],
+      "Exam_Supervisor": [
+        "ليلى مجدى"
+      ],
+      "Assistant": [
+        "هند محسن"
+      ]
+    }
+  },
+  {
+    "id": "d3291740-cde9-490a-9c91-517632cee420",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 322",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "آيه العساس"
+      ],
+      "Assistant": [
+        "ياسمينا منصور"
+      ]
+    }
+  },
+  {
+    "id": "c9172f00-ba4f-4f66-a52c-90e1608c545c",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 402",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "أحمد موسى"
+      ],
+      "Assistant": [
+        "غادة على"
+      ]
+    }
+  },
+  {
+    "id": "86a14f6d-0833-41cd-bf35-c2618f6795fc",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 409",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "أميرة سمير"
+      ],
+      "Assistant": [
+        "هاجر الجزار"
+      ]
+    }
+  },
+  {
+    "id": "9b6065b0-efb8-47ff-9c8e-268f1d24786c",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 420",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "أميرة مشالى"
+      ],
+      "Assistant": [
+        "ايمان عثمان"
+      ]
+    }
+  },
+  {
+    "id": "f409d205-04fb-4457-a8e3-36c4f8c1644c",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P101",
+    "student_count": 60,
+    "roles": {
+      "Committees_Supervisor": [
+        "د / أمل الطوبشى"
+      ],
+      "Exam_Supervisor": [
+        "رحمه البابلي"
+      ],
+      "Assistant": [
+        "ايه هدايت",
+        "شيرين الحسيني",
+        "عايدة عادل"
+      ]
+    }
+  },
+  {
+    "id": "3b5197af-e49e-441b-9152-fd7db4507e89",
+    "subject": "Clinical Biochemistry",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab P108",
+    "student_count": 39,
+    "roles": {
+      "Head_Supervisor": [
+        "د / أمل الطوبشى"
+      ],
+      "Exam_Supervisor": [
+        "دينا إيهاب"
+      ],
+      "Assistant": [
+        "ايه هدايت",
+        "إسراء الشرباصي"
+      ]
+    }
+  },
+  {
+    "id": "658d53d2-d934-45aa-bc05-4b08649270ca",
+    "subject": "Phytochemistry (1)",
+    "date": "2026-05-24",
+    "start_time": "10:00:00",
+    "end_time": "12:00:00",
+    "room": "Computer Lab M2 205",
+    "student_count": 11,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ غادة سعد"
+      ],
+      "Exam_Supervisor": [
+        "شروق علي"
+      ],
+      "Assistant": [
+        "عبير سراج"
+      ]
+    }
+  },
+  {
+    "id": "53a65ff6-df10-4fd2-8048-061053faaaf1",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 202",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ مصطفى بهاء"
+      ],
+      "Exam_Supervisor": [
+        "آية عادل"
+      ],
+      "Assistant": [
+        "دينا الحسيني"
+      ]
+    }
+  },
+  {
+    "id": "2cc657cd-ae40-4e77-8038-7ec9ed33b1f3",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 204",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ مصطفى بهاء"
+      ],
+      "Exam_Supervisor": [
+        "ايمان ممدوح"
+      ],
+      "Assistant": [
+        "ياسمينا منصور"
+      ]
+    }
+  },
+  {
+    "id": "34b664ac-8cd3-46b6-b4d5-baa1b2b7dcd9",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 205",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ مصطفى بهاء"
+      ],
+      "Exam_Supervisor": [
+        "رانيا اللايح"
+      ],
+      "Assistant": [
+        "هدير امين"
+      ]
+    }
+  },
+  {
+    "id": "5a7141a0-e87d-486a-b384-0b14dacca272",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 213",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ مصطفى بهاء"
+      ],
+      "Exam_Supervisor": [
+        "سمر الشربينى"
+      ],
+      "Assistant": [
+        "هايدي رمضان"
+      ]
+    }
+  },
+  {
+    "id": "d90211d3-c301-4e4b-a257-9c56a88ce86e",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 217",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ مصطفى بهاء"
+      ],
+      "Exam_Supervisor": [
+        "منة الداودي"
+      ],
+      "Assistant": [
+        "هاجر ابو المعاطى"
+      ]
+    }
+  },
+  {
+    "id": "8e7e107b-8747-4260-abc8-fa0d3c40228a",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 322",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ منة شاهين"
+      ],
+      "Exam_Supervisor": [
+        "مى صلاح"
+      ],
+      "Assistant": [
+        "منه شروش"
+      ]
+    }
+  },
+  {
+    "id": "70503018-d62b-4026-86ca-c47af04f7c6b",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 402",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ منة شاهين"
+      ],
+      "Exam_Supervisor": [
+        "ندى كمال"
+      ],
+      "Assistant": [
+        "سميحة حمدي"
+      ]
+    }
+  },
+  {
+    "id": "3fa76d55-911e-44cf-b971-5cf5c31c9f53",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab M2 409",
+    "student_count": 29,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ منة شاهين"
+      ],
+      "Exam_Supervisor": [
+        "نورهان الصباغ"
+      ],
+      "Assistant": [
+        "نور عمرو"
+      ]
+    }
+  },
+  {
+    "id": "69b4af01-2fb1-47dd-9804-f0ee2360445d",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab P101",
+    "student_count": 65,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ آية سعد"
+      ],
+      "Exam_Supervisor": [
+        "شروق علي"
+      ],
+      "Assistant": [
+        "ندى حسام",
+        "ليلى مجدى",
+        "إنجى أيمن"
+      ]
+    }
+  },
+  {
+    "id": "d7e56b90-f903-4943-b6a4-4f43f16ef281",
+    "subject": "Pathology & Pathophysiology",
+    "date": "2026-05-24",
+    "start_time": "13:30:00",
+    "end_time": "15:30:00",
+    "room": "Computer Lab P108",
+    "student_count": 47,
+    "roles": {
+      "Head_Supervisor": [
+        "د/ آية سعد"
+      ],
+      "Exam_Supervisor": [
+        "غادة على"
+      ],
+      "Assistant": [
+        "روان البسيوني",
+        "سلمى داوود"
+      ]
+    }
+  }
+]
