@@ -1,11 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, DoorOpen, Calendar,
-  FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut
+  FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut, Menu, X
 } from 'lucide-react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cn } from '@/lib/utils/cn';
@@ -38,6 +39,7 @@ const navGroups = [
 ];
 
 export function Navigation() {
+  const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClientComponentClient();
@@ -49,10 +51,44 @@ export function Navigation() {
   };
 
   return (
-    <aside
-      className="fixed left-0 top-0 bottom-0 w-64 bg-gradient-sidebar shadow-sidebar z-50 flex flex-col"
-      style={{ background: 'linear-gradient(180deg, #002147 0%, #001530 60%, #000d1f 100%)' }}
-    >
+    <>
+      {/* Mobile Header with Hamburger Menu */}
+      <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-gradient-to-r from-[#002147] to-[#001530] z-40 flex items-center justify-between px-4 shadow-md">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 relative">
+            <Image
+              src="/images/logo-session-master-transparent.png"
+              alt="Session Master Logo"
+              fill
+              className="object-contain"
+            />
+          </div>
+          <span className="text-white font-bold text-sm tracking-wide">Session Master</span>
+        </div>
+        <button 
+          onClick={() => setIsOpen(!isOpen)}
+          className="text-white p-2 focus:outline-none bg-white/10 rounded-md"
+        >
+          {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        </button>
+      </div>
+
+      {/* Overlay for mobile */}
+      {isOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-sm"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
+
+      {/* The Sidebar itself */}
+      <aside
+        className={cn(
+          "fixed left-0 top-0 bottom-0 w-64 shadow-sidebar z-50 flex flex-col transition-transform duration-300 ease-in-out",
+          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        )}
+        style={{ background: 'linear-gradient(180deg, #002147 0%, #001530 60%, #000d1f 100%)' }}
+      >
       {/* Logo */}
       <div className="px-6 py-6 border-b border-white/10">
         <Link href="/" className="block group">
@@ -143,5 +179,6 @@ export function Navigation() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

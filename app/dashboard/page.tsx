@@ -7,7 +7,7 @@ import { WeekNavigator } from '@/components/dashboard/week-navigator';
 import { StaffSidebar } from '@/components/dashboard/staff-sidebar';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 import { DashboardMetrics } from '@/components/dashboard/dashboard-metrics';
-import { ChevronLeft, ChevronRight, Calendar, Download, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Download, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2, Users, X } from 'lucide-react';
 import { DndContext, DragEndEvent, DragStartEvent, pointerWithin, DragOverlay } from '@dnd-kit/core';
 import { StaffItemUI } from '@/components/dashboard/draggable-staff-item';
 import { AutomatedSwapSuggestionsModal } from '@/components/dashboard/automated-swap-suggestions-modal';
@@ -23,6 +23,7 @@ export default function DashboardPage() {
     examSessions, 
     setExamSessions, 
     staff, 
+    setStaff,
     rooms, 
     systemSettings, 
     getSessionsByWeek,
@@ -36,6 +37,7 @@ export default function DashboardPage() {
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
+  const [isMobileStaffOpen, setIsMobileStaffOpen] = useState(false);
 
   // Calculate the 6 working days of the week starting from currentWeekStart
   const weekDates = Array.from({ length: 6 }).map((_, i) => {
@@ -248,6 +250,12 @@ export default function DashboardPage() {
       });
       setExamSessions(updatedSessions);
 
+      // Also update the staff's historical score in the sidebar live
+      const updatedStaff = staff.map((s: any) => 
+        s.id === staffData.id ? { ...s, current_score: uniquePeriods.size } : s
+      );
+      setStaff(updatedStaff);
+
     } catch (err: any) {
       console.error('Drag and Drop Error:', err);
       alert(err.message || 'Failed to assign staff');
@@ -313,7 +321,7 @@ export default function DashboardPage() {
             title="Weekly Schedule Dashboard"
             description="View and manage exam supervision assignments"
             actions={
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap w-full max-w-[calc(100vw-3rem)]">
 
                 {/* ── Status feedback ── */}
                 {assignFreeResult && (
@@ -428,9 +436,41 @@ export default function DashboardPage() {
           <WeeklyScheduleGrid weekStart={currentWeekStart} />
         </div>
 
-        {/* The fixed Sidebar */}
-        <StaffSidebar />
+        {/* The fixed Sidebar - Desktop */}
+        <div className="hidden lg:block h-full border-l border-gray-200">
+          <StaffSidebar />
+        </div>
       </div>
+
+      {/* Mobile Staff Sidebar Overlay */}
+      {isMobileStaffOpen && (
+        <div className="lg:hidden fixed inset-0 z-[60] flex justify-end">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMobileStaffOpen(false)} />
+          <div className="relative w-[85vw] max-w-sm h-full bg-white shadow-2xl flex flex-col">
+            <div className="p-3 border-b flex justify-between items-center bg-gray-50">
+              <span className="font-bold text-gray-700 flex items-center gap-2">
+                <Users className="w-5 h-5 text-indigo-600" />
+                Available Staff
+              </span>
+              <button onClick={() => setIsMobileStaffOpen(false)} className="p-1.5 hover:bg-gray-200 rounded-lg transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden [&>div]:w-full [&>div]:border-none">
+               <StaffSidebar />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Floating Button */}
+      <button 
+        className="lg:hidden fixed bottom-6 right-6 z-40 bg-indigo-600 text-white p-3.5 rounded-full shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 hover:scale-105 transition-all flex items-center justify-center group"
+        onClick={() => setIsMobileStaffOpen(true)}
+      >
+        <Users className="w-6 h-6" />
+        <span className="absolute -top-10 bg-gray-900 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Assign Staff</span>
+      </button>
 
       {/* Renders the dragged item over everything else */}
       <DragOverlay dropAnimation={null}>

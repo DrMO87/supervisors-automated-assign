@@ -6,9 +6,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* Fixed dark sidebar */}
       <Navigation />
 
-      {/* Main scrollable area, offset by sidebar */}
-      <div className="flex-1 ml-64 min-h-screen flex flex-col">
-        <main className="flex-1 p-6 lg:p-8 max-w-screen-2xl">
+      {/* Main scrollable area, offset by sidebar on desktop */}
+      <div className="flex-1 md:ml-64 min-h-screen flex flex-col w-full overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-screen-2xl w-full">
           {children}
         </main>
       </div>
