@@ -20,6 +20,13 @@ export const metadata: Metadata = {
   description: 'Session Master: Exam Supervision & Proctoring Management System for Horus University-Egypt. Designed & Executed by Prof. Mahmoud Elkhoudary.',
 };
 
+export const viewport: import('next').Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
