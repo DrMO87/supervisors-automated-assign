@@ -197,13 +197,11 @@ export default function DashboardPage() {
 
     let targetRole = 'Assistant';
     
-    // Lecturer -> always Exam Supervisor
-    if (staffData.job_title === 'Lecturer' || staffData.supervision_role === 'Exam Supervisor') {
-      targetRole = 'Exam_Supervisor';
-    } 
-    // TA / Chemist / Demonstrator -> Head (Comm Sprv) if empty, else Assistant
-    else if (!headExists && ['Teaching Assistant', 'Chemist', 'Demonstrator'].includes(staffData.job_title)) {
-      targetRole = 'Head_Supervisor';
+    // Base the dragged role strictly on their supervision_role
+    if (staffData.supervision_role === 'Exam Supervisor' || staffData.supervision_role === 'Invigilator / Exam Supervisor') {
+      targetRole = !examExists ? 'Exam_Supervisor' : 'Assistant';
+    } else if (staffData.supervision_role === 'Committees Supervisor') {
+      targetRole = !headExists ? 'Head_Supervisor' : 'Assistant';
     }
 
     // Check if staff is already a reserve for this period

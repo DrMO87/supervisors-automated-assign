@@ -76,18 +76,10 @@ export function SessionDetailModal({ isOpen, onClose, session, availableStaff, c
     isQualifiedForRole(s.supervision_role, selectedRole)
   );
 
-  // Determine if a staff member is qualified for the selected role
+  // We no longer strictly filter by role to allow maximum flexibility in manual assignments.
+  // The user can assign anyone to any role manually.
   function isQualifiedForRole(supervisionRole: string, selRole: string) {
-    if (selRole === 'Exam_Supervisor') {
-      return supervisionRole === 'Exam Supervisor' || supervisionRole === 'Invigilator / Exam Supervisor';
-    }
-    if (selRole === 'Head_Supervisor') {
-      return supervisionRole === 'Committees Supervisor';
-    }
-    if (selRole === 'Assistant') {
-      return supervisionRole === 'Invigilator' || supervisionRole === 'Invigilator / Exam Supervisor';
-    }
-    return false;
+    return true;
   };
 
   const getUnavailabilityReason = (member: Staff) => {
@@ -133,8 +125,8 @@ export function SessionDetailModal({ isOpen, onClose, session, availableStaff, c
           // Must not be already assigned to this session
           if (assignedInSession.has(s.id)) return false;
 
-          // Must be qualified for the selected role
-          return isQualifiedForRole(s.supervision_role, selectedRole);
+          // Must be qualified for the selected role (now always true for maximum flexibility)
+          return true;
         })
         .map(s => ({
           ...s,
