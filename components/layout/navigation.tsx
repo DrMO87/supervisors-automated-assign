@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Users, DoorOpen, Calendar,
-  FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut, Menu, X
+  FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut, Menu, X, RefreshCw
 } from 'lucide-react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cn } from '@/lib/utils/cn';
@@ -33,6 +33,7 @@ const navGroups = [
     items: [
       { href: '/assignments', label: 'Auto-Assign', icon: Zap },
       { href: '/reports', label: 'Reports', icon: FileText },
+      { href: '/swaps', label: 'Swaps', icon: RefreshCw },
       { href: '/settings', label: 'Settings', icon: Settings },
     ],
   },

@@ -99,8 +99,6 @@ const REPORT_STYLES = `
     font-weight: 800;
     color: #002147;
     text-align: center;
-    letter-spacing: -0.5pt;
-    text-transform: uppercase;
   }
   .report-meta {
     background: #f8fafc;
@@ -311,7 +309,7 @@ export function generateDailyHallExcel(exams: ExamSessionWithRelations[], date: 
     return (a.room?.room_name || '').localeCompare(b.room?.room_name || '');
     });
 
-  const headers = ['Room', 'Period', 'Start Time', 'Subject', 'Program', 'Exam Type', 'Students', 'Supervisors'];
+  const headers = ['Room', 'Period', 'Start Time', 'Subject', 'Program', 'Exam Type', 'Students', 'Committees Supervisor', 'Exam Supervisor', 'Invigilator 1', 'Invigilator 2', 'Invigilator 3', 'Invigilator 4'];
 
   const rows = dayExams.map((exam, i, arr) => {
     let sep = '';
@@ -319,7 +317,16 @@ export function generateDailyHallExcel(exams: ExamSessionWithRelations[], date: 
       const prev = arr[i-1];
       if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) sep = ' class="period-separator"';
     }
-    const supervisors = exam.assignments?.map(a => `${a.staff?.name} (${getShortRole(a.role)})`).join('; ') || 'Not assigned';
+    
+    const commSupervisors = exam.assignments?.filter(a => a.role === 'Committees_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const examSupervisors = exam.assignments?.filter(a => a.role === 'Exam_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const invigilators = exam.assignments?.filter(a => a.role === 'Invigilator').map(a => a.staff?.name) || [];
+    
+    const inv1 = invigilators[0] || '';
+    const inv2 = invigilators[1] || '';
+    const inv3 = invigilators[2] || '';
+    const inv4 = invigilators[3] || '';
+
     return [
       exam.room?.room_name || '',
       `Period ${getPeriodFromTime(exam.start_time)}`,
@@ -328,7 +335,12 @@ export function generateDailyHallExcel(exams: ExamSessionWithRelations[], date: 
       exam.program || '-',
       exam.exam_type || '-',
       exam.student_count.toString(),
-      supervisors,
+      commSupervisors,
+      examSupervisors,
+      inv1,
+      inv2,
+      inv3,
+      inv4,
     ];
   });
 
@@ -438,7 +450,7 @@ export function generateStaffScheduleExcel(staff: Staff, assignments: Assignment
  * Generate room schedule Excel
  */
 export function generateRoomScheduleExcel(room: Room, exams: ExamSessionWithRelations[]): Blob {
-  const headers = ['Date', 'Period', 'Time', 'Subject', 'Program', 'Exam Type', 'Students', 'Supervisors'];
+  const headers = ['Date', 'Period', 'Time', 'Subject', 'Program', 'Exam Type', 'Students', 'Committees Supervisor', 'Exam Supervisor', 'Invigilator 1', 'Invigilator 2', 'Invigilator 3', 'Invigilator 4'];
   
   const roomExams = exams
     .filter(e => e.room_id === room.id)
@@ -455,7 +467,16 @@ export function generateRoomScheduleExcel(room: Room, exams: ExamSessionWithRela
       if (prev.exam_date !== exam.exam_date) sep = ' class="day-separator"';
       else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) sep = ' class="period-separator"';
     }
-    const supervisors = exam.assignments?.map(a => `${a.staff?.name} (${getShortRole(a.role)})`).join('; ') || 'Not assigned';
+    
+    const commSupervisors = exam.assignments?.filter(a => a.role === 'Committees_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const examSupervisors = exam.assignments?.filter(a => a.role === 'Exam_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const invigilators = exam.assignments?.filter(a => a.role === 'Invigilator').map(a => a.staff?.name) || [];
+    
+    const inv1 = invigilators[0] || '';
+    const inv2 = invigilators[1] || '';
+    const inv3 = invigilators[2] || '';
+    const inv4 = invigilators[3] || '';
+
     return [
       format(new Date(`${exam.exam_date}T12:00:00Z`), 'yyyy-MM-dd'),
       `Period ${getPeriodFromTime(exam.start_time)}`,
@@ -464,7 +485,12 @@ export function generateRoomScheduleExcel(room: Room, exams: ExamSessionWithRela
       exam.program || '-',
       exam.exam_type || '-',
       exam.student_count.toString(),
-      supervisors,
+      commSupervisors,
+      examSupervisors,
+      inv1,
+      inv2,
+      inv3,
+      inv4,
     ];
   });
 
@@ -588,10 +614,10 @@ export function generateStaffScheduleHTML(staff: Staff, assignments: AssignmentW
     </table>
   `;
 
-  const title = weekLabel ? `${staff.name.toUpperCase()} - ${weekLabel.toUpperCase()}` : `${staff.name.toUpperCase()}`;
+  const title = weekLabel ? `${staff.name} - ${weekLabel.toUpperCase()}` : `${staff.name}`;
   const displayTitle = weekLabel 
-    ? `<bdi>${staff.name.toUpperCase()}</bdi> - <bdi>${weekLabel.toUpperCase()}</bdi>`
-    : `<bdi>${staff.name.toUpperCase()}</bdi>`;
+    ? `<span dir="rtl">${staff.name}</span> - <span dir="ltr">${weekLabel.toUpperCase()}</span>`
+    : `<span dir="rtl">${staff.name}</span>`;
   return getReportLayout(title, table, meta, displayTitle);
 }
 
@@ -837,7 +863,7 @@ export function generateWeeklyHallHTML(exams: ExamSessionWithRelations[], weekLa
  * Generate weekly hall report Excel
  */
 export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekLabel?: string, freeStaffList?: PeriodFreeStaff[]): Blob {
-  const headers = ['Date', 'Period', 'Time From', 'Time To', 'Hall', 'Students', 'Subject', 'Program', 'Exam Type', 'Supervisors', 'Free Staff (Reserves)'];
+  const headers = ['Date', 'Period', 'Time From', 'Time To', 'Hall', 'Students', 'Subject', 'Program', 'Exam Type', 'Committees Supervisor', 'Exam Supervisor', 'Invigilator 1', 'Invigilator 2', 'Invigilator 3', 'Invigilator 4', 'Free Staff (Reserves)'];
   
   const sortedExams = [...exams].sort((a, b) => {
     const dateCompare = a.exam_date.localeCompare(b.exam_date);
@@ -857,9 +883,17 @@ export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekL
   let currentRow = 1; // Start after headers
   let currentPeriodKey = '';
   let periodStartRow = 1;
+  const FREE_STAFF_COL_INDEX = 15;
 
   sortedExams.forEach((exam, index) => {
-    const supervisors = exam.assignments?.map(a => `${a.staff?.name} (${getShortRole(a.role)})`).join('; ') || 'Not assigned';
+    const commSupervisors = exam.assignments?.filter(a => a.role === 'Committees_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const examSupervisors = exam.assignments?.filter(a => a.role === 'Exam_Supervisor').map(a => a.staff?.name).join('; ') || '';
+    const invigilators = exam.assignments?.filter(a => a.role === 'Invigilator').map(a => a.staff?.name) || [];
+    
+    const inv1 = invigilators[0] || '';
+    const inv2 = invigilators[1] || '';
+    const inv3 = invigilators[2] || '';
+    const inv4 = invigilators[3] || '';
     
     const dateStr = exam.exam_date;
     const period = getPeriodFromTime(exam.start_time);
@@ -867,7 +901,7 @@ export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekL
 
     if (key !== currentPeriodKey) {
       if (currentPeriodKey !== '' && currentRow - 1 > periodStartRow) {
-        merges.push({ s: { r: periodStartRow, c: 10 }, e: { r: currentRow - 1, c: 10 } });
+        merges.push({ s: { r: periodStartRow, c: FREE_STAFF_COL_INDEX }, e: { r: currentRow - 1, c: FREE_STAFF_COL_INDEX } });
       }
       currentPeriodKey = key;
       periodStartRow = currentRow;
@@ -886,13 +920,18 @@ export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekL
       exam.subject_name,
       exam.program || '-',
       exam.exam_type || '-',
-      supervisors,
+      commSupervisors,
+      examSupervisors,
+      inv1,
+      inv2,
+      inv3,
+      inv4,
       freeStaffNames,
     ]);
     currentRow++;
 
     if (index === sortedExams.length - 1 && currentRow - 1 > periodStartRow) {
-      merges.push({ s: { r: periodStartRow, c: 10 }, e: { r: currentRow - 1, c: 10 } });
+      merges.push({ s: { r: periodStartRow, c: FREE_STAFF_COL_INDEX }, e: { r: currentRow - 1, c: FREE_STAFF_COL_INDEX } });
     }
   });
 
@@ -1578,130 +1617,53 @@ export function generateFreeInvigilatorsExcel(
 }
 
 /**
- * Generate PDF blob for a staff schedule using jsPDF and jspdf-autotable
+ * Generate PDF blob for a staff schedule using html2canvas and jsPDF to perfectly render Arabic and HTML styling
  */
 export async function generateStaffSchedulePDF(staff: Staff, assignments: AssignmentWithSession[], weekLabel?: string): Promise<Blob> {
+  const html2canvas = (await import('html2canvas')).default;
   const { jsPDF } = await import('jspdf');
-  const { default: autoTable } = await import('jspdf-autotable');
 
-  const doc = new jsPDF();
+  const htmlContent = generateStaffScheduleHTML(staff, assignments, weekLabel);
   
-  // Header / Branding (Centering 3 logos)
-  try {
-    doc.addImage(LOGO_HUE_BASE64, 'PNG', 55, 8, 26, 12);
-    doc.addImage(LOGO_PHARMACY_BASE64, 'PNG', 85, 8, 12, 12);
-    doc.addImage(LOGO_DTU_BASE64, 'PNG', 101, 8, 18, 12);
-    doc.addImage(LOGO_SESSION_MASTER_BASE64, 'PNG', 123, 8, 22, 12);
-  } catch (e) {
-    console.error('Failed to add images to PDF:', e);
-  }
+  return new Promise((resolve, reject) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '210mm';
+    iframe.style.top = '-9999px';
+    document.body.appendChild(iframe);
 
-  // Developer Credits in Header
-  doc.setFontSize(8);
-  doc.setTextColor(71, 85, 105); // Slate-500
-  doc.text('Full Stack Developed by Prof. Mahmoud Elkhoudary', 105, 23, { align: 'center' });
-  doc.setFontSize(7.5);
-  doc.setTextColor(100, 116, 139); // Slate-400
-  doc.text('Head of Digital Transformation Unit - Faculty of Pharmacy', 105, 27, { align: 'center' });
-  
-  // Divider line under header logos & credits
-  doc.setDrawColor(0, 33, 71); // Navy #002147
-  doc.setLineWidth(0.5);
-  doc.line(14, 30, 196, 30);
-  
-  // Details
-  doc.setFontSize(11);
-  doc.setTextColor(15, 23, 42);
-  doc.text(`Staff Schedule: ${staff.name}`, 14, 38);
-  
-  doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-  if (weekLabel) {
-    doc.text(`Week: ${weekLabel}`, 14, 43);
-    doc.text(`Job Title: ${staff.job_title}`, 14, 48);
-    doc.text(`Email: ${staff.email || 'N/A'}`, 14, 53);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString()}`, 14, 58);
-  } else {
-    doc.text(`Job Title: ${staff.job_title}`, 14, 44);
-    doc.text(`Email: ${staff.email || 'N/A'}`, 14, 49);
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString()}`, 14, 54);
-  }
+    iframe.onload = async () => {
+      try {
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) throw new Error("No iframe document");
 
-  const showTeam = staff.supervision_role === 'Committees Supervisor' || staff.supervision_role === 'Exam Supervisor';
+        const container = doc.querySelector('.report-page') as HTMLElement;
+        if (!container) throw new Error("No report page found");
 
-  const staffAssignments = assignments
-    .filter(a => a.staff_id === staff.id && a.exam_session)
-    .sort((a, b) => {
-      const dateCompare = (a.exam_session?.exam_date || '').localeCompare(b.exam_session?.exam_date || '');
-      if (dateCompare !== 0) return dateCompare;
-      return getPeriodFromTime(a.exam_session?.start_time || '') - getPeriodFromTime(b.exam_session?.start_time || '');
-    });
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+          logging: false
+        });
 
-  const tableBody = staffAssignments.map(a => {
-    const exam = a.exam_session!;
-    const row = [
-      format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy'),
-      `Period ${getPeriodFromTime(exam.start_time)}`,
-      exam.start_time,
-      exam.end_time || '-',
-      exam.subject_name,
-      exam.program || '-',
-      exam.exam_type || '-',
-      exam.room?.room_name || '-',
-      exam.student_count.toString(),
-      getRoleLabel(a.role)
-    ];
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        
+        document.body.removeChild(iframe);
+        resolve(pdf.output('blob'));
+      } catch (err) {
+        document.body.removeChild(iframe);
+        reject(err);
+      }
+    };
 
-    if (showTeam) {
-      const team = assignments
-        .filter(allA => allA.exam_session_id === exam.id)
-        .map(allA => `${allA.staff?.name || 'Unknown'} (${getShortRole(allA.role)})`)
-        .join('\n');
-      row.push(team);
-    }
-    return row;
+    iframe.srcdoc = htmlContent;
   });
-
-  const headers = showTeam
-    ? [['Date', 'Period', 'Time From', 'Time To', 'Subject', 'Program', 'Exam Type', 'Hall', 'Students', 'Role', 'Supervision Team']]
-    : [['Date', 'Period', 'Time From', 'Time To', 'Subject', 'Program', 'Exam Type', 'Hall', 'Students', 'Role']];
-
-  autoTable(doc, {
-    startY: weekLabel ? 65 : 60,
-    head: headers,
-    body: tableBody,
-    headStyles: { fillColor: [0, 33, 71], textColor: [255, 184, 28] }, // Navy and Gold
-    columnStyles: {
-      0: { fontStyle: 'bold', fillColor: [248, 250, 252], textColor: [0, 33, 71] }, // Highlight first column
-      ...(showTeam ? { 8: { fontSize: 7, cellWidth: 40 } } : {})
-    },
-    styles: { fontSize: 8.5, cellPadding: 2.5 }
-  });
-
-  // Footer configuration
-  const pageCount = doc.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    
-    // Divider line above footer
-    doc.setDrawColor(226, 232, 240); // Slate-200
-    doc.setLineWidth(0.2);
-    doc.line(14, 282, 196, 282);
-    
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139); // Slate-500
-    
-    // Left: Generated on
-    doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')} ${new Date().toLocaleTimeString()}`, 14, 287);
-    
-    // Center: Developed by
-    doc.text('Developed by Prof. Mahmoud Elkhoudary (Head of Digital Transformation Unit)', 105, 287, { align: 'center' });
-    
-    // Right: Page number
-    doc.text(`Page ${i} of ${pageCount}`, 196, 287, { align: 'right' });
-  }
-
-  return doc.output('blob');
 }
 
 /**

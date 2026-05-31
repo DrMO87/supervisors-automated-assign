@@ -737,26 +737,23 @@ export function generateAssignmentReport(
     const missingFlag = missingParts.length > 0 ? `⚠ Missing: ${missingParts.join(', ')}` : '✓ Complete';
 
     const row: any = {
-      'Subject': exam.subject_name,
-        'Program': exam.program || '',
-        'Exam Type': exam.exam_type || '',
       'Date': exam.exam_date,
       'Period': period,
       'Time': exam.start_time,
       'End Time': exam.end_time || '',
       'Room': roomName,
-      'Student Count': exam.student_count,
-      'Required Exam Supervisor': requiredHead,
-      'Required Invigilator': requiredAssist,
-      '⚠ Missing Roles': missingFlag,
+      'Students': exam.student_count,
+      'Subject': exam.subject_name,
+      'Program': exam.program || '',
+      'Exam Type': exam.exam_type || '',
       'Committees Supervisor': assignments.head.map(s => s.name).join(', '),
       'Exam Supervisor': assignments.exam_supervisors.map(s => s.name).join(', '),
+      'Invigilator 1': assignments.assistants[0]?.name || '',
+      'Invigilator 2': assignments.assistants[1]?.name || '',
+      'Invigilator 3': assignments.assistants[2]?.name || '',
+      'Invigilator 4': assignments.assistants[3]?.name || '',
+      '⚠ Missing Roles': missingFlag,
     };
-
-    // Add Assistant Columns
-    assignments.assistants.forEach((s, idx) => {
-      row[`Invigilator ${idx + 1}`] = s.name;
-    });
 
     // Collect rows with missing roles for the dedicated sheet
     if (missingParts.length > 0) {
@@ -1611,3 +1608,126 @@ export async function parseMicrosoftListStaffExcel(file: File): Promise<CSVParse
     return { success: false, data: [], errors: [`Failed to parse Microsoft List file: ${error.message}`] };
   }
 }
+
+// ==================== IMPORT EXPORTED SCHEDULE ====================
+
+export interface ScheduleImportResult {
+  success: boolean;
+  assignmentsToInsert: { exam_session_id: string; staff_id: string; role: AssignmentRole; is_manual_override: boolean }[];
+  affectedSessionIds: string[];
+  errors: string[];
+}
+
+export async function parseScheduleImportCSV(
+  file: File,
+  staffList: Staff[],
+  weekSessions: ExamSession[],
+  rooms: Room[]
+): Promise<ScheduleImportResult> {
+  try {
+    const rawData = await parseFileToRawData(file);
+    const assignmentsToInsert: { exam_session_id: string; staff_id: string; role: AssignmentRole; is_manual_override: boolean }[] = [];
+    const affectedSessionIds = new Set<string>();
+    const globalAssignedKeys = new Set<string>();
+    const errors: string[] = [];
+
+    // Helper to find staff ID by name (case-insensitive fuzzy match)
+    const findStaffId = (name: string): string | null => {
+      if (!name) return null;
+      const cleanName = safeTrim(name).toLowerCase();
+      if (!cleanName || cleanName === '— empty —') return null;
+      
+      const found = staffList.find(s => s.name.toLowerCase() === cleanName);
+      return found ? found.id : null;
+    };
+
+    rawData.forEach((row, index) => {
+      const rowNum = index + 2;
+
+      // Ensure this row has the minimum required columns for matching
+      const date = getValueFuzzy(row, ['Date']);
+      const time = getValueFuzzy(row, ['Time', 'Start Time']);
+      const roomName = getValueFuzzy(row, ['Room', 'Hall']);
+      const subjectName = getValueFuzzy(row, ['Subject']);
+
+      if (!date && !time && !roomName && !subjectName) return; // Skip empty rows
+
+      if (!date || !time || !roomName || !subjectName) {
+        errors.push(`Row ${rowNum}: Missing critical columns to identify the session (Date, Time, Room, Subject).`);
+        return;
+      }
+
+      // Try to find the exact session in the current week
+      const matchingSession = weekSessions.find(s => {
+        const sRoom = rooms.find(r => r.id === s.room_id)?.room_name || (s as any).room?.room_name || (s as any).room_name;
+        return s.exam_date === date && 
+               s.start_time.startsWith(time.substring(0, 5)) && 
+               sRoom === roomName && 
+               s.subject_name === subjectName;
+      });
+
+      if (!matchingSession) {
+        errors.push(`Row ${rowNum}: Could not find an existing Exam Session for ${subjectName} on ${date} at ${time} in ${roomName}. New sessions cannot be created via this import.`);
+        return;
+      }
+
+      const sessionId = matchingSession.id;
+      affectedSessionIds.add(sessionId);
+
+      // Process Supervisors
+      const commSupervisors = getValueFuzzy(row, ['Committees Supervisor', 'Committees Supervisor Assigned'])?.split(',') || [];
+      const examSupervisors = getValueFuzzy(row, ['Exam Supervisor', 'Exam Supervisor Assigned'])?.split(',') || [];
+      
+      const invigilators = [
+        getValueFuzzy(row, ['Invigilator 1']),
+        getValueFuzzy(row, ['Invigilator 2']),
+        getValueFuzzy(row, ['Invigilator 3']),
+        getValueFuzzy(row, ['Invigilator 4']),
+      ].filter(Boolean) as string[];
+
+      // If "Invigilators Assigned" is present (from Missing Roles sheet), parse that
+      const invigAssigned = getValueFuzzy(row, ['Invigilators Assigned'])?.split(',') || [];
+      invigAssigned.forEach(i => invigilators.push(i));
+
+      const assignStaff = (nameArray: string[], role: AssignmentRole) => {
+        nameArray.forEach(name => {
+          const sName = safeTrim(name);
+          if (!sName || sName === '— empty —') return;
+          const sId = findStaffId(sName);
+          if (sId) {
+            const assignmentKey = `${sessionId}_${sId}`;
+            if (globalAssignedKeys.has(assignmentKey)) {
+              return; // Already assigned to this session, skip duplicate to prevent DB error
+            }
+            globalAssignedKeys.add(assignmentKey);
+
+            assignmentsToInsert.push({
+              exam_session_id: sessionId,
+              staff_id: sId,
+              role,
+              is_manual_override: true // Tag as manually imported
+            });
+          } else {
+            errors.push(`Row ${rowNum}: Could not find staff member named "${sName}". Please ensure the name matches exactly.`);
+          }
+        });
+      };
+
+      assignStaff(commSupervisors, 'Committees_Supervisor');
+      assignStaff(examSupervisors, 'Exam_Supervisor');
+      assignStaff(invigilators, 'Assistant');
+
+    });
+
+    return { 
+      success: errors.length === 0, 
+      assignmentsToInsert, 
+      affectedSessionIds: Array.from(affectedSessionIds),
+      errors 
+    };
+
+  } catch (error: any) {
+    return { success: false, assignmentsToInsert: [], affectedSessionIds: [], errors: [`Failed to parse import file: ${error.message}`] };
+  }
+}
+

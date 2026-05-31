@@ -1,20 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { WeeklyScheduleGrid } from '@/components/dashboard/weekly-schedule-grid';
 import { WeekNavigator } from '@/components/dashboard/week-navigator';
 import { StaffSidebar } from '@/components/dashboard/staff-sidebar';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 import { DashboardMetrics } from '@/components/dashboard/dashboard-metrics';
-import { ChevronLeft, ChevronRight, Calendar, Download, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2, Users, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Download, Upload, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2, Users, X } from 'lucide-react';
 import { DndContext, DragEndEvent, DragStartEvent, pointerWithin, DragOverlay } from '@dnd-kit/core';
 import { StaffItemUI } from '@/components/dashboard/draggable-staff-item';
 import { AutomatedSwapSuggestionsModal } from '@/components/dashboard/automated-swap-suggestions-modal';
 import { supabase } from '@/lib/supabase/client';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { startOfWeek } from 'date-fns';
-import { generateAssignmentReport, downloadFile } from '@/lib/utils/csv-helpers';
+import { generateAssignmentReport, downloadFile, parseScheduleImportCSV } from '@/lib/utils/csv-helpers';
 import { getPeriodFromTime } from '@/types/database.types';
 
 export default function DashboardPage() {
@@ -260,6 +260,65 @@ export default function DashboardPage() {
     }
   };
 
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm('WARNING: This will overwrite your existing assignments for the sessions matched in this Excel file. Proceed?')) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsImporting(true);
+    const weekSessions = getSessionsByWeek(currentWeekStart);
+
+    try {
+      const result = await parseScheduleImportCSV(file, staff, weekSessions, rooms);
+
+      if (!result.success || result.errors.length > 0) {
+        alert('Import issues detected:\\n\\n' + result.errors.join('\\n'));
+        if (!result.success) return; // if completely failed
+      }
+
+      if (result.affectedSessionIds.length === 0) {
+        alert('No matching exam sessions found in this week.\\nPlease ensure the Date, Time, Room, and Subject perfectly match.');
+        return;
+      }
+
+      // Delete existing assignments for affected sessions
+      const { error: deleteError } = await supabase
+        .from('assignments')
+        .delete()
+        .in('exam_session_id', result.affectedSessionIds);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new assignments
+      if (result.assignmentsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from('assignments')
+          .insert(result.assignmentsToInsert);
+
+        if (insertError) throw insertError;
+      }
+
+      alert(`Successfully imported schedule!\n\n- Updated ${result.affectedSessionIds.length} exam sessions.\n- Assigned a total of ${result.assignmentsToInsert.length} staff roles.`);
+      
+      // Reload the page to securely refresh all nested assignment data in the grid
+      setTimeout(() => window.location.reload(), 1000);
+
+    } catch (error: any) {
+      console.error(error);
+      alert('Import failed: ' + error.message);
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleExportWeekExcel = () => {
     const weekSessions = getSessionsByWeek(currentWeekStart);
     if (!weekSessions || weekSessions.length === 0) {
@@ -319,7 +378,7 @@ export default function DashboardPage() {
             title="Weekly Schedule Dashboard"
             description="View and manage exam supervision assignments"
             actions={
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap w-full max-w-[calc(100vw-3rem)]">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pb-1 sm:flex-wrap w-full max-w-[calc(100vw-3rem)] overflow-x-hidden">
 
                 {/* ── Status feedback ── */}
                 {assignFreeResult && (
@@ -329,10 +388,26 @@ export default function DashboardPage() {
                 )}
 
                 {/* ── Group 1: Navigation ── */}
-                <div className="flex items-center rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden divide-x divide-gray-200">
+                <div className="flex flex-wrap sm:flex-nowrap justify-center items-center rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden divide-x divide-gray-200">
+                  <input
+                    type="file"
+                    accept=".csv, .xlsx, .xls"
+                    className="hidden"
+                    ref={fileInputRef}
+                    onChange={handleImportExcel}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImporting}
+                    title="Import manually edited Schedule Excel"
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    Import
+                  </button>
                   <button
                     onClick={handleExportWeekExcel}
-                    disabled={getSessionsByWeek(currentWeekStart).length === 0}
+                    disabled={getSessionsByWeek(currentWeekStart).length === 0 || isImporting}
                     title="Export this week to Excel"
                     className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
@@ -350,7 +425,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* ── Group 2: Smart Tools ── */}
-                <div className="flex items-center rounded-lg border border-primary-200 bg-primary-50 shadow-sm overflow-hidden divide-x divide-primary-200">
+                <div className="flex justify-center items-center rounded-lg border border-primary-200 bg-primary-50 shadow-sm overflow-hidden divide-x divide-primary-200">
                   <button
                     onClick={() => setIsSwapModalOpen(true)}
                     title="Auto-suggest swaps for staff assigned on off-days"
@@ -362,7 +437,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* ── Group 3: Auto-Assign (primary action) ── */}
-                <div className="flex items-center rounded-lg overflow-hidden shadow-sm border border-indigo-600 divide-x divide-indigo-500">
+                <div className="flex flex-wrap sm:flex-nowrap justify-center items-center rounded-lg overflow-hidden shadow-sm border border-indigo-600 divide-x divide-indigo-500">
                   <select
                     value={assignScope}
                     onChange={e => setAssignScope(e.target.value as any)}
@@ -394,7 +469,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* ── Group 4: Data Safety ── */}
-                <div className="flex items-center rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden divide-x divide-gray-200">
+                <div className="flex justify-center items-center rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden divide-x divide-gray-200">
                   <button
                     onClick={handleBackupData}
                     disabled={isBackingUp}

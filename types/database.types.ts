@@ -221,6 +221,24 @@ export interface PeriodFreeStaff {
   staff?: Staff;
 }
 
+export interface SwapRequest {
+  id: string;
+  exam_date: string;
+  period: number;
+  room_id: string;
+  original_staff_id: string;
+  replacement_staff_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface SwapRequestWithRelations extends SwapRequest {
+  room?: Room;
+  original_staff?: Staff;
+  replacement_staff?: Staff;
+}
+
 // Staffing ratio configuration
 export interface StaffingRatioRange {
   min: number;

@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from 'react';
 import { ExamSessionWithRelations, getPeriodFromTime } from '@/types/database.types';
-import { Loader2, Edit, Trash2, Lock, Unlock, BookOpen, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import { Loader2, Edit, Trash2, Lock, Unlock, BookOpen, ArrowUpDown, ArrowUp, ArrowDown, Search, LayoutGrid, List } from 'lucide-react';
 import { format } from 'date-fns';
+import { useMobileView } from '@/lib/hooks/use-mobile-view';
 
 interface ExamTableProps {
   exams: ExamSessionWithRelations[];
@@ -21,6 +22,7 @@ type SortDirection = 'asc' | 'desc';
 export function ExamTable({ exams, isLoading, onEdit, onDelete, onToggleLock, selectedIds = [], onSelectionChange }: ExamTableProps) {
   const [sortField, setSortField] = useState<SortField>('exam_date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const { viewMode, toggleViewMode } = useMobileView();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
@@ -143,9 +145,106 @@ export function ExamTable({ exams, isLoading, onEdit, onDelete, onToggleLock, se
             Clear
           </button>
         )}
+        <div className="md:hidden ml-auto">
+          <button onClick={toggleViewMode} className="flex items-center justify-center p-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" title="Toggle View">
+            {viewMode === 'standard' ? <List className="w-5 h-5" /> : <LayoutGrid className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-gray-200">
+      {/* Mobile Card View */}
+      <div className="grid grid-cols-1 gap-4 md:hidden mt-2">
+        {filteredAndSortedExams.map((exam) => {
+          if (viewMode === 'compact') {
+            return (
+              <div key={exam.id} className={`bg-white rounded-lg border ${selectedIds.includes(exam.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm p-3 flex items-center gap-3 transition-all`}>
+                {onSelectionChange && (
+                  <input type="checkbox" checked={selectedIds.includes(exam.id)} disabled={exam.is_locked} onChange={(e) => handleSelectOne(exam.id, e.target.checked)} className="w-4 h-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500 disabled:opacity-50" />
+                )}
+                <div className="flex flex-col min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-gray-900 text-sm truncate">{exam.subject_name}</span>
+                    {exam.is_locked && <Lock className="w-3 h-3 text-blue-500 flex-shrink-0" />}
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <span>{format(new Date(exam.exam_date), 'MMM d')}</span>
+                    <span>•</span>
+                    <span>P{getPeriodFromTime(exam.start_time)}</span>
+                    <span>•</span>
+                    <span className="truncate max-w-[80px]">{exam.room?.room_name || 'TBD'}</span>
+                  </div>
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => onEdit(exam)} className="p-1 text-primary-600 bg-primary-50 rounded"><Edit className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => onToggleLock(exam)} className="p-1 text-blue-600 bg-blue-50 rounded">{exam.is_locked ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}</button>
+                  <button onClick={() => onDelete(exam)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={exam.id} className={`bg-white rounded-xl border ${selectedIds.includes(exam.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm p-4 flex flex-col gap-3 relative overflow-hidden transition-all`}>
+            {exam.is_locked && (
+              <div className="absolute top-0 right-0 w-16 h-16 pointer-events-none overflow-hidden">
+                <div className="absolute top-4 -right-6 bg-blue-100 text-blue-700 text-[10px] font-bold py-1 w-24 text-center transform rotate-45 shadow-sm">LOCKED</div>
+              </div>
+            )}
+            
+            <div className="flex items-start gap-3 border-b border-gray-100 pb-3 pr-8">
+              {onSelectionChange && (
+                <div className="pt-1 flex-shrink-0">
+                  <input type="checkbox" checked={selectedIds.includes(exam.id)} disabled={exam.is_locked} onChange={(e) => handleSelectOne(exam.id, e.target.checked)} className="w-5 h-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500 disabled:opacity-50" />
+                </div>
+              )}
+              <div className="flex-1">
+                <div className="font-bold text-gray-900 leading-tight">{exam.subject_name}</div>
+                <div className="text-xs text-gray-500 font-mono mt-1">ID: {exam.id.slice(0, 8)}</div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-y-2 text-sm px-1">
+              <div className="text-gray-500">Date</div>
+              <div className="font-medium text-gray-900">{formatDate(exam.exam_date)}</div>
+              
+              <div className="text-gray-500">Time</div>
+              <div className="font-medium text-gray-900">P{getPeriodFromTime(exam.start_time)}: {exam.start_time}-{exam.end_time || '?'}</div>
+              
+              <div className="text-gray-500">Place</div>
+              <div className="font-medium text-gray-900">{exam.room?.room_name || 'TBD'}</div>
+              
+              <div className="text-gray-500">Count</div>
+              <div className="font-medium text-gray-900">{exam.student_count}</div>
+              
+              <div className="text-gray-500">Type</div>
+              <div className="font-medium text-gray-600">{exam.exam_type || '-'}</div>
+              
+              <div className="text-gray-500">Program</div>
+              <div className="font-medium text-gray-600">{exam.program || '-'}</div>
+            </div>
+
+            <div className="pt-3 mt-1 border-t border-gray-100 flex justify-end gap-2">
+              <button onClick={() => onToggleLock(exam)} className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${exam.is_locked ? 'text-blue-700 bg-blue-50 hover:bg-blue-100' : 'text-gray-700 bg-gray-100 hover:bg-gray-200'}`}>
+                {exam.is_locked ? <><Unlock className="w-3.5 h-3.5" /> Unlock</> : <><Lock className="w-3.5 h-3.5" /> Lock</>}
+              </button>
+              <button onClick={() => onEdit(exam)} disabled={exam.is_locked} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                <Edit className="w-3.5 h-3.5" /> Edit
+              </button>
+              <button onClick={() => onDelete(exam)} disabled={exam.is_locked} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            </div>
+          </div>
+        );
+        })}
+        {filteredAndSortedExams.length === 0 && exams.length > 0 && (
+          <div className="text-center py-8 text-gray-500 bg-white rounded-xl border border-gray-200">
+            No exams match your filters.
+          </div>
+        )}
+      </div>
+
+      <div className="hidden md:block overflow-x-auto rounded-lg border border-gray-200">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>

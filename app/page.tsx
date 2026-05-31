@@ -80,7 +80,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-surface-100 flex">
       <Navigation />
 
-      <div className="flex-1 ml-64 flex flex-col">
+      <div className="flex-1 md:ml-64 flex flex-col pt-14 md:pt-0">
         {/* Hero */}
         <div
           className="relative px-8 py-16 overflow-hidden"
@@ -121,8 +121,8 @@ export default function HomePage() {
         </div>
 
         {/* Stats bar */}
-        <div className="bg-white border-b border-slate-200 px-8 py-4">
-          <div className="flex items-center gap-8 text-sm">
+        <div className="bg-white border-b border-slate-200 px-4 md:px-8 py-4">
+          <div className="flex flex-wrap items-center gap-4 md:gap-8 text-sm">
             {[
               { label: 'Smart Algorithm', value: 'Greedy + Score-aware' },
               { label: 'Co-located Exam Support', value: 'Shared Committee Supervisor' },

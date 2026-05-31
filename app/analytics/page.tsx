@@ -370,9 +370,9 @@ export default function AnalyticsPage() {
 
   if (isLoading) return (
     <div className="flex bg-surface-100 min-h-screen">
-      <Navigation />
-      <div className="flex-1 ml-64 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
+      {/* Loading State */}
+      <div className="flex-1 md:ml-64 flex items-center justify-center pt-14 md:pt-0">
+        <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
           <p className="text-sm text-gray-500">Loading analytics data…</p>
         </div>
@@ -387,7 +387,7 @@ export default function AnalyticsPage() {
     <div className="flex bg-gray-50 min-h-screen">
       <Navigation />
 
-      <main className="flex-1 ml-64 p-8 space-y-6">
+      <main className="flex-1 md:ml-64 p-4 md:p-8 space-y-6 pt-20 md:pt-8 w-full max-w-screen-2xl">
 
         {/* ── Header ───────────────────────────────────── */}
         <PageHeader

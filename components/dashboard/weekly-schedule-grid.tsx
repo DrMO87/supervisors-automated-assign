@@ -9,8 +9,9 @@ import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/s
 import {
   Loader2, AlertCircle, AlertTriangle, Filter, ChevronDown,
   ChevronRight, Users, BookOpen, Clock, Building2, CheckCircle2,
-  XCircle, Search, X
+  XCircle, Search, X, LayoutGrid, List
 } from 'lucide-react';
+import { useMobileView } from '@/lib/hooks/use-mobile-view';
 import { useDroppable } from '@dnd-kit/core';
 import { SetupRequired } from '@/components/setup-required';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
@@ -77,6 +78,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'unassigned' | 'conflicts'>('all');
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
+  const { viewMode, toggleViewMode } = useMobileView();
 
   const {
     examSessions,
@@ -321,9 +323,16 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           </select>
         )}
 
-        <span className="text-sm text-gray-500 ml-auto">
-          Showing <strong>{filteredSessions.length}</strong> / {stats.total} exams
-        </span>
+        <div className="flex items-center gap-2 ml-auto">
+          <span className="text-sm text-gray-500 hidden sm:inline">
+            Showing <strong>{filteredSessions.length}</strong> / {stats.total} exams
+          </span>
+          <div className="md:hidden">
+            <button onClick={toggleViewMode} className="flex items-center justify-center p-2 bg-white border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50" title="Toggle View">
+              {viewMode === 'standard' ? <List className="w-5 h-5" /> : <LayoutGrid className="w-5 h-5" />}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ── Empty State ─────────────────────────────────────────────────────── */}
@@ -443,6 +452,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                                 onClick={() => handleSessionClick(session)} 
                                 conflicts={getSessionConflicts(session.id)}
                                 fullStaffingRatiosConfig={fullStaffingRatiosConfig}
+                                viewMode={viewMode}
                               />
                             );
                           })}
@@ -484,7 +494,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   );
 }
 
-function SessionCardItem({ session, onClick, conflicts, fullStaffingRatiosConfig, calendarRules }: { session: any; onClick: () => void; conflicts: any[]; fullStaffingRatiosConfig: any; calendarRules: any[] }) {
+function SessionCardItem({ session, onClick, conflicts, fullStaffingRatiosConfig, calendarRules, viewMode }: { session: any; onClick: () => void; conflicts: any[]; fullStaffingRatiosConfig: any; calendarRules: any[]; viewMode?: 'standard' | 'compact' }) {
   const { isOver, setNodeRef } = useDroppable({
     id: `session-${session.id}`,
     data: { type: 'session', session },
@@ -542,6 +552,30 @@ function SessionCardItem({ session, onClick, conflicts, fullStaffingRatiosConfig
 
   if (isOver) {
     cardBg = 'bg-primary-50 ring-2 ring-primary-500 scale-[1.02] shadow-md z-10';
+  }
+
+  if (viewMode === 'compact') {
+    return (
+      <button
+        ref={setNodeRef}
+        onClick={onClick}
+        className={`relative text-left w-full p-2 rounded-lg border ${cardBorder} ${cardBg} transition-all duration-150 shadow-sm focus:outline-none flex items-center gap-2`}
+      >
+        <div className="flex flex-col flex-1 min-w-0 pointer-events-none">
+          <p className="text-xs font-bold text-gray-900 truncate">{session.subject_name}</p>
+          <div className="flex items-center gap-2 text-[10px] text-gray-500">
+            {session.room && <span className="truncate max-w-[80px]">{session.room.room_name}</span>}
+            <span className={`font-semibold px-1 py-0.5 rounded ${isDeficient ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+              {assignedCount}/{required}
+            </span>
+          </div>
+        </div>
+        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot}`} title={statusTitle} />
+        {isOver && (
+          <div className="absolute inset-0 bg-primary-100/50 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-primary-400 pointer-events-none backdrop-blur-[1px]"></div>
+        )}
+      </button>
+    );
   }
 
   return (
