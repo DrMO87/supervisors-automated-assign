@@ -73,7 +73,7 @@ export function AiQueryBox({ weekStart }: { weekStart?: Date }) {
           name: s.name,
           role: s.supervision_role,
           type: s.employment_status,
-          exam_score: s.current_score || 0,
+          exam_score: (s.current_score || 0) + ((s.free_staff_score || 0) * 0.25),
           reserve_score: s.free_staff_score || 0
         }));
 

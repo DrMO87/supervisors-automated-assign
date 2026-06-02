@@ -192,55 +192,6 @@ export async function POST(request: NextRequest) {
         );
 
       if (insertError) throw insertError;
-
-      // Update staff scores by periods (distinct date + period slots) across existing and new assignments
-      const staffNewPeriods = new Map<string, Set<string>>();
-      const combinedAssignments = [...existingAssignments, ...allNewAssignments];
-      
-      combinedAssignments.forEach(a => {
-        const session = sessions.find(s => s.id === a.exam_session_id);
-        if (session) {
-          const periodKey = `${session.exam_date}__${getPeriodFromTime(session.start_time)}`;
-          if (!staffNewPeriods.has(a.staff_id)) {
-            staffNewPeriods.set(a.staff_id, new Set());
-          }
-          staffNewPeriods.get(a.staff_id)!.add(periodKey);
-        }
-      });
-
-      for (const [staffId, periods] of staffNewPeriods.entries()) {
-        const original = staff.find(s => s.id === staffId);
-        if (original) {
-          const newScore = periods.size;
-          if (original.current_score !== newScore) {
-            await supabaseAdmin
-              .from('staff')
-              .update({ current_score: newScore })
-              .eq('id', staffId);
-          }
-        }
-      }
-    }
-
-    // ── Recalculate Free Staff Scores ───────────────────────────────
-    if (!isReserveOnly) {
-      // Since we deleted reserve assignments, recalculate free_staff_score
-      const { data: allFreeStaff } = await supabaseAdmin.from('period_free_staff').select('staff_id');
-      if (allFreeStaff) {
-        const freeStaffCounts = new Map<string, number>();
-        allFreeStaff.forEach(fs => {
-          freeStaffCounts.set(fs.staff_id, (freeStaffCounts.get(fs.staff_id) || 0) + 1);
-        });
-        for (const s of staff) {
-          const newFreeScore = freeStaffCounts.get(s.id) || 0;
-          if ((s.free_staff_score || 0) !== newFreeScore) {
-            await supabaseAdmin
-              .from('staff')
-              .update({ free_staff_score: newFreeScore })
-              .eq('id', s.id);
-          }
-        }
-      }
     }
 
     return NextResponse.json({

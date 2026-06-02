@@ -192,7 +192,7 @@ export function PeriodReservesModal({ isOpen, onClose, dateStr, period, startTim
                           <option value="">Select available staff...</option>
                           {availableOptions.map(s => (
                             <option key={s.id} value={s.id}>
-                              {s.name} ({s.supervision_role}) - Score: {s.current_score}+{s.free_staff_score || 0}
+                              {s.name} ({s.supervision_role}) - Score: {(s.current_score || 0) + ((s.free_staff_score || 0) * 0.25)}
                             </option>
                           ))}
                         </select>

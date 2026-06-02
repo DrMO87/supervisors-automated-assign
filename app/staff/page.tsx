@@ -208,17 +208,7 @@ export default function StaffPage() {
   };
 
   const handleResetScores = async () => {
-    if (!supabase) return;
-    if (!confirm('Are you sure you want to reset all staff scores to 0?')) return;
-    try {
-      const { error } = await supabase.from('staff').update({ current_score: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
-      if (error) throw error;
-      alert('All staff scores have been reset to 0');
-      loadStaff();
-    } catch (error) {
-      console.error('Error resetting scores:', error);
-      alert('Failed to reset scores');
-    }
+    alert('Scores are now automatically calculated by the database based on actual assignments. To reset scores to 0, please go to the Auto-Assign page and click "Reset All Assignments".');
   };
 
   const handleDeleteAll = async () => {

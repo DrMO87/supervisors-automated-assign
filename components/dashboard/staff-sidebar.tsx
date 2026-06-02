@@ -254,7 +254,7 @@ export function StaffSidebar() {
                     key={s.id} 
                     staff={s} 
                     weeklyAssignmentsCount={weeklyCounts.get(s.id) || 0}
-                    historicalScore={s.current_score || 0}
+                    historicalScore={(s.current_score || 0) + ((s.free_staff_score || 0) * 0.25)}
                   />
                 ))}
               </div>

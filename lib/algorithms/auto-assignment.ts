@@ -375,6 +375,41 @@ export function isStaffAvailable(
     }
   }
 
+  // 4b. Max Working Days per week (Hard constraint)
+  // W = total distinct exam days in the scheduling period
+  const totalExamDays = allExamDates.length;
+  
+  let maxAllowedDays = 1;
+  if (staff.job_title === 'Chemist') {
+    maxAllowedDays = Math.max(1, totalExamDays - 1);
+  } else if (staff.employment_status === 'Full-time') {
+    maxAllowedDays = Math.max(1, totalExamDays - 2);
+  } else {
+    // Part-time
+    maxAllowedDays = totalExamDays >= 6 ? 2 : 1;
+  }
+
+  // Count distinct dates staff is already assigned to
+  const assignedDates = new Set<string>();
+  existingAssignments.forEach(a => {
+    if (a.staff_id === staff.id) {
+      const s = allExamSessions.find(x => x.id === a.exam_session_id);
+      if (s) assignedDates.add(s.exam_date);
+    }
+  });
+
+  // If this examSession is on a NEW date, check if they are already at their limit
+  if (!assignedDates.has(examSession.exam_date)) {
+    if (assignedDates.size >= maxAllowedDays) {
+      hardViolations.push({
+        type: 'unavailable',
+        message: `${staff.name} has reached their maximum allowed working days (${maxAllowedDays} days for ${totalExamDays}-day week)`,
+        staff_id: staff.id,
+        exam_session_id: examSession.id,
+      });
+    }
+  }
+
   // 5. Max weekly hours (Soft)
   const MAX_MIN_FT = (constraints.max_hours_per_week_ft || 16) * 60;
   const MAX_MIN_PT = (constraints.max_hours_per_week_pt || 8) * 60;
@@ -751,6 +786,68 @@ export function batchAssign(
   const allNewAssignments: Assignment[] = [];
   const allViolations: AssignmentConstraintViolation[] = [];
 
+  // --- PRE-PASS: UNIVERSAL WORKING DAY COMPENSATORY OFF-DAYS ---
+  // Automatically swap a lost off-day (due to Universal Working Day) to a low-load day
+  const dailyLoads = new Map<string, number>();
+  const allExamDates = Array.from(new Set(sessions.map(s => s.exam_date)));
+  for (const date of allExamDates) {
+    dailyLoads.set(date, sessions.filter(s => s.exam_date === date).length);
+  }
+
+  const universalWorkingDays = new Set<string>();
+  const calendarRules = config.calendarRules || [];
+  for (const date of allExamDates) {
+    const isUWD = calendarRules.some(r => r.is_universal_working_day && r.start_date <= date && r.end_date >= date);
+    if (isUWD) {
+      universalWorkingDays.add(date);
+    }
+  }
+
+  for (const uwdDate of universalWorkingDays) {
+    const dateObj = new Date(`${uwdDate}T12:00:00Z`);
+    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    
+    for (const s of currentStaff) {
+      if (s.supervision_role === 'Committees Supervisor') continue; // Not subject to Universal Working Day
+      
+      const { recurringOffDays } = classifyOffDays(s.specific_off_dates || [], allExamDates);
+      const isDefaultOffDay = (s.working_days && !s.working_days.includes(dayName)) || recurringOffDays.includes(dayName);
+      
+      if (isDefaultOffDay) {
+        let bestCompensatoryDate: string | null = null;
+        let minLoad = Infinity;
+        
+        for (const candidateDate of allExamDates) {
+          if (universalWorkingDays.has(candidateDate)) continue;
+          
+          const candObj = new Date(`${candidateDate}T12:00:00Z`);
+          const candDayName = candObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+          
+          const isAlreadyOff = (s.working_days && !s.working_days.includes(candDayName)) 
+            || recurringOffDays.includes(candDayName) 
+            || (s.specific_off_dates && s.specific_off_dates.includes(candidateDate))
+            || (s.specific_standard_off_dates && s.specific_standard_off_dates.includes(candidateDate));
+            
+          if (!isAlreadyOff) {
+            const load = dailyLoads.get(candidateDate) || 0;
+            if (load < minLoad) {
+              minLoad = load;
+              bestCompensatoryDate = candidateDate;
+            }
+          }
+        }
+        
+        if (bestCompensatoryDate) {
+          // Deep copy to avoid mutating the original staff object passed into the function
+          s.specific_standard_off_dates = s.specific_standard_off_dates ? [...s.specific_standard_off_dates] : [];
+          if (!s.specific_standard_off_dates.includes(bestCompensatoryDate)) {
+            s.specific_standard_off_dates.push(bestCompensatoryDate);
+          }
+        }
+      }
+    }
+  }
+
   // --- PRE-PASS: COMMITTEES SUPERVISOR ASSIGNMENTS ---
   // Group sessions by date + period
   const datePeriodGroups = new Map<string, ExamSession[]>();
@@ -782,7 +879,16 @@ export function batchAssign(
 
     for (const [building, bSessions] of buildingGroups.entries()) {
       // Find unique room groups in this building for this slot
-      const bRoomGroups = groupSessionsByRoom(bSessions);
+      let bRoomGroups = groupSessionsByRoom(bSessions);
+      
+      // Filter out oral exams before chunking, as Committees Supervisors don't supervise oral exams
+      bRoomGroups = bRoomGroups.filter(rg => {
+        const sample = bSessions.find(s => s.id === rg.session_ids[0]);
+        return sample && !sample.exam_type?.toLowerCase().includes('oral');
+      });
+
+      if (bRoomGroups.length === 0) continue;
+
       // Sort by floor
       bRoomGroups.sort((a, b) => {
          const fa = rooms?.find(r => r.id === a.room_id)?.floor || 0;
@@ -790,28 +896,62 @@ export function batchAssign(
          return fa - fb;
       });
 
-      // Break into chunks of rooms
-      for (let i = 0; i < bRoomGroups.length; i += actualMaxRoomsPerLecturer) {
-        const chunk = bRoomGroups.slice(i, i + actualMaxRoomsPerLecturer);
+      // Break into chunks of rooms respecting: configuredMaxRooms (max 5) AND max 2 floors
+      const chunks: typeof bRoomGroups[] = [];
+      let currentChunk: typeof bRoomGroups = [];
+      let currentChunkFloors = new Set<number>();
+
+      // Use the strict max configuration to ensure tight grouping where possible
+      const chunkMaxRooms = configuredMaxRooms; 
+
+      for (const roomGroup of bRoomGroups) {
+        const floor = rooms?.find(r => r.id === roomGroup.room_id)?.floor || 0;
+        
+        const willExceedRooms = currentChunk.length >= chunkMaxRooms;
+        const willExceedFloors = !currentChunkFloors.has(floor) && currentChunkFloors.size >= 2;
+
+        if (willExceedRooms || willExceedFloors) {
+          chunks.push(currentChunk);
+          currentChunk = [roomGroup];
+          currentChunkFloors = new Set([floor]);
+        } else {
+          currentChunk.push(roomGroup);
+          currentChunkFloors.add(floor);
+        }
+      }
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk);
+      }
+
+      for (const chunk of chunks) {
         
         // Find available Committees Supervisor (Strict rule: Committees Supervisor can supervise many rooms)
         const committeeCandidates = currentStaff.filter(s => s.supervision_role === 'Committees Supervisor');
         
-        // Get the first session to test against (since they are concurrent)
-        const sampleSession = bSessions.find(s => s.id === chunk[0].session_ids[0]);
-        if (!sampleSession) continue;
-        
-        // Skip Committees Supervisors for Oral Exams
-        if (sampleSession.exam_type?.toLowerCase().includes('oral')) continue;
-
         // Calculate average score for workload cap
         const availableCount = currentStaff.filter(s => s.availability_status === 'Available').length;
         const averageScore = availableCount > 0 ? currentStaff.reduce((sum, s) => s.availability_status === 'Available' ? sum + s.current_score : sum, 0) / availableCount : undefined;
 
-        const candidateStatus = committeeCandidates.map(s => ({
-          staff: s,
-          ...isStaffAvailable(s, sampleSession, currentAssignments, sessions, config.constraints, Array.from(new Set(sessions.map(s => s.exam_date))), rooms?.find(r => r.id === sampleSession.room_id), periodFreeStaff, config.calendarRules, averageScore)
-        })).filter(cs => cs.available);
+        const candidateStatus = committeeCandidates.map(s => {
+          let isAvail = true;
+          const allSoftViolations: any[] = [];
+          
+          // Verify availability against ALL rooms in this chunk (e.g., to respect floor-level health constraints)
+          for (const roomGroup of chunk) {
+            const rSession = bSessions.find(sess => sess.id === roomGroup.session_ids[0]);
+            if (!rSession) continue;
+            
+            const status = isStaffAvailable(s, rSession, currentAssignments, sessions, config.constraints, allExamDates, rooms?.find(r => r.id === roomGroup.room_id), periodFreeStaff, config.calendarRules, averageScore);
+            
+            if (!status.available) {
+              isAvail = false;
+              break;
+            }
+            allSoftViolations.push(...status.softViolations);
+          }
+          
+          return { staff: s, available: isAvail, softViolations: allSoftViolations };
+        }).filter(cs => cs.available);
 
         if (candidateStatus.length > 0) {
           candidateStatus.sort((a, b) => {

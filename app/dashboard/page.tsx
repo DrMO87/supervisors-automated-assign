@@ -226,15 +226,10 @@ export default function DashboardPage() {
 
       if (error) throw error;
 
-      // Recalculate staff score in DB by period
-      const { data: staffAssignments } = await supabase.from('assignments').select('exam_session_id').eq('staff_id', staffData.id);
-      const { data: dbSessions } = await supabase.from('exam_sessions').select('id, exam_date, start_time');
-      const uniquePeriods = new Set();
-      staffAssignments?.forEach(a => {
-        const s = dbSessions?.find(x => x.id === a.exam_session_id);
-        if (s) uniquePeriods.add(`${s.exam_date}__${s.start_time}`);
-      });
-      await supabase.from('staff').update({ current_score: uniquePeriods.size }).eq('id', staffData.id);
+      // The staff score is automatically recalculated in the DB by the trigger `tr_sync_staff_score`.
+      // We just fetch the updated score to reflect it in the UI immediately.
+      const { data: updatedStaffDb } = await supabase.from('staff').select('current_score').eq('id', staffData.id).single();
+      const newScore = updatedStaffDb?.current_score ?? staffData.current_score;
 
       // Update local store immediately to show the new assignment on the grid
       const updatedSessions = examSessions.map((session: any) => {
@@ -250,7 +245,7 @@ export default function DashboardPage() {
 
       // Also update the staff's historical score in the sidebar live
       const updatedStaff = staff.map((s: any) => 
-        s.id === staffData.id ? { ...s, current_score: uniquePeriods.size } : s
+        s.id === staffData.id ? { ...s, current_score: newScore } : s
       );
       setStaff(updatedStaff);
 

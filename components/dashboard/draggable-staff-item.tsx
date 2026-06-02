@@ -78,8 +78,8 @@ export function StaffItemUI({ staff, weeklyAssignmentsCount = 0, historicalScore
         </div>
         
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          <div className="bg-primary-100 text-primary-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full" title={`Workload score: ${historicalScore} (Assignments) + ${staff.free_staff_score || 0} (Reserves)`}>
-            Score: {historicalScore}+{staff.free_staff_score || 0}
+          <div className="bg-primary-100 text-primary-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full" title={`Total Workload Score (Includes Main & Reserve Assignments)`}>
+            Score: {historicalScore}
           </div>
           {weekGroups.length > 0 && (
             <button

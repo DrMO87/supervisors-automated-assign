@@ -133,55 +133,8 @@ export default function AutoAssignPage() {
                     .lt('exam_date', endStr);
                 if (deleteFreeStaffError) throw deleteFreeStaffError;
 
-                // Recalculate free_staff_score in database
-                const { data: allFreeStaff } = await supabase.from('period_free_staff').select('staff_id');
-                const freeStaffCounts = new Map<string, number>();
-                allFreeStaff?.forEach(fs => {
-                    freeStaffCounts.set(fs.staff_id, (freeStaffCounts.get(fs.staff_id) || 0) + 1);
-                });
-                const freeStaffUpdatePromises = staff.map(async (s) => {
-                    const newFreeScore = freeStaffCounts.get(s.id) || 0;
-                    if ((s.free_staff_score || 0) !== newFreeScore) {
-                        return await supabase.from('staff').update({ free_staff_score: newFreeScore }).eq('id', s.id);
-                    }
-                    return null;
-                });
-                for (let i = 0; i < freeStaffUpdatePromises.length; i += 20) {
-                    await Promise.all(freeStaffUpdatePromises.slice(i, i + 20));
-                }
-
-                // Recalculate and update scores of affected staff members by periods
-                if (assignmentsToDelete && assignmentsToDelete.length > 0) {
-                    const affectedStaffIds = Array.from(new Set(assignmentsToDelete.map(a => a.staff_id)));
-                    const remainingAssignments = allAssignments.filter(a => !examIds.includes(a.exam_session_id));
-                    
-                    const staffNewPeriods = new Map<string, Set<string>>();
-                    remainingAssignments.forEach(a => {
-                        const session = exams.find(e => e.id === a.exam_session_id);
-                        if (session) {
-                            const periodKey = `${session.exam_date}__${getPeriodFromTime(session.start_time)}`;
-                            if (!staffNewPeriods.has(a.staff_id)) {
-                                staffNewPeriods.set(a.staff_id, new Set());
-                            }
-                            staffNewPeriods.get(a.staff_id)!.add(periodKey);
-                        }
-                    });
-
-                    const updatePromises = affectedStaffIds.map(async (staffId) => {
-                        const s = staff.find(x => x.id === staffId);
-                        if (s) {
-                            const newScore = staffNewPeriods.get(staffId)?.size || 0;
-                            if (s.current_score !== newScore) {
-                                return await supabase.from('staff').update({ current_score: newScore }).eq('id', staffId);
-                            }
-                        }
-                        return null;
-                    });
-
-                    for (let i = 0; i < updatePromises.length; i += 20) {
-                        await Promise.all(updatePromises.slice(i, i + 20));
-                    }
-                }
+                // Score updates for both `current_score` and `free_staff_score` are handled 
+                // natively by Supabase database triggers when records are deleted.
 
                 alert(`Assignments for the week of ${weekLabel} have been reset and staff scores adjusted.`);
             } else {
@@ -193,13 +146,7 @@ export default function AutoAssignPage() {
                 const { error: freeStaffError } = await supabase.from('period_free_staff').delete().neq('id', '00000000-0000-0000-0000-000000000000');
                 if (freeStaffError) throw freeStaffError;
 
-                if (confirm('Assignments deleted. Do you also want to reset STAFF SCORES (workload count) to 0?\nClick OK to reset scores to zero.\nClick Cancel to keep scores as is.')) {
-                    const { error: scoreError } = await supabase.from('staff').update({ current_score: 0, free_staff_score: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
-                    if (scoreError) throw scoreError;
-                    alert('Assignments and scores have been reset.');
-                } else {
-                    alert('Assignments deleted.');
-                }
+                alert('Assignments and scores have been reset.');
             }
 
             loadData();
@@ -277,32 +224,7 @@ export default function AutoAssignPage() {
                     if (error) throw error;
                 }
 
-                // Calculate scores map by distinct date + period slots
-                const staffNewPeriods = new Map<string, Set<string>>();
-                const combined = [...(existingAssignments || []), ...assignments];
-                combined.forEach(a => {
-                    const session = exams.find(e => e.id === a.exam_session_id);
-                    if (session) {
-                        const periodKey = `${session.exam_date}__${getPeriodFromTime(session.start_time)}`;
-                        if (!staffNewPeriods.has(a.staff_id)) {
-                            staffNewPeriods.set(a.staff_id, new Set());
-                        }
-                        staffNewPeriods.get(a.staff_id)!.add(periodKey);
-                    }
-                });
-
-                const updatePromises = Array.from(staffNewPeriods.entries()).map(async ([staffId, periods]) => {
-                    const s = staff.find(x => x.id === staffId);
-                    if (s && s.current_score !== periods.size) {
-                        return await supabase.from('staff').update({ current_score: periods.size }).eq('id', staffId);
-                    }
-                    return null;
-                });
-
-                // Run in batches of 20 to avoid overwhelming the database
-                for (let i = 0; i < updatePromises.length; i += 20) {
-                    await Promise.all(updatePromises.slice(i, i + 20));
-                }
+                // Scores are automatically updated by the database triggers on insert.
             }
 
             // ── Allocate and save reserve staff ───────────────────────────
@@ -446,39 +368,8 @@ export default function AutoAssignPage() {
                 if (error) throw error;
             }
 
-            // 4. Recalculate staff scores by periods
-            const { data: dbAssignments } = await supabase.from('assignments').select('staff_id, exam_session_id');
-            
-            const staffNewPeriods = new Map<string, Set<string>>();
-            
-            // Initialize all staff members to handle score reset to 0 if all their assignments were removed
-            staff.forEach(s => {
-                staffNewPeriods.set(s.id, new Set());
-            });
-
-            (dbAssignments || []).forEach(a => {
-                const session = exams.find(e => e.id === a.exam_session_id);
-                if (session) {
-                    const periodKey = `${session.exam_date}__${getPeriodFromTime(session.start_time)}`;
-                    if (!staffNewPeriods.has(a.staff_id)) {
-                        staffNewPeriods.set(a.staff_id, new Set());
-                    }
-                    staffNewPeriods.get(a.staff_id)!.add(periodKey);
-                }
-            });
-
-            const importUpdatePromises = Array.from(staffNewPeriods.entries()).map(async ([staffId, periods]) => {
-                const s = staff.find(x => x.id === staffId);
-                if (s && s.current_score !== periods.size) {
-                    return await supabase.from('staff').update({ current_score: periods.size }).eq('id', staffId);
-                }
-                return null;
-            });
-
-            // Run in batches of 20 to avoid overwhelming the database
-            for (let i = 0; i < importUpdatePromises.length; i += 20) {
-                await Promise.all(importUpdatePromises.slice(i, i + 20));
-            }
+            // Staff scores are automatically recalculated by Supabase database triggers 
+            // when the CSV assignments are inserted or deleted.
 
             alert('Successfully imported assignments.');
             loadData();

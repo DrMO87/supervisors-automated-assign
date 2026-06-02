@@ -48,32 +48,8 @@ export async function POST(req: Request) {
       .lt('exam_date', endStr);
     if (pfError) throw pfError;
 
-    // 4. Recalculate staff scores
-    // Fetch all assignments for all time to recount
-    const { data: allAssignments, error: aError } = await supabaseAdmin.from('assignments').select('staff_id, exam_session_id');
-    const { data: allSessions, error: sError } = await supabaseAdmin.from('exam_sessions').select('id, exam_date, start_time');
+    // 4. Score updates are handled automatically by the Supabase database triggers `tr_sync_staff_score` and `tr_sync_staff_free_score` when assignments are deleted.
     
-    if (!aError && !sError && allAssignments && allSessions) {
-      const staffScores = new Map<string, Set<string>>();
-      allAssignments.forEach(a => {
-        if (!staffScores.has(a.staff_id)) staffScores.set(a.staff_id, new Set());
-        const session = allSessions.find(s => s.id === a.exam_session_id);
-        if (session) {
-          staffScores.get(a.staff_id)!.add(`${session.exam_date}_${session.start_time}`);
-        }
-      });
-      
-      const { data: allStaff } = await supabaseAdmin.from('staff').select('id, current_score');
-      if (allStaff) {
-        // Prepare updates for staff whose score changed
-        for (const st of allStaff) {
-          const newScore = staffScores.get(st.id)?.size || 0;
-          if (st.current_score !== newScore) {
-            await supabaseAdmin.from('staff').update({ current_score: newScore }).eq('id', st.id);
-          }
-        }
-      }
-    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
