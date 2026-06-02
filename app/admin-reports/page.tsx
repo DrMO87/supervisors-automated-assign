@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Staff, ExamSessionWithRelations, AssignmentWithSession, PeriodFreeStaff } from '@/types/database.types';
-import { Loader2, Download, LogOut, BarChart3, FileText, CheckCircle2, AlertCircle, Users, FileSpreadsheet, ShieldCheck } from 'lucide-react';
+import { Loader2, Download, LogOut, BarChart3, FileText, CheckCircle2, AlertCircle, Users, FileSpreadsheet, ShieldCheck, Calendar as CalendarIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
@@ -15,7 +15,7 @@ import {
   generateWorkloadExcel
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
-import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList, Calendar as CalendarIcon } from 'recharts';
+import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 
 export default function AdminReportsPage() {
   const [currentUserData, setCurrentUserData] = useState<any>(null);

@@ -988,7 +988,7 @@ export function batchAssign(
            allViolations.push({
              type: 'capacity',
              message: `No available Committees Supervisor for a block of ${chunk.length} rooms in building ${building}`,
-             exam_session_id: sampleSession.id,
+             exam_session_id: chunk[0].session_ids[0],
            });
         }
       }
