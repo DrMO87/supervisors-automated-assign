@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/client';
+
+export const dynamic = 'force-dynamic';
 import { batchAssign, AutoAssignConfig } from '@/lib/algorithms/auto-assignment';
 import { createSnapshot } from '@/lib/utils/snapshot-helpers';
 import type {
