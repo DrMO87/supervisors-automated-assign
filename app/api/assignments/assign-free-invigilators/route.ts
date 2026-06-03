@@ -48,7 +48,11 @@ export async function POST(request: NextRequest) {
         .gte('exam_date', startStr)
         .lt('exam_date', endStr)
         .limit(10000),
-      supabaseAdmin.from('assignments').select('*').limit(10000),
+      supabaseAdmin.from('assignments')
+        .select('*, exam_sessions!inner(exam_date)')
+        .gte('exam_sessions.exam_date', startStr)
+        .lt('exam_sessions.exam_date', endStr)
+        .limit(10000),
       supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'staffing_ratios').single(),
       supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'scheduling_constraints').single(),
     ]);
@@ -128,7 +132,14 @@ export async function POST(request: NextRequest) {
       console.warn('Failed to create snapshot before assign free', e);
     }
 
+    console.log(`[DEBUG] assign-free-invigilators: fetched ${sessions.length} sessions`);
+    console.log(`[DEBUG] assign-free-invigilators: fetched ${existingAssignments.length} existing assignments`);
+    // Debug specific staff members if they are in existing assignments
+    const debugStaff = existingAssignments.filter(a => ['محمد', 'ندى', 'إسراء', 'رحمه', 'غاده'].some(name => a.staff?.name?.includes(name) || true));
+    console.log(`[DEBUG] sample existing assignments count:`, existingAssignments.length);
+
     const reserveAssignments = allocateReserveStaff(sessions, staff, existingAssignments, config);
+
 
     // 1. Delete old reserve assignments for this week (to avoid duplicates or keeping stale invalid data)
     const { error: deleteError } = await supabaseAdmin

@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
           .lt('exam_date', endStr)
           .eq('is_locked', false)
           .limit(10000),
-        supabaseAdmin.from('assignments').select('*').limit(10000),
+        supabaseAdmin.from('assignments')
+          .select('*, exam_sessions!inner(exam_date)')
+          .gte('exam_sessions.exam_date', startStr)
+          .lt('exam_sessions.exam_date', endStr)
+          .limit(10000),
         supabaseAdmin.from('rooms').select('*').limit(10000),
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'staffing_ratios').single(),
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'scheduling_constraints').single(),

@@ -1146,6 +1146,10 @@ export function allocateReserveStaff(
         .map(a => a.staff_id)
     );
 
+    if (group.period === 1 && group.exam_date.includes('07')) {
+      console.log(`[DEBUG] Period 1 on ${group.exam_date}: found ${assignedStaffIds.size} assigned staff out of ${currentAssignments.length} total assignments.`);
+    }
+
     // Create a dummy exam session to check availability for this slot
     const representativeSession: ExamSession = {
       id: crypto.randomUUID(),
