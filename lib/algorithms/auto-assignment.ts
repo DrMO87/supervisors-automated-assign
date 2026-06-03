@@ -195,7 +195,8 @@ export function isStaffAvailable(
   targetRoom?: Room | null,
   periodFreeStaff: PeriodFreeStaff[] = [],
   calendarRules: CalendarRule[] = [],
-  averageScore?: number
+  averageScore?: number,
+  strictOffDays: boolean = false
 ): {
   available: boolean;
   hardViolations: AssignmentConstraintViolation[];
@@ -227,7 +228,7 @@ export function isStaffAvailable(
     ? classifyOffDays(staff.specific_off_dates, allExamDates)
     : { recurringOffDays: [], specificOffDates: [] };
   const isUniversalWorkingDayRaw = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
-  const isUniversalWorkingDay = isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
+  const isUniversalWorkingDay = !strictOffDays && isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
 
   // 2a. Strict Specific Off-Dates (Red X)
   if (staff.specific_off_dates?.includes(examDateISO)) {
@@ -1178,7 +1179,9 @@ export function allocateReserveStaff(
         Array.from(new Set(sessions.map(s => s.exam_date))),
         undefined,
         [],
-        config.calendarRules
+        config.calendarRules,
+        undefined,
+        true // strictOffDays: True, do not break off-days for reserves
       );
       return available;
     });
