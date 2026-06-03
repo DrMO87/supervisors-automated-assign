@@ -128,15 +128,7 @@ export async function POST(request: NextRequest) {
 
     const reserveAssignments = allocateReserveStaff(sessions, staff, existingAssignments, config);
 
-    if (reserveAssignments.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No reserve staff could be allocated. Either staff are busy or unavailable.',
-        assignmentsCreated: 0,
-      });
-    }
-
-    // 1. Delete old reserve assignments for this week (to avoid duplicates if run multiple times)
+    // 1. Delete old reserve assignments for this week (to avoid duplicates or keeping stale invalid data)
     const { error: deleteError } = await supabaseAdmin
       .from('period_free_staff')
       .delete()
@@ -144,6 +136,14 @@ export async function POST(request: NextRequest) {
       .lt('exam_date', endStr);
 
     if (deleteError) throw deleteError;
+
+    if (reserveAssignments.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'No reserve staff could be allocated. Either staff are busy or unavailable.',
+        assignmentsCreated: 0,
+      });
+    }
 
     // 2. Save the new reserve assignments to the period_free_staff table
     const { error: insertError } = await supabaseAdmin
