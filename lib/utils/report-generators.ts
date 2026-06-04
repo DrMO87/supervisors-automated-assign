@@ -539,80 +539,92 @@ export function generateStaffScheduleHTML(staff: Staff, assignments: AssignmentW
     }
   }
 
-  const rows = consolidatedAssignments.map((group, i, arr) => {
-    let sep = '';
-    if (i > 0) {
-      const prev = arr[i-1][0].exam_session!;
-      const curr = group[0].exam_session!;
-      if (prev.exam_date !== curr.exam_date) sep = ' class="day-separator"';
-      else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(curr.start_time)) sep = ' class="period-separator"';
+  const CHUNK_SIZE = 20; // Safe limit for Outlook's Word rendering engine (22 inch height limit per table)
+  const tables: string[] = [];
+
+  const tableHeader = `
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Period</th>
+        <th>Time From</th>
+        <th>Time To</th>
+        <th>Subject / Course</th><th>Program</th><th>Exam Type</th>
+        <th>Exam Hall</th>
+        <th style="text-align:center">Students</th>
+        <th>Assigned Role</th>
+        ${showTeam ? '<th>Supervision Team</th>' : ''}
+      </tr>
+    </thead>
+  `;
+
+  if (consolidatedAssignments.length === 0) {
+    tables.push(`
+      <table>
+        ${tableHeader}
+        <tbody>
+          <tr><td colspan="${showTeam ? 11 : 10}" style="text-align:center;padding:20mm;color:#94a3b8">No assignments found for this period.</td></tr>
+        </tbody>
+      </table>
+    `);
+  } else {
+    for (let i = 0; i < consolidatedAssignments.length; i += CHUNK_SIZE) {
+      const chunk = consolidatedAssignments.slice(i, i + CHUNK_SIZE);
+      
+      const rows = chunk.map((group, idx, arr) => {
+        let sep = '';
+        if (idx > 0) {
+          const prev = arr[idx-1][0].exam_session!;
+          const curr = group[0].exam_session!;
+          if (prev.exam_date !== curr.exam_date) sep = ' class="day-separator"';
+          else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(curr.start_time)) sep = ' class="period-separator"';
+        }
+        const baseAssignment = group[0];
+        const exam = baseAssignment.exam_session!;
+        
+        const subjectName = Array.from(new Set(group.map(a => a.exam_session?.subject_name))).filter(Boolean).join(' / ');
+        const program = Array.from(new Set(group.map(a => a.exam_session?.program))).filter(Boolean).join(' / ') || '-';
+        const examType = Array.from(new Set(group.map(a => a.exam_session?.exam_type))).filter(Boolean).join(' / ') || '-';
+        const studentCount = group.reduce((sum, a) => sum + (a.exam_session?.student_count || 0), 0);
+
+        const teamHTML = showTeam
+          ? `<td>${
+              assignments
+                .filter(allA => group.some(ga => ga.exam_session_id === allA.exam_session_id))
+                .reduce((acc, curr) => {
+                  if (!acc.find(x => x.staff_id === curr.staff_id)) acc.push(curr);
+                  return acc;
+                }, [] as typeof assignments)
+                .map(allA => `<div style="margin-bottom:0.5mm"><strong>${allA.staff?.name || 'Unknown'}</strong> <small>(${getShortRole(allA.role)})</small></div>`)
+                .join('') || '<em>None</em>'
+            }</td>`
+          : '';
+
+        return `<tr${sep}>
+          <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
+          <td>Period ${getPeriodFromTime(exam.start_time)}</td>
+          <td>${exam.start_time}</td>
+          <td>${exam.end_time || '-'}</td>
+          <td>${subjectName}</td><td>${program}</td><td>${examType}</td>
+          <td>${exam.room?.room_name || '-'}</td>
+          <td style="text-align:center">${studentCount}</td>
+          <td><strong>${getRoleLabel(baseAssignment.role)}</strong></td>
+          ${teamHTML}
+        </tr>`;
+      }).join('');
+
+      tables.push(`
+        <table style="margin-bottom: 20px; page-break-inside: avoid; border-collapse: collapse; width: 100%;">
+          ${tableHeader}
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      `);
     }
-    const baseAssignment = group[0];
-    const exam = baseAssignment.exam_session!;
-    
-    // Combine fields if there are multiple sessions in this room/period
-    const subjectName = Array.from(new Set(group.map(a => a.exam_session?.subject_name))).filter(Boolean).join(' / ');
-    const program = Array.from(new Set(group.map(a => a.exam_session?.program))).filter(Boolean).join(' / ') || '-';
-    const examType = Array.from(new Set(group.map(a => a.exam_session?.exam_type))).filter(Boolean).join(' / ') || '-';
-    const studentCount = group.reduce((sum, a) => sum + (a.exam_session?.student_count || 0), 0);
+  }
 
-    const teamHTML = showTeam
-      ? `<td>${
-          assignments
-            .filter(allA => group.some(ga => ga.exam_session_id === allA.exam_session_id))
-            .reduce((acc, curr) => {
-              if (!acc.find(x => x.staff_id === curr.staff_id)) acc.push(curr);
-              return acc;
-            }, [] as typeof assignments)
-            .map(allA => `<div style="margin-bottom:0.5mm"><strong>${allA.staff?.name || 'Unknown'}</strong> <small>(${getShortRole(allA.role)})</small></div>`)
-            .join('') || '<em>None</em>'
-        }</td>`
-      : '';
-
-    return `<tr${sep}>
-      <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
-      <td>Period ${getPeriodFromTime(exam.start_time)}</td>
-      <td>${exam.start_time}</td>
-      <td>${exam.end_time || '-'}</td>
-      <td>${subjectName}</td><td>${program}</td><td>${examType}</td>
-      <td>${exam.room?.room_name || '-'}</td>
-      <td style="text-align:center">${studentCount}</td>
-      <td><strong>${getRoleLabel(baseAssignment.role)}</strong></td>
-      ${teamHTML}
-    </tr>`;
-  }).join('');
-
-  const meta = `
-    <div class="report-meta">
-      <div class="meta-grid">
-        <div class="meta-item"><strong>Staff Name:</strong> ${staff.name}</div>
-        <div class="meta-item"><strong>Job Title:</strong> ${staff.job_title}</div>
-        <div class="meta-item"><strong>Email:</strong> ${staff.email}</div>
-        <div class="meta-item"><strong>Employment:</strong> ${staff.employment_status}</div>
-        ${weekLabel ? `<div class="meta-item"><strong>Week:</strong> ${weekLabel}</div>` : ''}
-      </div>
-    </div>
-  `;
-
-  const table = `
-    <table>
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Period</th>
-          <th>Time From</th>
-          <th>Time To</th>
-          <th>Subject / Course</th><th>Program</th><th>Exam Type</th>
-          <th>Exam Hall</th>
-          <th style="text-align:center">Students</th>
-          <th>Assigned Role</th>
-          ${showTeam ? '<th>Supervision Team</th>' : ''}
-        </tr>
-      </thead>
-        ${rows || `<tr><td colspan="${showTeam ? 9 : 8}" style="text-align:center;padding:20mm;color:#94a3b8">No assignments found for this period.</td></tr>`}
-      </tbody>
-    </table>
-  `;
+  const table = tables.join('');
 
   const title = weekLabel ? `${staff.name} - ${weekLabel.toUpperCase()}` : `${staff.name}`;
   const displayTitle = weekLabel 
