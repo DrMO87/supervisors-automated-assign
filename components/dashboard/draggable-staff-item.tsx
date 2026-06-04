@@ -53,8 +53,9 @@ function groupByAcademicWeek(
 }
 
 import { ExchangeOffDayModal } from './exchange-off-day-modal';
+import { RefreshCcw } from 'lucide-react';
 
-export function StaffItemUI({ staff, weeklyAssignmentsCount = 0, historicalScore = 0, isDragging = false, setNodeRef, listeners, attributes, style, examSessions }: any) {
+export function StaffItemUI({ staff, weeklyAssignmentsCount = 0, historicalScore = 0, isDragging = false, setNodeRef, listeners, attributes, style, examSessions, onBulkReplace }: any) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [exchangeModalData, setExchangeModalData] = useState<{ oldDate: string, weekDates: string[] } | null>(null);
 
@@ -81,6 +82,21 @@ export function StaffItemUI({ staff, weeklyAssignmentsCount = 0, historicalScore
           <div className="bg-primary-100 text-primary-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full" title={`Total Workload Score (Includes Main & Reserve Assignments)`}>
             Score: {historicalScore}
           </div>
+          {onBulkReplace && (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBulkReplace(staff);
+              }}
+              title="Bulk replace this staff member"
+              className="p-1 hover:bg-red-100 rounded text-gray-400 hover:text-red-600 transition-colors"
+            >
+              <RefreshCcw className="w-3.5 h-3.5" />
+            </button>
+          )}
           {weekGroups.length > 0 && (
             <button
               type="button"
@@ -177,7 +193,7 @@ export function StaffItemUI({ staff, weeklyAssignmentsCount = 0, historicalScore
   );
 }
 
-export function DraggableStaffItem({ staff, weeklyAssignmentsCount = 0, historicalScore = 0 }: { staff: Staff; weeklyAssignmentsCount?: number; historicalScore?: number }) {
+export function DraggableStaffItem({ staff, weeklyAssignmentsCount, historicalScore, onBulkReplace }: { staff: Staff, weeklyAssignmentsCount?: number, historicalScore?: number, onBulkReplace?: (staff: Staff) => void }) {
   const { examSessions } = useSchedulingStore();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `staff-${staff.id}`,
@@ -200,6 +216,7 @@ export function DraggableStaffItem({ staff, weeklyAssignmentsCount = 0, historic
       attributes={attributes}
       style={style}
       examSessions={examSessions}
+      onBulkReplace={onBulkReplace}
     />
   );
 }

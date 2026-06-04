@@ -6,6 +6,7 @@ import { DraggableStaffItem } from './draggable-staff-item';
 import { Search } from 'lucide-react';
 import { getPeriodFromTime } from '@/types/database.types';
 import type { Staff, ExamSessionWithRelations } from '@/types/database.types';
+import { BulkReplaceModal } from './bulk-replace-modal';
 
 export function StaffSidebar() {
   const { staff, examSessions, periodFreeStaff } = useSchedulingStore();
@@ -16,8 +17,10 @@ export function StaffSidebar() {
   const [dateFilter, setDateFilter] = useState<string>('');
   const [dayStatusFilter, setDayStatusFilter] = useState<'All' | 'Working' | 'Off'>('Working');
   const [assignmentFilter, setAssignmentFilter] = useState<'All' | 'Assigned' | 'Unassigned'>('All');
+  const [staffToReplace, setStaffToReplace] = useState<Staff | null>(null);
 
   const uniqueExamDates = Array.from(new Set(examSessions.map((s: ExamSessionWithRelations) => s.exam_date))).sort();
+  const currentWeekStart = uniqueExamDates.length > 0 ? uniqueExamDates[0] : new Date().toISOString().split('T')[0];
 
   const filteredStaff = staff.filter((s: Staff) => {
     const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -255,6 +258,7 @@ export function StaffSidebar() {
                     staff={s} 
                     weeklyAssignmentsCount={weeklyCounts.get(s.id) || 0}
                     historicalScore={(s.current_score || 0) + ((s.free_staff_score || 0) * 0.25)}
+                    onBulkReplace={setStaffToReplace}
                   />
                 ))}
               </div>
@@ -262,6 +266,18 @@ export function StaffSidebar() {
           })
         )}
       </div>
+
+      {staffToReplace && (
+        <BulkReplaceModal
+          staff={staffToReplace}
+          weekStart={currentWeekStart}
+          onClose={() => setStaffToReplace(null)}
+          onSuccess={() => {
+            setStaffToReplace(null);
+            window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 }
