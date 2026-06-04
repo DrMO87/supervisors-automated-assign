@@ -626,6 +626,18 @@ export function generateStaffScheduleHTML(staff: Staff, assignments: AssignmentW
 
   const table = tables.join('');
 
+  const meta = `
+    <div class="report-meta">
+      <div class="meta-grid">
+        <div class="meta-item"><strong>Staff Name:</strong> ${staff.name}</div>
+        <div class="meta-item"><strong>Job Title:</strong> ${staff.job_title}</div>
+        <div class="meta-item"><strong>Email:</strong> ${staff.email}</div>
+        <div class="meta-item"><strong>Employment:</strong> ${staff.employment_status}</div>
+        ${weekLabel ? `<div class="meta-item"><strong>Week:</strong> ${weekLabel}</div>` : ''}
+      </div>
+    </div>
+  `;
+
   const title = weekLabel ? `${staff.name} - ${weekLabel.toUpperCase()}` : `${staff.name}`;
   const displayTitle = weekLabel 
     ? `<span dir="rtl">${staff.name}</span> - <span dir="ltr">${weekLabel.toUpperCase()}</span>`
