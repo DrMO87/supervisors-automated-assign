@@ -143,7 +143,7 @@ export async function POST(req: Request) {
     // 2. Process reserve assignments
     for (const reserve of targetReserves) {
       // Need a dummy session to check availability for the specific date and period
-      const dummySession: ExamSession = {
+      const dummySession = {
         id: 'dummy',
         exam_date: reserve.exam_date,
         start_time: reserve.period === 1 ? '09:00' : '13:00', // approximation
@@ -152,7 +152,7 @@ export async function POST(req: Request) {
         is_locked: false,
         created_at: '',
         updated_at: ''
-      };
+      } as ExamSession;
 
       let bestReplacement: Staff | null = null;
       let lowestScore = Infinity;
@@ -194,7 +194,7 @@ export async function POST(req: Request) {
           period: reserve.period,
           staff_id: bestReplacement.id,
           role: reserve.role || 'Reserve'
-        });
+        } as Omit<PeriodFreeStaff, 'id'>);
         // Update local state
         currentReserves = currentReserves.filter(r => r.id !== reserve.id);
         currentReserves.push({
@@ -203,7 +203,7 @@ export async function POST(req: Request) {
           period: reserve.period,
           staff_id: bestReplacement.id,
           role: reserve.role || 'Reserve'
-        });
+        } as PeriodFreeStaff);
       } else {
         // Option B: Delete if unswappable
         reservesToDelete.push(reserve.id);
