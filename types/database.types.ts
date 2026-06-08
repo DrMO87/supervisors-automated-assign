@@ -176,6 +176,27 @@ export function getDurationInMinutes(startTime: string, endTime?: string | null)
   }
 }
 
+export function timesOverlap(start1: string, end1: string | null | undefined, start2: string, end2: string | null | undefined): boolean {
+  try {
+    const toMins = (t: string) => {
+      const [h, m] = t.split(':').map(Number);
+      return h * 60 + m;
+    };
+    
+    const s1 = toMins(start1);
+    const e1 = end1 ? toMins(end1) : s1 + 180;
+    
+    const s2 = toMins(start2);
+    const e2 = end2 ? toMins(end2) : s2 + 180;
+    
+    // Overlap: interval 1 starts before interval 2 ends AND interval 2 starts before interval 1 ends
+    return s1 < e2 && s2 < e1;
+  } catch (e) {
+    // If parsing fails, fall back to safe assumption
+    return false;
+  }
+}
+
 export interface SystemSettings {
   id: string;
   setting_key: string;

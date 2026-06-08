@@ -388,7 +388,17 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                           {isPeriodCollapsed ? <ChevronRight className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
                           <Clock className={`w-3.5 h-3.5 ${periodInfo.color}`} />
                           <span className={`text-sm font-semibold ${periodInfo.color}`}>{periodInfo.label}</span>
-                          <span className="text-xs text-gray-500">{periodInfo.time}</span>
+                          <span className="text-xs text-gray-500">
+                            {(() => {
+                              if (sessions.length === 0) return periodInfo.time;
+                              const minStart = sessions.reduce((min, s) => s.start_time < min ? s.start_time : min, '23:59:59').slice(0, 5);
+                              const maxEnd = sessions.reduce((max, s) => {
+                                const end = s.end_time || '00:00:00';
+                                return end > max ? end : max;
+                              }, '00:00:00').slice(0, 5);
+                              return `${minStart} – ${maxEnd === '00:00' ? '?' : maxEnd}`;
+                            })()}
+                          </span>
                         </div>
 
                         {/* Free Staff List */}

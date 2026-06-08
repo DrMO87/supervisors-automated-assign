@@ -12,7 +12,7 @@ import type {
   PeriodFreeStaff,
   CalendarRule,
 } from '@/types/database.types';
-import { parseRoomCode, getPeriodFromTime, getDurationInMinutes } from '@/types/database.types';
+import { parseRoomCode, getPeriodFromTime, getDurationInMinutes, timesOverlap } from '@/types/database.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -332,7 +332,7 @@ export function isStaffAvailable(
 
   const conflicting = existingAssignments.filter((a) => {
     const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && getPeriodFromTime(s.start_time) === getPeriodFromTime(examSession.start_time);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && timesOverlap(s.start_time, s.end_time, examSession.start_time, examSession.end_time);
   });
   
   if (conflicting.length > 0) {
@@ -359,11 +359,13 @@ export function isStaffAvailable(
   // 4. Consecutive Shifts (Soft)
   const sameDayOther = existingAssignments.filter((a) => {
     const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && getPeriodFromTime(s.start_time) !== getPeriodFromTime(examSession.start_time);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && !timesOverlap(s.start_time, s.end_time, examSession.start_time, examSession.end_time);
   });
   if (sameDayOther.length > 0) {
     const isConsecutive = sameDayOther.some((a) => {
       const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+      // We consider consecutive if they don't overlap, but are within the same day,
+      // and their periods are adjacent.
       return s && Math.abs(getPeriodFromTime(s.start_time) - getPeriodFromTime(examSession.start_time)) === 1;
     });
     if (isConsecutive && !constraints.allow_consecutive_shifts) {
