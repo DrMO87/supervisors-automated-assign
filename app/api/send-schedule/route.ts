@@ -1,3 +1,5 @@
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { exec } from 'child_process';
@@ -75,6 +77,12 @@ async function sendViaOutlook(
 
 export async function POST(request: NextRequest) {
   try {
+    const supabaseAuth = createRouteHandlerClient({ cookies });
+    const { data: { session } } = await supabaseAuth.auth.getSession();
+    if (!session || session.user.user_metadata?.role !== 'control') {
+      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    }
+
     const { toEmail, subject, htmlContent, pdfBase64, staffName } = await request.json();
 
     if (!toEmail) {

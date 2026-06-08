@@ -1,3 +1,5 @@
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { isStaffAvailable } from '@/lib/algorithms/auto-assignment';
@@ -9,6 +11,12 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
+    const supabaseAuth = createRouteHandlerClient({ cookies });
+    const { data: { session } } = await supabaseAuth.auth.getSession();
+    if (!session || session.user.user_metadata?.role !== 'control') {
+      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    }
+
     const { targetStaffId, weekStart } = await req.json();
 
     if (!targetStaffId || !weekStart) {

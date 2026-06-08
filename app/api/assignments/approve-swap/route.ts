@@ -4,6 +4,12 @@ import { NextResponse } from 'next/server';
 import { getPeriodFromTime, timesOverlap } from '@/types/database.types';
 
 export async function POST(req: Request) {
+    const supabaseAuth = createRouteHandlerClient({ cookies });
+    const { data: { session } } = await supabaseAuth.auth.getSession();
+    if (!session || session.user.user_metadata?.role !== 'control') {
+      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    }
+
   const supabase = createRouteHandlerClient({ cookies });
 
   try {

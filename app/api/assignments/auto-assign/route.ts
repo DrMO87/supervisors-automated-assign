@@ -1,3 +1,5 @@
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/client';
 
@@ -17,6 +19,12 @@ import { getPeriodFromTime } from '@/types/database.types';
 
 export async function POST(request: NextRequest) {
   try {
+    const supabaseAuth = createRouteHandlerClient({ cookies });
+    const { data: { session } } = await supabaseAuth.auth.getSession();
+    if (!session || session.user.user_metadata?.role !== 'control') {
+      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    }
+
     if (!isSupabaseConfigured() || !supabaseAdmin) {
       return NextResponse.json(
         { error: 'Supabase is not configured. Please set up your environment variables.' },
