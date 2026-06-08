@@ -1,7 +1,7 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, timesOverlap } from '@/types/database.types';
 
 export async function POST(req: Request) {
   const supabase = createRouteHandlerClient({ cookies });
@@ -42,19 +42,60 @@ export async function POST(req: Request) {
     // First, find exam sessions for that date and room
     const { data: sessions, error: sessionError } = await supabase
       .from('exam_sessions')
-      .select('id, start_time')
+      .select('id, start_time, end_time')
       .eq('exam_date', request.exam_date)
       .eq('room_id', request.room_id);
 
     if (sessionError) throw sessionError;
 
     // Filter sessions matching the requested period
-    const targetSessionIds = sessions
-      ?.filter(s => getPeriodFromTime(s.start_time) === request.period)
-      .map(s => s.id) || [];
+    const targetSessions = sessions?.filter(s => getPeriodFromTime(s.start_time) === request.period) || [];
+    const targetSessionIds = targetSessions.map(s => s.id);
 
     if (targetSessionIds.length === 0) {
       return NextResponse.json({ error: 'No exam sessions found for this date, room, and period.' }, { status: 404 });
+    }
+
+    // CHECK FOR DOUBLE BOOKING OVERLAPS
+    const { data: allSessionsOnDate, error: allSessionsError } = await supabase
+      .from('exam_sessions')
+      .select('id, start_time, end_time')
+      .eq('exam_date', request.exam_date);
+    
+    if (allSessionsError) throw allSessionsError;
+
+    const { data: replacementAssignments, error: replError } = await supabase
+      .from('assignments')
+      .select('exam_session_id')
+      .eq('staff_id', request.replacement_staff_id);
+
+    if (replError) throw replError;
+
+    const replSessionIds = replacementAssignments?.map(a => a.exam_session_id) || [];
+    const replSessions = allSessionsOnDate?.filter(s => replSessionIds.includes(s.id)) || [];
+
+    for (const targetSession of targetSessions) {
+      for (const rs of replSessions) {
+        if (timesOverlap(targetSession.start_time, targetSession.end_time, rs.start_time, rs.end_time)) {
+           return NextResponse.json({ error: 'The replacement staff member is already assigned to an overlapping exam session.' }, { status: 400 });
+        }
+      }
+    }
+
+    const { data: replReserves, error: replResError } = await supabase
+      .from('period_free_staff')
+      .select('start_time, period')
+      .eq('staff_id', request.replacement_staff_id)
+      .eq('exam_date', request.exam_date);
+
+    if (replResError) throw replResError;
+
+    for (const targetSession of targetSessions) {
+      for (const reserve of replReserves || []) {
+        if (timesOverlap(targetSession.start_time, targetSession.end_time, reserve.start_time, null)) {
+           return NextResponse.json({ error: 'The replacement staff member is already assigned as a Reserve during an overlapping time.' }, { status: 400 });
+        }
+      }
     }
 
     // Find the assignments for the original staff in these sessions
