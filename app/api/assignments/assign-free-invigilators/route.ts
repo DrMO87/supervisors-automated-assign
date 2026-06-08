@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     console.log(`[DEBUG] assign-free-invigilators: fetched ${sessions.length} sessions`);
     console.log(`[DEBUG] assign-free-invigilators: fetched ${existingAssignments.length} existing assignments`);
     // Debug specific staff members if they are in existing assignments
-    const debugStaff = existingAssignments.filter(a => ['محمد', 'ندى', 'إسراء', 'رحمه', 'غاده'].some(name => a.staff?.name?.includes(name) || true));
+    const debugStaff = existingAssignments.filter(a => ['محمد', 'ندى', 'إسراء', 'رحمه', 'غاده'].some(name => (a as any).staff?.name?.includes(name) || true));
     console.log(`[DEBUG] sample existing assignments count:`, existingAssignments.length);
 
     const reserveAssignments = allocateReserveStaff(sessions, staff, existingAssignments, config);

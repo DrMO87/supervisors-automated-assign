@@ -74,11 +74,30 @@ export default function UnifiedStaffPortalPage() {
 
         // Fetch specific data if a personalized account
         if (staffId) {
+          const fetchAll = async (queryBuilder: any) => {
+            let allData: any[] = [];
+            let from = 0;
+            const step = 1000;
+            let hasMore = true;
+            while (hasMore) {
+              const { data, error } = await queryBuilder.range(from, from + step - 1);
+              if (error) throw error;
+              if (data && data.length > 0) {
+                allData = [...allData, ...data];
+                from += step;
+                if (data.length < step) hasMore = false;
+              } else {
+                hasMore = false;
+              }
+            }
+            return { data: allData, error: null };
+          };
+
           const [specificStaffRes, examsRes, assignmentsRes, freeStaffRes] = await Promise.all([
             supabase.from('staff').select('*').eq('id', staffId).single(),
-            supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(5000),
-            supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').eq('staff_id', staffId).limit(1000),
-            supabase.from('period_free_staff').select('*, staff:staff(*)').eq('staff_id', staffId).order('exam_date').order('period').limit(1000)
+            fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date')),
+            fetchAll(supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').eq('staff_id', staffId)),
+            fetchAll(supabase.from('period_free_staff').select('*, staff:staff(*)').eq('staff_id', staffId).order('exam_date').order('period'))
           ]);
 
           if (!specificStaffRes.error) setStaffMember(specificStaffRes.data);
@@ -138,6 +157,46 @@ export default function UnifiedStaffPortalPage() {
     fetchDynamic();
   }, [examDate, period, supabase, currentUserData]);
 
+  // Schedule Logic
+  const getWeekStart = (dateStr: string) => {
+    const d = new Date(`${dateStr}T12:00:00Z`);
+    const day = d.getUTCDay();
+    const offset = day === 6 ? 0 : -(day + 1);
+    const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
+    return start.toISOString().split('T')[0];
+  };
+
+  const availableWeeks = Array.from(new Set(exams.map(e => getWeekStart(e.exam_date)))).sort();
+  
+  const getUpcomingOrCurrentWeek = () => {
+    if (availableWeeks.length === 0) return 'all';
+    const today = new Date();
+    const cairoTime = new Date(today.toLocaleString("en-US", {timeZone: "Africa/Cairo"}));
+    const todayIso = cairoTime.toISOString().split('T')[0];
+    
+    for (const weekStart of availableWeeks) {
+       const weekStartDate = new Date(`${weekStart}T12:00:00Z`);
+       const weekEndDate = new Date(weekStartDate);
+       weekEndDate.setDate(weekEndDate.getDate() + 6);
+       const weekEndIso = weekEndDate.toISOString().split('T')[0];
+       if (todayIso <= weekEndIso) {
+         return weekStart;
+       }
+    }
+    return availableWeeks[availableWeeks.length - 1];
+  };
+
+  const currentWeek = getUpcomingOrCurrentWeek();
+
+  let weekStartDate = '';
+  let weekEndDate = '';
+  if (currentWeek !== 'all') {
+    weekStartDate = currentWeek;
+    const d = new Date(`${currentWeek}T12:00:00Z`);
+    d.setDate(d.getDate() + 6);
+    weekEndDate = d.toISOString().split('T')[0];
+  }
+
   const handleSwapSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!examDate || !period || !roomId || !originalStaffId || !replacementStaffId) {
@@ -147,6 +206,13 @@ export default function UnifiedStaffPortalPage() {
     if (originalStaffId === replacementStaffId) {
       setSwapError('Currently assigned staff and replacement staff cannot be the same person.');
       return;
+    }
+    
+    if (weekStartDate && weekEndDate) {
+      if (examDate < weekStartDate || examDate > weekEndDate) {
+        setSwapError(`You can only swap assignments within the current active week (${weekStartDate} to ${weekEndDate}).`);
+        return;
+      }
     }
 
     setSubmittingSwap(true);
@@ -183,36 +249,7 @@ export default function UnifiedStaffPortalPage() {
     router.refresh();
   };
 
-  // Schedule Logic
-  const getWeekStart = (dateStr: string) => {
-    const d = new Date(`${dateStr}T12:00:00Z`);
-    const day = d.getUTCDay();
-    const offset = day === 6 ? 0 : -(day + 1);
-    const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
-    return start.toISOString().split('T')[0];
-  };
-
-  const availableWeeks = Array.from(new Set(exams.map(e => getWeekStart(e.exam_date)))).sort();
-  
-  const getUpcomingOrCurrentWeek = () => {
-    if (availableWeeks.length === 0) return 'all';
-    const today = new Date();
-    const cairoTime = new Date(today.toLocaleString("en-US", {timeZone: "Africa/Cairo"}));
-    const todayIso = cairoTime.toISOString().split('T')[0];
-    
-    for (const weekStart of availableWeeks) {
-       const weekStartDate = new Date(`${weekStart}T12:00:00Z`);
-       const weekEndDate = new Date(weekStartDate);
-       weekEndDate.setDate(weekEndDate.getDate() + 6);
-       const weekEndIso = weekEndDate.toISOString().split('T')[0];
-       if (todayIso <= weekEndIso) {
-         return weekStart;
-       }
-    }
-    return availableWeeks[availableWeeks.length - 1];
-  };
-
-  const currentWeek = getUpcomingOrCurrentWeek();
+  // Schedule Logic moved above
 
   const filteredAssignments = currentWeek === 'all' 
     ? assignments 
@@ -343,6 +380,8 @@ export default function UnifiedStaffPortalPage() {
                           type="date"
                           value={examDate}
                           onChange={(e) => setExamDate(e.target.value)}
+                          min={weekStartDate || undefined}
+                          max={weekEndDate || undefined}
                           className="block w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 bg-white"
                           required
                         />

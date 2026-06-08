@@ -374,7 +374,7 @@ export function generateStaffScheduleExcel(staff: Staff, assignments: Assignment
   for (const a of staffAssignments) {
     const exam = a.exam_session!;
     const period = getPeriodFromTime(exam.start_time);
-    const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+    const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
     if (!groupedAssignments[key]) groupedAssignments[key] = [];
     groupedAssignments[key].push(a);
   }
@@ -384,7 +384,7 @@ export function generateStaffScheduleExcel(staff: Staff, assignments: Assignment
   for (const a of staffAssignments) {
     const exam = a.exam_session!;
     const period = getPeriodFromTime(exam.start_time);
-    const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+    const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
     if (!processedKeys.has(key)) {
       processedKeys.add(key);
       consolidatedAssignments.push(groupedAssignments[key]);
@@ -522,7 +522,7 @@ export function generateStaffScheduleHTML(staff: Staff, assignments: AssignmentW
   for (const a of staffAssignments) {
     const exam = a.exam_session!;
     const period = getPeriodFromTime(exam.start_time);
-    const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+    const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
     if (!groupedAssignments[key]) groupedAssignments[key] = [];
     groupedAssignments[key].push(a);
   }
@@ -532,7 +532,7 @@ export function generateStaffScheduleHTML(staff: Staff, assignments: AssignmentW
   for (const a of staffAssignments) {
     const exam = a.exam_session!;
     const period = getPeriodFromTime(exam.start_time);
-    const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+    const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
     if (!processedKeys.has(key)) {
       processedKeys.add(key);
       consolidatedAssignments.push(groupedAssignments[key]);
@@ -1007,7 +1007,7 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
       for (const a of staffAssignments) {
         const exam = a.exam_session!;
         const period = getPeriodFromTime(exam.start_time);
-        const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+        const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
         if (!groupedAssignments[key]) groupedAssignments[key] = [];
         groupedAssignments[key].push(a);
       }
@@ -1017,7 +1017,7 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
       for (const a of staffAssignments) {
         const exam = a.exam_session!;
         const period = getPeriodFromTime(exam.start_time);
-        const key = `${exam.exam_date}_${period}_${exam.room_id}`;
+        const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
         if (!processedKeys.has(key)) {
           processedKeys.add(key);
           consolidatedAssignments.push(groupedAssignments[key]);

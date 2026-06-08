@@ -70,14 +70,34 @@ export default function ReportsPage() {
     if (!supabase) return;
     setIsLoading(true);
     try {
+      const fetchAll = async (queryBuilder: any) => {
+        let allData: any[] = [];
+        let from = 0;
+        const step = 1000;
+        let hasMore = true;
+        while (hasMore) {
+          const { data, error } = await queryBuilder.range(from, from + step - 1);
+          if (error) throw error;
+          if (data && data.length > 0) {
+            allData = [...allData, ...data];
+            from += step;
+            if (data.length < step) hasMore = false;
+          } else {
+            hasMore = false;
+          }
+        }
+        return { data: allData, error: null };
+      };
+
       const [staffRes, examsRes, assignmentsRes, roomsRes, settingsRes, freeStaffRes] = await Promise.all([
-        supabase.from('staff').select('*').order('name').limit(10000),
-        supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(10000),
-        supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').limit(10000),
-        supabase.from('rooms').select('*').order('room_name').limit(10000),
-        supabase.from('system_settings').select('*').not('setting_key', 'like', 'backup_%').limit(10000),
-        supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period').limit(10000)
+        fetchAll(supabase.from('staff').select('*').order('name')),
+        fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date')),
+        fetchAll(supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))')),
+        fetchAll(supabase.from('rooms').select('*').order('room_name')),
+        fetchAll(supabase.from('system_settings').select('*').not('setting_key', 'like', 'backup_%')),
+        fetchAll(supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period'))
       ]);
+
       if (staffRes.error) throw staffRes.error;
       if (examsRes.error) throw examsRes.error;
       if (assignmentsRes.error) throw assignmentsRes.error;

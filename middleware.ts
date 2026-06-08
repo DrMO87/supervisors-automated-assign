@@ -15,6 +15,7 @@ export async function middleware(req: NextRequest) {
   const userMetadata = session?.user?.user_metadata || {};
   const isStaffAccount = session?.user?.email === 'staff@horus.edu.eg' || userMetadata.role === 'staff';
   const isAdminReportsAccount = userMetadata.role === 'admin_reports';
+  const isControlAccount = userMetadata.role === 'control';
 
   // If there's no session and the user is trying to access a protected route
   if (!session && !req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
@@ -41,6 +42,15 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  // If the control account tries to access anything other than /control-portal, lock them into their portal
+  if (session && isControlAccount) {
+    if (!req.nextUrl.pathname.startsWith('/control-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+      const redirectUrl = req.nextUrl.clone();
+      redirectUrl.pathname = '/control-portal';
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
   // If there is a session and the user is on the login page, redirect to their respective home
   if (session && req.nextUrl.pathname.startsWith('/login')) {
     const redirectUrl = req.nextUrl.clone();
@@ -48,6 +58,8 @@ export async function middleware(req: NextRequest) {
       redirectUrl.pathname = '/staff-portal';
     } else if (isAdminReportsAccount) {
       redirectUrl.pathname = '/admin-reports';
+    } else if (isControlAccount) {
+      redirectUrl.pathname = '/control-portal';
     } else {
       redirectUrl.pathname = '/';
     }
