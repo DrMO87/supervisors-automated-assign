@@ -33,7 +33,7 @@ export default function StaffPage() {
 
   useEffect(() => {
     if (isSupabaseConfigured()) {
-      loadStaff();
+      loadStaff(true);
     } else {
       setIsLoading(false);
     }
@@ -44,9 +44,9 @@ export default function StaffPage() {
     return <SetupRequired configStatus={configStatus} />;
   }
 
-  const loadStaff = async () => {
+  const loadStaff = async (showLoader = false) => {
     if (!supabase) return;
-    setIsLoading(true);
+    if (showLoader) setIsLoading(true);
     try {
       const [staffRes, examsRes] = await Promise.all([
         supabase.from('staff').select('*').order('name').limit(10000),

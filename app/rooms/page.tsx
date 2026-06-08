@@ -28,7 +28,7 @@ export default function RoomsPage() {
 
   useEffect(() => {
     if (isSupabaseConfigured()) {
-      loadRooms();
+      loadRooms(true);
     } else {
       setIsLoading(false);
     }
@@ -38,9 +38,9 @@ export default function RoomsPage() {
     return <SetupRequired configStatus={configStatus} />;
   }
 
-  const loadRooms = async () => {
+  const loadRooms = async (showLoader = false) => {
     if (!supabase) return;
-    setIsLoading(true);
+    if (showLoader) setIsLoading(true);
     try {
       const { data, error } = await supabase.from('rooms').select('*').order('room_name');
       if (error) throw error;

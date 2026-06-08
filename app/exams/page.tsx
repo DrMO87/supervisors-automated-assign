@@ -34,7 +34,7 @@ export default function ExamsPage() {
 
   useEffect(() => {
     if (isSupabaseConfigured()) {
-      loadData();
+      loadData(true);
     } else {
       setIsLoading(false);
     }
@@ -44,9 +44,9 @@ export default function ExamsPage() {
     return <SetupRequired configStatus={configStatus} />;
   }
 
-  const loadData = async () => {
+  const loadData = async (showLoader = false) => {
     if (!supabase) return;
-    setIsLoading(true);
+    if (showLoader) setIsLoading(true);
     try {
       const [examsRes, roomsRes] = await Promise.all([
         supabase.from('exam_sessions').select('*, room:rooms(*)').order('exam_date').order('start_time'),

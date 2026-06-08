@@ -27,15 +27,15 @@ export default function AutoAssignPage() {
 
     useEffect(() => {
         if (isSupabaseConfigured()) {
-            loadData();
+            loadData(true);
         } else {
             setIsLoading(false);
         }
     }, []);
 
-    const loadData = async () => {
+    const loadData = async (showLoader = false) => {
         if (!supabase) return;
-        setIsLoading(true);
+        if (showLoader) setIsLoading(true);
         try {
             const [staffRes, examsRes, roomsRes, assignmentsRes, settingsRes] = await Promise.all([
                 supabase.from('staff').select('*').limit(10000),
