@@ -12,7 +12,8 @@ import {
   generateAssignedReservesExcel, generateAssignedReservesHTML,
   generateFreeInvigilatorsExcel, generateFreeInvigilatorsHTML,
   generateAllStaffSchedulesHTML,
-  generateWorkloadExcel
+  generateWorkloadExcel,
+  generateOralExamsHTML, generateOralExamsExcel
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
@@ -223,6 +224,28 @@ export default function AdminReportsPage() {
           openPrintable(html);
         }
       }
+      else if (reportType === 'oral-exams') {
+        const d = new Date(`${selectedDate || new Date().toISOString().split('T')[0]}T12:00:00Z`);
+        const day = d.getUTCDay();
+        const offset = day === 6 ? 0 : -(day + 1);
+        const weekStartStr = new Date(d.setUTCDate(d.getUTCDate() + offset)).toISOString().split('T')[0];
+        
+        const getWeekStart = (dateStr: string) => {
+          const dx = new Date(`${dateStr}T12:00:00Z`);
+          const dday = dx.getUTCDay();
+          const doffset = dday === 6 ? 0 : -(dday + 1);
+          return new Date(dx.setUTCDate(dx.getUTCDate() + doffset)).toISOString().split('T')[0];
+        };
+        const weekExams = exams.filter(e => getWeekStart(e.exam_date) === weekStartStr);
+
+        if (format === 'excel') {
+          const blob = generateOralExamsExcel(weekExams, `Week of ${weekStartStr}`);
+          downloadFile(blob, `oral_exams_report_${weekStartStr}.xlsx`);
+        } else {
+          const html = generateOralExamsHTML(weekExams, `Week of ${weekStartStr}`);
+          openPrintable(html);
+        }
+      }
       else if (reportType === 'assigned-reserve') {
         const dailyFreeStaff = freeStaff.filter(fs => fs.exam_date === selectedDate);
         if (format === 'excel') {
@@ -413,6 +436,12 @@ export default function AdminReportsPage() {
                 title="Weekly Hall Report" 
                 description="Comprehensive weekly overview of all hall assignments for the current week."
                 icon={FileSpreadsheet} 
+              />
+              <ReportCard 
+                type="oral-exams" 
+                title="Oral Exams Report" 
+                description="Dedicated report for all Oral Exams scheduled for the current week."
+                icon={Users} 
               />
             </div>
           </div>

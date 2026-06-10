@@ -30,6 +30,8 @@ import {
   generateAssignedReservesExcel,
   getWeekRangeLabel,
   mapFreeStaffToAssignment,
+  generateOralExamsHTML,
+  generateOralExamsExcel,
 } from '@/lib/utils/report-generators';
 import * as XLSX from 'xlsx';
 import { downloadFile } from '@/lib/utils/csv-helpers';
@@ -43,6 +45,7 @@ export default function ReportsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<string>('all');
+  const [selectedOralCourse, setSelectedOralCourse] = useState<string>('all');
   const [freeStaff, setFreeStaff] = useState<any[]>([]);
 
   // Modal states
@@ -140,6 +143,12 @@ export default function ReportsPage() {
   const filteredExams = selectedWeek === 'all' 
     ? exams 
     : exams.filter(e => getWeekStart(e.exam_date) === selectedWeek);
+
+  const availableOralCourses = Array.from(new Set(
+    filteredExams
+      .filter(e => e.exam_type?.toLowerCase().includes('oral'))
+      .map(e => e.subject_name)
+  )).sort();
 
   const filteredAssignments = selectedWeek === 'all'
     ? assignments
@@ -389,6 +398,32 @@ export default function ReportsPage() {
     }
   };
 
+  const handleOralExamsReport = (mode: 'pdf' | 'excel') => {
+    setGenerating('oral-exams');
+    try {
+      const weekLabel = getWeekRangeLabel(selectedWeek, mergedAssignments);
+      const cleanWeekLabel = weekLabel.replace(/[\/\\:\*\?"<>\|]/g, '').replace(/\s+/g, '_');
+      
+      const examsToReport = selectedOralCourse === 'all' 
+        ? filteredExams 
+        : filteredExams.filter(e => e.subject_name === selectedOralCourse);
+
+      if (mode === 'excel') {
+        const blob = generateOralExamsExcel(examsToReport, weekLabel);
+        downloadFile(blob, `oral_exams_report_${cleanWeekLabel}.xlsx`);
+      } else {
+        const html = generateOralExamsHTML(examsToReport, weekLabel);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+        }
+      }
+    } finally {
+      setGenerating(null);
+    }
+  };
+
   const handleAllSchedulesExport = () => {
     setGenerating('all');
     try {
@@ -615,6 +650,54 @@ export default function ReportsPage() {
             {generating === 'all' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
             Download Master File
           </button>
+        </div>
+
+        {/* Oral Exams Report */}
+        <div className="card p-7 border-l-4 border-l-rose-500 bg-rose-50/20 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+             <Users className="w-32 h-32" />
+          </div>
+          <div className="relative">
+            <div className="flex items-center mb-4">
+              <div className="bg-rose-500 p-2.5 rounded-xl shadow-lg shadow-rose-500/20">
+                <Users className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="text-lg font-bold ml-4 text-rose-950">Oral Exams Report</h3>
+            </div>
+            <p className="text-gray-600 mb-6 text-sm leading-relaxed">Dedicated report for all Oral Exams, organized by week, day, and course.</p>
+            
+            <div className="mb-4">
+              <label className="block text-xs font-bold text-rose-900 mb-1 uppercase tracking-wider">Filter by Course</label>
+              <select 
+                value={selectedOralCourse} 
+                onChange={(e) => setSelectedOralCourse(e.target.value)}
+                className="w-full px-3 py-2 bg-white border border-rose-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+              >
+                <option value="all">All Courses</option>
+                {availableOralCourses.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-3">
+              <button 
+                onClick={() => handleOralExamsReport('pdf')} 
+                className="btn btn-primary bg-rose-600 w-full hover:bg-rose-700 transition-colors border-none" 
+                disabled={generating === 'oral-exams' || exams.length === 0}
+              >
+                {generating === 'oral-exams' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+                Print Preview
+              </button>
+              <button 
+                onClick={() => handleOralExamsReport('excel')} 
+                className="btn btn-secondary bg-white border border-slate-200 w-full hover:bg-slate-50" 
+                disabled={generating === 'oral-exams' || exams.length === 0}
+              >
+                <Download className="w-4 h-4 mr-2" />Export Excel
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Free Invigilators Report - Highlighted */}

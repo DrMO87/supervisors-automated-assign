@@ -1124,7 +1124,7 @@ export function allocateReserveStaff(
   const reserveAssignments: ReserveAssignment[] = [];
   
   // Group sessions by date and period
-  const datePeriodGroups = new Map<string, { exam_date: string; period: number; start_time: string; session_ids: string[] }>();
+  const datePeriodGroups = new Map<string, { exam_date: string; period: number; start_time: string; session_ids: string[]; has_final: boolean }>();
   for (const session of sessions) {
     const period = getPeriodFromTime(session.start_time);
     const key = `${session.exam_date}_${period}`;
@@ -1133,14 +1133,25 @@ export function allocateReserveStaff(
         exam_date: session.exam_date,
         period,
         start_time: session.start_time,
-        session_ids: []
+        session_ids: [],
+        has_final: false
       });
     }
-    datePeriodGroups.get(key)!.session_ids.push(session.id);
+    const group = datePeriodGroups.get(key)!;
+    group.session_ids.push(session.id);
+    
+    // Check if this is a final (written) exam
+    if (!session.exam_type?.toLowerCase().includes('oral')) {
+      group.has_final = true;
+    }
   }
 
   // Process each date-period group
   for (const group of datePeriodGroups.values()) {
+    // If a period has ONLY oral exams, skip reserve allocation entirely
+    if (!group.has_final) {
+      continue;
+    }
     // 1. Find staff already assigned to standard duties in this period
     const assignedStaffIds = new Set(
       currentAssignments

@@ -1895,3 +1895,115 @@ export function generateAssignedReservesExcel(freeStaffList: PeriodFreeStaff[], 
   const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
+
+/**
+ * Generate printable oral exams report HTML
+ */
+export function generateOralExamsHTML(exams: ExamSessionWithRelations[], weekLabel?: string): string {
+  const oralExams = exams.filter(e => e.exam_type?.toLowerCase().includes('oral'));
+  
+  const sortedExams = oralExams.sort((a, b) => {
+    const dateCompare = a.exam_date.localeCompare(b.exam_date);
+    if (dateCompare !== 0) return dateCompare;
+    const pA = getPeriodFromTime(a.start_time);
+    const pB = getPeriodFromTime(b.start_time);
+    if (pA !== pB) return pA - pB;
+    return a.subject_name.localeCompare(b.subject_name);
+  });
+
+  const rows = sortedExams.map((exam, i, arr) => {
+    let sep = '';
+    if (i > 0) {
+      const prev = arr[i-1];
+      if (prev.exam_date !== exam.exam_date) sep = ' class="day-separator"';
+      else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) sep = ' class="period-separator"';
+    }
+    
+    // Group all supervisors for this oral exam
+    const team = exam.assignments?.map(a => `<div style="margin-bottom:1mm"><strong>${a.staff?.name || 'Unknown'}</strong> <small>(${getShortRole(a.role)})</small></div>`).join('') || '<em>Not assigned</em>';
+
+    return `<tr${sep}>
+      <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
+      <td>Period ${getPeriodFromTime(exam.start_time)}<br><small>${exam.start_time}</small></td>
+      <td><strong>${exam.subject_name}</strong></td>
+      <td>${exam.program || '-'}</td>
+      <td>${exam.room?.room_name || '-'}</td>
+      <td style="text-align:center">${exam.student_count}</td>
+      <td>${team}</td>
+    </tr>`;
+  }).join('');
+
+  const title = weekLabel ? `ORAL EXAMS REPORT - ${weekLabel.toUpperCase()}` : 'ORAL EXAMS REPORT';
+
+  const meta = `
+    <div class="report-meta">
+      <div class="meta-grid">
+        <div class="meta-item"><strong>Report Type:</strong> Oral Exams Only</div>
+        <div class="meta-item"><strong>Total Sessions:</strong> ${sortedExams.length}</div>
+        ${weekLabel ? `<div class="meta-item"><strong>Week:</strong> ${weekLabel}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  const table = `
+    <table>
+      <thead>
+        <tr>
+          <th style="width:15%">Date / Day</th>
+          <th style="width:15%">Time / Slot</th>
+          <th style="width:20%">Course / Subject</th>
+          <th style="width:10%">Program</th>
+          <th style="width:10%">Room</th>
+          <th style="width:5%;text-align:center">Stds.</th>
+          <th style="width:25%">Assigned Staff</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows || '<tr><td colspan="7" style="text-align:center;padding:20mm;color:#94a3b8">No oral exams found for the selected period.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+
+  return getReportLayout(title, table, meta);
+}
+
+/**
+ * Generate oral exams report Excel
+ */
+export function generateOralExamsExcel(exams: ExamSessionWithRelations[], weekLabel?: string): Blob {
+  const oralExams = exams.filter(e => e.exam_type?.toLowerCase().includes('oral'));
+  
+  const sortedExams = oralExams.sort((a, b) => {
+    const dateCompare = a.exam_date.localeCompare(b.exam_date);
+    if (dateCompare !== 0) return dateCompare;
+    const pA = getPeriodFromTime(a.start_time);
+    const pB = getPeriodFromTime(b.start_time);
+    if (pA !== pB) return pA - pB;
+    return a.subject_name.localeCompare(b.subject_name);
+  });
+
+  const headers = ['Date', 'Period', 'Time', 'Course / Subject', 'Program', 'Room', 'Students', 'Assigned Staff'];
+
+  const rows = sortedExams.map((exam, i, arr) => {
+    const team = exam.assignments?.map(a => `${a.staff?.name || 'Unknown'} (${getShortRole(a.role)})`).join('; ') || 'Not assigned';
+
+    return [
+      format(new Date(`${exam.exam_date}T12:00:00Z`), 'yyyy-MM-dd'),
+      `Period ${getPeriodFromTime(exam.start_time)}`,
+      exam.start_time,
+      exam.subject_name,
+      exam.program || '-',
+      exam.room?.room_name || '-',
+      exam.student_count.toString(),
+      team
+    ];
+  });
+
+  const data = [headers, ...rows];
+  const worksheet = XLSX.utils.aoa_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  const sheetName = (weekLabel ? `Oral Exams ${weekLabel}` : "Oral Exams").substring(0, 31);
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}

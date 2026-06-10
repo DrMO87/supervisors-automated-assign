@@ -11,10 +11,11 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
 export async function POST(req: Request) {
   try {
-    const supabaseAuth = createRouteHandlerClient({ cookies });
+const supabaseAuth = createRouteHandlerClient({ cookies });
     const { data: { session } } = await supabaseAuth.auth.getSession();
-    if (!session || session.user.user_metadata?.role !== 'control') {
-      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    const email = session?.user?.email?.toLowerCase();
+    if (!session || email !== 'melkhodary@horus.edu.eg') {
+      return NextResponse.json({ error: 'Unauthorized Access. Super Administrators only.' }, { status: 403 });
     }
 
     const { targetStaffId, weekStart } = await req.json();
