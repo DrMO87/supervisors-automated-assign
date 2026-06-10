@@ -142,7 +142,7 @@ ${query}
         <h3>Ask Gemini about the Schedule</h3>
       </div>
       
-      <form onSubmit={handleAsk} className="flex gap-2">
+      <form onSubmit={handleAsk} className="flex flex-col sm:flex-row gap-2">
         <input
           type="text"
           value={query}
@@ -151,24 +151,26 @@ ${query}
           className="flex-1 input border-gray-300 focus:border-primary-500 focus:ring-primary-500"
           disabled={isLoading}
         />
-        <button 
-          type="submit" 
-          disabled={!query.trim() || isLoading}
-          className="btn btn-primary px-4 flex items-center gap-2"
-        >
-          {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-          Ask Gemini
-        </button>
-        {(response === 'SUCCESS' || query) && (
+        <div className="flex gap-2 sm:w-auto">
           <button 
-            type="button" 
-            onClick={() => { setQuery(''); setResponse(''); }}
-            className="btn btn-secondary px-4 flex items-center gap-2"
-            title="Clear"
+            type="submit" 
+            disabled={!query.trim() || isLoading}
+            className="flex-1 sm:flex-none btn btn-primary px-4 flex items-center justify-center gap-2"
           >
-            Clear
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+            Ask Gemini
           </button>
-        )}
+          {(response === 'SUCCESS' || query) && (
+            <button 
+              type="button" 
+              onClick={() => { setQuery(''); setResponse(''); }}
+              className="flex-1 sm:flex-none btn btn-secondary px-4 flex items-center justify-center gap-2"
+              title="Clear"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </form>
 
       {response === 'SUCCESS' && (
