@@ -18,6 +18,7 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: 'Session Master — Exam Supervision Management System | Horus University-Egypt',
   description: 'Session Master: Exam Supervision & Proctoring Management System for Horus University-Egypt. Designed & Executed by Prof. Mahmoud Elkhoudary.',
+  manifest: '/manifest.json',
 };
 
 export const viewport: import('next').Viewport = {
@@ -25,6 +26,7 @@ export const viewport: import('next').Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: '#4f46e5',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
