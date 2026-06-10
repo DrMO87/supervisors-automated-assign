@@ -12,6 +12,7 @@ import {
   generateAssignedReservesExcel, generateAssignedReservesHTML,
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
+import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
 export default function ControlPortalPage() {
   const [currentUserData, setCurrentUserData] = useState<any>(null);
@@ -200,6 +201,12 @@ export default function ControlPortalPage() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-8">
         
+        <AiQueryBox 
+          weekStart={new Date(`${weekRange.start || new Date().toISOString().split('T')[0]}T12:00:00Z`)}
+          externalExamSessions={exams}
+          externalStaff={staffList}
+        />
+
         {/* Tabs */}
         <div className="flex gap-4 border-b border-slate-200 mb-8">
           <button

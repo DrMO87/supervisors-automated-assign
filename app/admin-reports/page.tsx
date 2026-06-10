@@ -17,6 +17,7 @@ import {
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
+import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
 export default function AdminReportsPage() {
   const [currentUserData, setCurrentUserData] = useState<any>(null);
@@ -344,6 +345,12 @@ export default function AdminReportsPage() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-8 space-y-8">
         
+        <AiQueryBox 
+          weekStart={new Date(`${selectedDate || new Date().toISOString().split('T')[0]}T12:00:00Z`)}
+          externalExamSessions={exams}
+          externalStaff={staffList}
+        />
+
         {/* Analysis Section */}
         <section>
           <div className="flex items-center gap-2 mb-4">

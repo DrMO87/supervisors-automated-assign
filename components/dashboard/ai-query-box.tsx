@@ -6,8 +6,22 @@ import { getPeriodFromTime } from '@/types/database.types';
 import { Bot, Loader2, Send, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
-export function AiQueryBox({ weekStart }: { weekStart?: Date }) {
-  const { examSessions, staff, getSessionConflicts } = useSchedulingStore();
+export function AiQueryBox({ 
+  weekStart,
+  externalExamSessions,
+  externalStaff,
+  externalGetSessionConflicts
+}: { 
+  weekStart?: Date | string;
+  externalExamSessions?: any[];
+  externalStaff?: any[];
+  externalGetSessionConflicts?: (id: string) => any[];
+}) {
+  const store = useSchedulingStore();
+  const examSessions = externalExamSessions || store.examSessions;
+  const staff = externalStaff || store.staff;
+  const getSessionConflicts = externalGetSessionConflicts || store.getSessionConflicts || (() => []);
+  
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,7 +46,7 @@ export function AiQueryBox({ weekStart }: { weekStart?: Date }) {
           room: roomStr,
           students: s.student_count,
           conflicts: getSessionConflicts(s.id).map(c => c.message),
-          assignments: (s.assignments || []).map(a => {
+          assignments: (s.assignments || []).map((a: any) => {
             const staffObj = staffMap.get(a.staff_id);
             return {
               role: a.role,
@@ -47,7 +61,7 @@ export function AiQueryBox({ weekStart }: { weekStart?: Date }) {
       if (weekStart && supabase) {
         const weekEnd = new Date(weekStart);
         weekEnd.setDate(weekEnd.getDate() + 6);
-        const startStr = weekStart.toISOString().split('T')[0];
+        const startStr = new Date(weekStart).toISOString().split('T')[0];
         const endStr = weekEnd.toISOString().split('T')[0];
 
         const { data: freeStaff } = await supabase
@@ -68,13 +82,18 @@ export function AiQueryBox({ weekStart }: { weekStart?: Date }) {
       }
 
       const staffSummary = staff
-        .filter(s => s.availability_status === 'Available')
-        .map(s => ({
+        .filter((s: any) => s.availability_status === 'Available')
+        .map((s: any) => ({
           name: s.name,
           role: s.supervision_role,
+          job: s.job_title,
           type: s.employment_status,
           exam_score: (s.current_score || 0) + ((s.free_staff_score || 0) * 0.25),
-          reserve_score: s.free_staff_score || 0
+          reserve_score: s.free_staff_score || 0,
+          working_days: s.working_days || [],
+          specific_off_dates: s.specific_off_dates || [],
+          feeding_mother: s.feeding_mother || false,
+          health_issues: s.health_issues || false
         }));
 
       const contextPayload = {
@@ -96,6 +115,7 @@ App Functions & Rules Summary:
    - "reserve_score": Number of times assigned as a reserve/standby. Lower score = priority for new reserve assignments.
 6. The app detects conflicts such as understaffing, staff double-booked, and working on off-days.
 7. When suggesting names for manual assignments or reserves, use the "staff_summary" list to find Available staff with the correct role and the lowest relevant score.
+8. IMPORTANT FOR AVAILABILITY: If asked "Who can be reserve" or "Who is available" for a specific date, you MUST check their "working_days" and "specific_off_dates" in the staff_summary. A staff member is ONLY available if the exam date matches one of their "working_days" AND the exam date is NOT listed in their "specific_off_dates". Do not suggest someone for a date if they are not scheduled to work that day!
 
 Here is the JSON context of the currently visible schedule week, including scheduled exams, assigned staff, detected conflicts, and reserved staff:
 ${JSON.stringify(contextPayload)}

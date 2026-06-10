@@ -13,7 +13,7 @@ import {
   mapFreeStaffToAssignment,
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
-
+import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 export default function UnifiedStaffPortalPage() {
   const [activeTab, setActiveTab] = useState<'swap' | 'schedule'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
@@ -527,6 +527,13 @@ export default function UnifiedStaffPortalPage() {
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col justify-center">
+                  {staffMember?.job_title === 'Lecturer' && (
+                    <AiQueryBox 
+                      weekStart={currentWeek !== 'all' ? new Date(`${currentWeek}T12:00:00Z`) : undefined}
+                      externalExamSessions={exams}
+                      externalStaff={staffList}
+                    />
+                  )}
                   <div className="card p-7 border border-gray-200 rounded-[1.5rem] bg-white shadow-sm transition-shadow">
                     <div className="flex items-center mb-5">
                       <div className="bg-primary-50 p-3 rounded-2xl">
