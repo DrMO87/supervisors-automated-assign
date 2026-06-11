@@ -3,17 +3,24 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Staff, Room, getPeriodFromTime, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
-import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download } from 'lucide-react';
+import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download, BarChart3, Users, FileSpreadsheet, ShieldCheck, AlertCircle } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
   generateStaffScheduleExcel,
   generateStaffScheduleHTML,
   generateAllStaffSchedulesHTML,
+  generateDailyHallExcel, generateDailyHallHTML,
+  generateWeeklyHallExcel, generateWeeklyHallHTML,
+  generateAssignedReservesExcel, generateAssignedReservesHTML,
+  generateFreeInvigilatorsExcel, generateFreeInvigilatorsHTML,
+  generateWorkloadExcel,
+  generateOralExamsHTML, generateOralExamsExcel,
   getWeekRangeLabel,
   mapFreeStaffToAssignment,
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
+import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 export default function UnifiedStaffPortalPage() {
   const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules'>('swap');
@@ -45,9 +52,78 @@ export default function UnifiedStaffPortalPage() {
   // --- Generic Staff State ---
   const [swaps, setSwaps] = useState<any[]>([]);
   const [selectedGlobalWeek, setSelectedGlobalWeek] = useState<string>('');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [metrics, setMetrics] = useState({
+    totalExams: 0,
+    totalAssignments: 0,
+    assignedReserves: 0,
+    freeReserves: 0,
+    coverage: 0,
+    chartData: [] as any[]
+  });
 
   const supabase = createClientComponentClient();
   const router = useRouter();
+
+  useEffect(() => {
+    // Calculate Metrics for the currently selected week context
+    if (exams.length === 0) return;
+
+    const targetWeek = selectedGlobalWeek || currentWeek;
+    if (!targetWeek || targetWeek === 'all') return;
+
+    const getWeekStart = (dateStr: string) => {
+      const d = new Date(`${dateStr}T12:00:00Z`);
+      const day = d.getUTCDay();
+      const offset = day === 6 ? 0 : -(day + 1);
+      const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
+      return start.toISOString().split('T')[0];
+    };
+
+    const currentWeekExams = exams.filter(e => getWeekStart(e.exam_date) === targetWeek);
+    const currentWeekAssignments = assignments.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
+    const currentWeekFreeStaff = freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
+
+    const expectedStaffRequired = currentWeekExams.length * 3;
+    let coverageRatio = 0;
+    if (expectedStaffRequired > 0) {
+      coverageRatio = Math.min(100, Math.round((currentWeekAssignments.length / expectedStaffRequired) * 100));
+    } else if (currentWeekExams.length === 0 && exams.length > 0) {
+      coverageRatio = 100;
+    }
+
+    const assignedReservesCount = assignments.filter(a => (a.role === 'Assistant' || a.role === 'Invigilator') && a.is_manual_override).length;
+
+    const dailyCounts = new Map<string, number>();
+    const daysOrder = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
+    currentWeekExams.forEach(session => {
+      const day = new Date(`${session.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+    });
+    
+    const chartData = daysOrder.map(day => ({
+      name: day,
+      exams: dailyCounts.get(day) || 0
+    }));
+
+    setMetrics({
+      totalExams: currentWeekExams.length,
+      totalAssignments: currentWeekAssignments.length,
+      assignedReserves: assignedReservesCount,
+      freeReserves: currentWeekFreeStaff.length,
+      coverage: coverageRatio,
+      chartData: chartData
+    });
+    
+    // Auto-select a date in that week if none selected
+    if (!selectedDate || getWeekStart(selectedDate) !== targetWeek) {
+        if (currentWeekExams.length > 0) {
+            setSelectedDate(currentWeekExams[0].exam_date);
+        } else {
+            setSelectedDate(targetWeek);
+        }
+    }
+  }, [exams, assignments, freeStaffData, selectedGlobalWeek, currentWeek, selectedDate]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -302,44 +378,129 @@ export default function UnifiedStaffPortalPage() {
     }
   };
 
-  const handleGlobalSchedule = async (mode: 'pdf' | 'excel') => {
-    setGeneratingSchedule(`global-${mode}`);
+  const handleGlobalSchedule = async (reportType: string, format: 'pdf' | 'excel') => {
+    setGeneratingSchedule(`global-${reportType}-${format}`);
     try {
       const targetWeek = selectedGlobalWeek || currentWeek;
       
-      let assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))');
-      let freeStaffQuery = supabase.from('period_free_staff').select('*, staff:staff(*)');
+      let weekLabel = targetWeek === 'all' ? 'All Weeks' : `Week of ${targetWeek}`;
 
-      if (targetWeek !== 'all') {
-        const d = new Date(`${targetWeek}T12:00:00Z`);
-        d.setDate(d.getDate() + 6);
-        const targetEnd = d.toISOString().split('T')[0];
-        
-        assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session!inner(*, room:rooms(*))')
-                                   .gte('exam_session.exam_date', targetWeek)
-                                   .lte('exam_session.exam_date', targetEnd);
-        
-        freeStaffQuery = freeStaffQuery.gte('exam_date', targetWeek).lte('exam_date', targetEnd);
+      const getWeekStart = (dateStr: string) => {
+        const dx = new Date(`${dateStr}T12:00:00Z`);
+        const dday = dx.getUTCDay();
+        const doffset = dday === 6 ? 0 : -(dday + 1);
+        return new Date(dx.setUTCDate(dx.getUTCDate() + doffset)).toISOString().split('T')[0];
+      };
+
+      if (reportType === 'daily') {
+        const dailyExams = exams.filter(e => e.exam_date === selectedDate);
+        if (dailyExams.length === 0) {
+          alert('No exams found for the selected date.');
+          setGeneratingSchedule(null);
+          return;
+        }
+        if (format === 'excel') {
+          const blob = generateDailyHallExcel(dailyExams, selectedDate);
+          downloadFile(blob, `daily_hall_report_${selectedDate}.xlsx`);
+        } else {
+          const html = generateDailyHallHTML(dailyExams, selectedDate);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
       }
+      else if (reportType === 'weekly') {
+        const weekExams = exams.filter(e => targetWeek === 'all' ? true : getWeekStart(e.exam_date) === targetWeek);
+        if (format === 'excel') {
+          const blob = generateWeeklyHallExcel(weekExams, weekLabel);
+          downloadFile(blob, `weekly_hall_report_${targetWeek}.xlsx`);
+        } else {
+          const html = generateWeeklyHallHTML(weekExams, weekLabel);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
+      }
+      else if (reportType === 'all-staff') {
+        const merged = assignments.map(a => {
+            const session = exams.find(e => e.id === a.exam_session_id);
+            return {
+                ...a,
+                exam_session: session ? {
+                    ...session,
+                    room: roomList.find(r => r.id === session.room_id)
+                } : undefined
+            };
+        });
+        const weekAssignments = targetWeek === 'all' ? merged : merged.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
 
-      const [assnRes, freeRes] = await Promise.all([
-        assignmentsQuery,
-        freeStaffQuery
-      ]);
+        if (format === 'excel') {
+          const blob = generateWorkloadExcel(staffList, weekAssignments);
+          downloadFile(blob, `all_staff_workload_${targetWeek}.xlsx`);
+        } else {
+          const html = generateAllStaffSchedulesHTML(staffList, weekAssignments, weekLabel);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
+      }
+      else if (reportType === 'oral-exams') {
+        const weekExams = exams.filter(e => targetWeek === 'all' ? true : getWeekStart(e.exam_date) === targetWeek);
+        if (format === 'excel') {
+          const blob = generateOralExamsExcel(weekExams, weekLabel);
+          downloadFile(blob, `oral_exams_report_${targetWeek}.xlsx`);
+        } else {
+          const html = generateOralExamsHTML(weekExams, weekLabel);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
+      }
+      else if (reportType === 'assigned-reserve') {
+        const merged = assignments.map(a => {
+            const session = exams.find(e => e.id === a.exam_session_id);
+            return {
+                ...a,
+                exam_session: session ? {
+                    ...session,
+                    room: roomList.find(r => r.id === session.room_id)
+                } : undefined
+            };
+        });
+        const weekAssignments = targetWeek === 'all' ? merged : merged.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
 
-      const merged = [
-        ...(assnRes.data || []),
-        ...(freeRes.data || []).map(mapFreeStaffToAssignment)
-      ];
-
-      const weekLabel = getWeekRangeLabel(targetWeek, merged);
-      
-      if (mode === 'pdf') {
-        const html = generateAllStaffSchedulesHTML(staffList, merged, weekLabel);
-        const printWindow = window.open('', '_blank');
-        if (printWindow) {
-          printWindow.document.write(html);
-          printWindow.document.close();
+        if (format === 'excel') {
+          const blob = generateAssignedReservesExcel(staffList, weekAssignments, weekLabel);
+          downloadFile(blob, `assigned_reserves_${targetWeek}.xlsx`);
+        } else {
+          const html = generateAssignedReservesHTML(staffList, weekAssignments, weekLabel);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
+      }
+      else if (reportType === 'free-reserve') {
+        const weekFreeStaff = targetWeek === 'all' ? freeStaffData : freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
+        if (format === 'excel') {
+          const blob = generateFreeInvigilatorsExcel(staffList, weekFreeStaff, weekLabel);
+          downloadFile(blob, `free_reserves_${targetWeek}.xlsx`);
+        } else {
+          const html = generateFreeInvigilatorsHTML(staffList, weekFreeStaff, weekLabel);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
         }
       }
     } catch (err: any) {
@@ -348,6 +509,36 @@ export default function UnifiedStaffPortalPage() {
       setGeneratingSchedule(null);
     }
   };
+
+  const ReportCard = ({ title, description, type, icon: Icon }: any) => (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 hover:shadow-lg transition-all group flex flex-col justify-between">
+      <div>
+        <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center mb-4 text-indigo-600 group-hover:scale-110 transition-transform">
+          <Icon className="w-6 h-6" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900 mb-1">{title}</h3>
+        <p className="text-slate-500 text-sm mb-6">{description}</p>
+      </div>
+      <div className="flex gap-3">
+        <button 
+          onClick={() => handleGlobalSchedule(type, 'pdf')}
+          disabled={!!generatingSchedule}
+          className="flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold py-2.5 px-4 rounded-xl text-sm transition-colors flex justify-center items-center gap-2 border border-slate-200"
+        >
+          {generatingSchedule === `global-${type}-pdf` ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+          Print PDF
+        </button>
+        <button 
+          onClick={() => handleGlobalSchedule(type, 'excel')}
+          disabled={!!generatingSchedule}
+          className="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold py-2.5 px-4 rounded-xl text-sm transition-colors flex justify-center items-center gap-2 border border-indigo-200"
+        >
+          {generatingSchedule === `global-${type}-excel` ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+          Excel
+        </button>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -397,8 +588,8 @@ export default function UnifiedStaffPortalPage() {
               onClick={() => setActiveTab('all_schedules')}
               className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'all_schedules' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
             >
-              <Calendar className="w-4 h-4" />
-              All Schedules
+              <BarChart3 className="w-4 h-4" />
+              Admin Reports
             </button>
             <button
               onClick={() => setActiveTab('swap_log')}
@@ -664,8 +855,8 @@ export default function UnifiedStaffPortalPage() {
                     <div className="w-24 h-12 relative mb-4">
                       <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
                     </div>
-                    <h1 className="text-2xl font-bold text-white mb-2">All Staff Schedules</h1>
-                    <p className="text-primary-100 text-sm max-w-sm">View and download schedules for all staff members</p>
+                    <h1 className="text-2xl font-bold text-white mb-2">Admin Reports Portal</h1>
+                    <p className="text-primary-100 text-sm max-w-sm">View and download schedules and reports</p>
                   </div>
                 </div>
 
@@ -677,43 +868,166 @@ export default function UnifiedStaffPortalPage() {
                       externalStaff={staffList}
                     />
                   </div>
-                  <div className="card p-7 border border-gray-200 rounded-[1.5rem] bg-white shadow-sm transition-shadow flex-1">
-                    <div className="flex items-center mb-5">
-                      <div className="bg-primary-50 p-3 rounded-2xl">
-                        <Calendar className="w-7 h-7 text-primary-600" />
+                  <div className="flex-1 space-y-8">
+                    {/* Week Selector */}
+                    <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Calendar className="w-5 h-5 text-indigo-600" />
+                        <h2 className="text-xl font-bold text-slate-900">Select Exam Context</h2>
                       </div>
-                      <h3 className="text-xl font-bold ml-4 text-slate-900">Global Schedules</h3>
+                      <select
+                        value={selectedGlobalWeek || currentWeek}
+                        onChange={e => setSelectedGlobalWeek(e.target.value)}
+                        className="block w-full pl-3 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-xl bg-slate-50"
+                      >
+                        <option value="all">All Available Weeks</option>
+                        {availableWeeks.map(w => (
+                          <option key={w} value={w}>Week of {new Date(w).toLocaleDateString()}</option>
+                        ))}
+                      </select>
                     </div>
-                    <p className="text-gray-600 mb-8 text-sm leading-relaxed">
-                      Select an exam week below to generate the master schedule containing all assignments and reserves for all staff.
-                    </p>
-                    
-                    <div className="space-y-6">
-                      <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Select Exam Week</label>
-                        <select
-                          value={selectedGlobalWeek || currentWeek}
-                          onChange={e => setSelectedGlobalWeek(e.target.value)}
-                          className="block w-full pl-3 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-xl bg-slate-50"
-                        >
-                          <option value="all">All Available Weeks</option>
-                          {availableWeeks.map(w => (
-                            <option key={w} value={w}>Week of {new Date(w).toLocaleDateString()}</option>
-                          ))}
-                        </select>
+
+                    {/* Analysis Section */}
+                    {(selectedGlobalWeek || currentWeek) !== 'all' && (
+                      <section>
+                        <div className="flex items-center gap-2 mb-4">
+                          <BarChart3 className="w-5 h-5 text-indigo-600" />
+                          <h2 className="text-xl font-bold text-slate-900">Current Week Analysis</h2>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                          {/* KPI Cards */}
+                          <div className="lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                              <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><FileText className="w-6 h-6" /></div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-500">Exams</p>
+                                <p className="text-2xl font-bold text-slate-900">{metrics.totalExams}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                              <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><CheckCircle2 className="w-6 h-6" /></div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-500">Assignments</p>
+                                <p className="text-2xl font-bold text-slate-900">{metrics.totalAssignments}</p>
+                              </div>
+                            </div>
+
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                              <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><ShieldCheck className="w-6 h-6" /></div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-500">Free Reserves</p>
+                                <p className="text-2xl font-bold text-slate-900">{metrics.freeReserves}</p>
+                              </div>
+                            </div>
+
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+                              <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><AlertCircle className="w-6 h-6" /></div>
+                              <div>
+                                <p className="text-sm font-medium text-slate-500">Coverage</p>
+                                <p className="text-2xl font-bold text-slate-900">{metrics.coverage}%</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Weekly Volume Chart */}
+                          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col">
+                            <div className="flex items-center gap-2 mb-2">
+                              <BarChart3 className="w-4 h-4 text-indigo-500" />
+                              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Exam Volume</p>
+                            </div>
+                            <div className="flex-1 min-h-[120px] -ml-4">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart data={metrics.chartData}>
+                                  <defs>
+                                    <linearGradient id="colorExams" x1="0" y1="0" x2="0" y2="1">
+                                      <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
+                                      <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                                    </linearGradient>
+                                  </defs>
+                                  <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ fontSize: '12px', borderRadius: '8px' }} />
+                                  <Area type="monotone" dataKey="exams" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorExams)">
+                                    <LabelList dataKey="exams" position="top" fill="#4f46e5" fontSize={11} fontWeight="bold" />
+                                  </Area>
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+
+                    <hr className="border-slate-200" />
+
+                    {/* Reports Grid */}
+                    <section className="space-y-8 pb-8">
+                      <div className="flex items-center gap-2">
+                        <Download className="w-5 h-5 text-indigo-600" />
+                        <h2 className="text-xl font-bold text-slate-900">Generate Reports</h2>
                       </div>
 
-                      <div className="grid grid-cols-1 pt-4">
-                        <button 
-                          onClick={() => handleGlobalSchedule('pdf')}
-                          disabled={generatingSchedule === 'global-pdf'}
-                          className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg shadow-primary-900/20 transition-all hover:shadow-primary-900/40 hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
-                        >
-                          {generatingSchedule === 'global-pdf' ? <Loader2 className="w-6 h-6 mr-2 animate-spin text-white" /> : <FileText className="w-6 h-6 mr-2 text-white" />}
-                          Print Preview (PDF)
-                        </button>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 border-b pb-2">Weekly Reports ({selectedGlobalWeek === 'all' ? 'All Weeks Context' : 'Selected Week Context'})</h3>
+                        <div className="grid grid-cols-1 gap-6">
+                          <ReportCard 
+                            type="all-staff" 
+                            title="All Staff Schedule" 
+                            description="Master list detailing every staff member's individual assignments and workload."
+                            icon={Users} 
+                          />
+                          <ReportCard 
+                            type="weekly" 
+                            title="Weekly Hall Report" 
+                            description="Comprehensive weekly overview of all hall assignments."
+                            icon={FileSpreadsheet} 
+                          />
+                          <ReportCard 
+                            type="oral-exams" 
+                            title="Oral Exams Report" 
+                            description="Dedicated report for all Oral Exams scheduled."
+                            icon={Users} 
+                          />
+                        </div>
                       </div>
-                    </div>
+
+                      <div>
+                        <div className="flex flex-col mb-4 border-b pb-2 gap-4">
+                          <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Daily Reports</h3>
+                          {(selectedGlobalWeek || currentWeek) !== 'all' && (
+                            <div className="flex items-center gap-3">
+                              <label className="text-sm font-medium text-slate-600">Select Day within Week:</label>
+                              <input 
+                                type="date" 
+                                value={selectedDate}
+                                onChange={e => setSelectedDate(e.target.value)}
+                                className="text-sm border-slate-300 rounded-lg shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white py-1.5"
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-1 gap-6">
+                          <ReportCard 
+                            type="daily" 
+                            title="Daily Hall Report" 
+                            description="Full schedule matrix showing all exam halls, times, and assigned staff for the selected date."
+                            icon={FileText} 
+                          />
+                          <ReportCard 
+                            type="assigned-reserve" 
+                            title="Assigned Reserve" 
+                            description="List of reserve staff who were officially deployed to cover an exam hall."
+                            icon={CheckCircle2} 
+                          />
+                          <ReportCard 
+                            type="free-reserve" 
+                            title="Free Reserve" 
+                            description="List of standby staff who are currently unassigned and available for emergencies."
+                            icon={ShieldCheck} 
+                          />
+                        </div>
+                      </div>
+                    </section>
                   </div>
                 </div>
               </div>
