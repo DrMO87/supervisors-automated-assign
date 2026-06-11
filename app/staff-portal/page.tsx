@@ -10,7 +10,6 @@ import {
   generateStaffScheduleExcel,
   generateStaffScheduleHTML,
   generateAllStaffSchedulesHTML,
-  generateAllStaffSchedulesExcel,
   getWeekRangeLabel,
   mapFreeStaffToAssignment,
 } from '@/lib/utils/report-generators';
@@ -342,10 +341,6 @@ export default function UnifiedStaffPortalPage() {
           printWindow.document.write(html);
           printWindow.document.close();
         }
-      } else {
-        const blob = generateAllStaffSchedulesExcel(staffList, merged, weekLabel);
-        const cleanWeekLabel = weekLabel.replace(/[\/\\:\*\?"<>\|]/g, '').replace(/\s+/g, '_');
-        downloadFile(blob, `all_staff_schedules_${cleanWeekLabel}.xlsx`);
       }
     } catch (err: any) {
       alert('Error generating schedule: ' + err.message);
@@ -701,22 +696,14 @@ export default function UnifiedStaffPortalPage() {
                         </select>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 pt-4">
+                      <div className="grid grid-cols-1 pt-4">
                         <button 
                           onClick={() => handleGlobalSchedule('pdf')}
                           disabled={generatingSchedule === 'global-pdf'}
-                          className="flex-1 flex flex-col items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-6 px-4 rounded-xl shadow-sm transition-all hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
+                          className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-primary-600 to-indigo-600 hover:from-primary-700 hover:to-indigo-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg shadow-primary-900/20 transition-all hover:shadow-primary-900/40 hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
                         >
-                          {generatingSchedule === 'global-pdf' ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <FileText className="w-6 h-6 text-slate-500" />}
-                          Print PDF
-                        </button>
-                        <button 
-                          onClick={() => handleGlobalSchedule('excel')}
-                          disabled={generatingSchedule === 'global-excel'}
-                          className="flex-1 flex flex-col items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold py-6 px-4 rounded-xl shadow-sm transition-all hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
-                        >
-                          {generatingSchedule === 'global-excel' ? <Loader2 className="w-6 h-6 animate-spin text-indigo-600" /> : <Download className="w-6 h-6 text-indigo-600" />}
-                          Export Excel
+                          {generatingSchedule === 'global-pdf' ? <Loader2 className="w-6 h-6 mr-2 animate-spin text-white" /> : <FileText className="w-6 h-6 mr-2 text-white" />}
+                          Print Preview (PDF)
                         </button>
                       </div>
                     </div>
