@@ -295,6 +295,53 @@ export default function UnifiedStaffPortalPage() {
           printWindow.document.write(html);
           printWindow.document.close();
         }
+      }
+    } catch (err: any) {
+      setScheduleError('Failed to generate schedule: ' + err.message);
+    } finally {
+      setGeneratingSchedule(null);
+    }
+  };
+
+  const handleGlobalSchedule = async (mode: 'pdf' | 'excel') => {
+    setGeneratingSchedule(`global-${mode}`);
+    try {
+      const targetWeek = selectedGlobalWeek || currentWeek;
+      
+      let assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))');
+      let freeStaffQuery = supabase.from('period_free_staff').select('*, staff:staff(*)');
+
+      if (targetWeek !== 'all') {
+        const d = new Date(`${targetWeek}T12:00:00Z`);
+        d.setDate(d.getDate() + 6);
+        const targetEnd = d.toISOString().split('T')[0];
+        
+        assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session!inner(*, room:rooms(*))')
+                                   .gte('exam_session.exam_date', targetWeek)
+                                   .lte('exam_session.exam_date', targetEnd);
+        
+        freeStaffQuery = freeStaffQuery.gte('exam_date', targetWeek).lte('exam_date', targetEnd);
+      }
+
+      const [assnRes, freeRes] = await Promise.all([
+        assignmentsQuery,
+        freeStaffQuery
+      ]);
+
+      const merged = [
+        ...(assnRes.data || []),
+        ...(freeRes.data || []).map(mapFreeStaffToAssignment)
+      ];
+
+      const weekLabel = getWeekRangeLabel(targetWeek, merged);
+      
+      if (mode === 'pdf') {
+        const html = generateAllStaffSchedulesHTML(staffList, merged, weekLabel);
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(html);
+          printWindow.document.close();
+        }
       } else {
         const blob = generateAllStaffSchedulesExcel(staffList, merged, weekLabel);
         const cleanWeekLabel = weekLabel.replace(/[\/\\:\*\?"<>\|]/g, '').replace(/\s+/g, '_');
