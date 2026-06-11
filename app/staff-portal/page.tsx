@@ -128,12 +128,16 @@ export default function UnifiedStaffPortalPage() {
           if (!assignmentsRes.error) setAssignments(assignmentsRes.data || []);
           if (!freeStaffRes.error) setFreeStaff(freeStaffRes.data || []);
         } else {
-          // Generic staff: fetch all exams (for week dropdown) and swap requests
-          const [examsRes, swapsRes] = await Promise.all([
+          // Generic staff: fetch all data needed for reports and swaps
+          const [examsRes, assignmentsRes, freeStaffRes, swapsRes] = await Promise.all([
             fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*)')),
+            fetchAll(supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))')),
+            fetchAll(supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period')),
             supabase.from('swap_requests').select('*, room:rooms(*), original_staff:staff!original_staff_id(*), replacement_staff:staff!replacement_staff_id(*)').order('created_at', { ascending: false })
           ]);
           if (!examsRes.error) setExams(examsRes.data || []);
+          if (!assignmentsRes.error) setAssignments(assignmentsRes.data || []);
+          if (!freeStaffRes.error) setFreeStaff(freeStaffRes.data || []);
           if (!swapsRes.error) setSwaps(swapsRes.data as any || []);
         }
       } catch (err: any) {
@@ -236,7 +240,7 @@ export default function UnifiedStaffPortalPage() {
 
     const currentWeekExams = exams.filter(e => getWeekStart(e.exam_date) === targetWeek);
     const currentWeekAssignments = assignments.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
-    const currentWeekFreeStaff = freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
+    const currentWeekFreeStaff = freeStaff.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
 
     const expectedStaffRequired = currentWeekExams.length * 3;
     let coverageRatio = 0;
@@ -277,7 +281,7 @@ export default function UnifiedStaffPortalPage() {
             setSelectedDate(targetWeek);
         }
     }
-  }, [exams, assignments, freeStaffData, selectedGlobalWeek, currentWeek, selectedDate]);
+  }, [exams, assignments, freeStaff, selectedGlobalWeek, currentWeek, selectedDate]);
 
   let weekStartDate = '';
   let weekEndDate = '';
@@ -467,7 +471,7 @@ export default function UnifiedStaffPortalPage() {
         }
       }
       else if (reportType === 'assigned-reserve') {
-        const dailyFreeStaff = freeStaffData.filter(fs => fs.exam_date === selectedDate);
+        const dailyFreeStaff = freeStaff.filter(fs => fs.exam_date === selectedDate);
         if (dailyFreeStaff.length === 0) {
             alert('No reserves found for the selected date.');
             setGeneratingSchedule(null);
