@@ -598,8 +598,8 @@ export default function UnifiedStaffPortalPage() {
           </div>
 
           {currentUserData ? (
-            {/* ----- SCHEDULE PANE (INDIVIDUAL) ----- */}
             <div className="w-1/2 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+              {/* ----- SCHEDULE PANE (INDIVIDUAL) ----- */}
               <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
                 <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
                 <div className="relative z-10 flex flex-col items-center">
