@@ -670,6 +670,13 @@ export default function UnifiedStaffPortalPage() {
                 </div>
 
                 <div className="p-8 flex-1 flex flex-col overflow-y-auto">
+                  <div className="mb-6">
+                    <AiQueryBox 
+                      weekStart={(selectedGlobalWeek && selectedGlobalWeek !== 'all') ? new Date(`${selectedGlobalWeek}T12:00:00Z`) : undefined}
+                      externalExamSessions={exams}
+                      externalStaff={staffList}
+                    />
+                  </div>
                   <div className="card p-7 border border-gray-200 rounded-[1.5rem] bg-white shadow-sm transition-shadow flex-1">
                     <div className="flex items-center mb-5">
                       <div className="bg-primary-50 p-3 rounded-2xl">
