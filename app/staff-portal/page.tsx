@@ -9,13 +9,15 @@ import { useRouter } from 'next/navigation';
 import {
   generateStaffScheduleExcel,
   generateStaffScheduleHTML,
+  generateAllStaffSchedulesHTML,
+  generateAllStaffSchedulesExcel,
   getWeekRangeLabel,
   mapFreeStaffToAssignment,
 } from '@/lib/utils/report-generators';
 import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 export default function UnifiedStaffPortalPage() {
-  const [activeTab, setActiveTab] = useState<'swap' | 'schedule'>('swap');
+  const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [roomList, setRoomList] = useState<Room[]>([]);
@@ -40,6 +42,10 @@ export default function UnifiedStaffPortalPage() {
   const [freeStaff, setFreeStaff] = useState<any[]>([]);
   const [generatingSchedule, setGeneratingSchedule] = useState<string | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  // --- Generic Staff State ---
+  const [swaps, setSwaps] = useState<any[]>([]);
+  const [selectedGlobalWeek, setSelectedGlobalWeek] = useState<string>('');
 
   const supabase = createClientComponentClient();
   const router = useRouter();
@@ -73,26 +79,26 @@ export default function UnifiedStaffPortalPage() {
         setRoomList(roomRes.data || []);
 
         // Fetch specific data if a personalized account
-        if (staffId) {
-          const fetchAll = async (queryBuilder: any) => {
-            let allData: any[] = [];
-            let from = 0;
-            const step = 1000;
-            let hasMore = true;
-            while (hasMore) {
-              const { data, error } = await queryBuilder.range(from, from + step - 1);
-              if (error) throw error;
-              if (data && data.length > 0) {
-                allData = [...allData, ...data];
-                from += step;
-                if (data.length < step) hasMore = false;
-              } else {
-                hasMore = false;
-              }
+        const fetchAll = async (queryBuilder: any) => {
+          let allData: any[] = [];
+          let from = 0;
+          const step = 1000;
+          let hasMore = true;
+          while (hasMore) {
+            const { data, error } = await queryBuilder.range(from, from + step - 1);
+            if (error) throw error;
+            if (data && data.length > 0) {
+              allData = [...allData, ...data];
+              from += step;
+              if (data.length < step) hasMore = false;
+            } else {
+              hasMore = false;
             }
-            return { data: allData, error: null };
-          };
+          }
+          return { data: allData, error: null };
+        };
 
+        if (staffId) {
           const [specificStaffRes, examsRes, assignmentsRes, freeStaffRes] = await Promise.all([
             supabase.from('staff').select('*').eq('id', staffId).single(),
             fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date')),
@@ -104,6 +110,14 @@ export default function UnifiedStaffPortalPage() {
           if (!examsRes.error) setExams(examsRes.data || []);
           if (!assignmentsRes.error) setAssignments(assignmentsRes.data || []);
           if (!freeStaffRes.error) setFreeStaff(freeStaffRes.data || []);
+        } else {
+          // Generic staff: fetch all exams (for week dropdown) and swap requests
+          const [examsRes, swapsRes] = await Promise.all([
+            fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*)')),
+            supabase.from('swap_requests').select('*, room:rooms(*), original_staff:staff!original_staff_id(*), replacement_staff:staff!replacement_staff_id(*)').order('created_at', { ascending: false })
+          ]);
+          if (!examsRes.error) setExams(examsRes.data || []);
+          if (!swapsRes.error) setSwaps(swapsRes.data as any || []);
         }
       } catch (err: any) {
         setSwapError('Failed to load initial data: ' + err.message);
@@ -281,7 +295,13 @@ export default function UnifiedStaffPortalPage() {
           printWindow.document.write(html);
           printWindow.document.close();
         }
+      } else {
+        const blob = generateAllStaffSchedulesExcel(staffList, merged, weekLabel);
+        const cleanWeekLabel = weekLabel.replace(/[\/\\:\*\?"<>\|]/g, '').replace(/\s+/g, '_');
+        downloadFile(blob, `all_staff_schedules_${cleanWeekLabel}.xlsx`);
       }
+    } catch (err: any) {
+      alert('Error generating schedule: ' + err.message);
     } finally {
       setGeneratingSchedule(null);
     }
@@ -309,11 +329,16 @@ export default function UnifiedStaffPortalPage() {
       </div>
 
       {/* Centered Pill Toggle */}
-      <div className="relative z-30 mb-8 bg-white/10 backdrop-blur-xl p-1.5 rounded-full border border-white/20 shadow-xl flex items-center w-80 max-w-full">
+      <div className={`relative z-30 mb-8 bg-white/10 backdrop-blur-xl p-1.5 rounded-full border border-white/20 shadow-xl flex items-center max-w-full ${!currentUserData ? 'w-[600px]' : 'w-80'}`}>
         {/* Sliding active background indicator */}
         <div 
-          className="absolute top-1.5 bottom-1.5 w-[calc(50%-6px)] bg-gradient-to-r from-primary-600 to-indigo-600 rounded-full shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-          style={{ transform: activeTab === 'swap' ? 'translateX(0)' : 'translateX(calc(100% + 12px))' }}
+          className="absolute top-1.5 bottom-1.5 bg-gradient-to-r from-primary-600 to-indigo-600 rounded-full shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+          style={{ 
+            width: !currentUserData ? 'calc(33.333% - 4px)' : 'calc(50% - 6px)',
+            transform: activeTab === 'swap' ? 'translateX(0)' : 
+                       (activeTab === 'schedule' || activeTab === 'all_schedules') ? (!currentUserData ? 'translateX(calc(100% + 6px))' : 'translateX(calc(100% + 12px))') : 
+                       'translateX(calc(200% + 12px))'
+          }}
         />
         
         <button
@@ -323,23 +348,49 @@ export default function UnifiedStaffPortalPage() {
           <RefreshCw className="w-4 h-4" />
           Swap Shift
         </button>
-        <button
-          onClick={() => setActiveTab('schedule')}
-          className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'schedule' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
-        >
-          <Calendar className="w-4 h-4" />
-          My Schedule
-        </button>
+        
+        {!currentUserData ? (
+          <>
+            <button
+              onClick={() => setActiveTab('all_schedules')}
+              className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'all_schedules' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
+            >
+              <Calendar className="w-4 h-4" />
+              All Schedules
+            </button>
+            <button
+              onClick={() => setActiveTab('swap_log')}
+              className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'swap_log' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
+            >
+              <FileText className="w-4 h-4" />
+              Swap Log
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'schedule' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
+          >
+            <Calendar className="w-4 h-4" />
+            My Schedule
+          </button>
+        )}
       </div>
 
       {/* Sliding Viewport Container */}
-      <div className="w-full max-w-lg relative z-20 overflow-hidden rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/20">
+      <div className={`w-full relative z-20 overflow-hidden rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/20 ${!currentUserData ? 'max-w-4xl' : 'max-w-lg'}`}>
         <div 
-          className="flex w-[200%] transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
-          style={{ transform: activeTab === 'swap' ? 'translateX(0)' : 'translateX(-50%)' }}
+          className="flex transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{ 
+            width: !currentUserData ? '300%' : '200%',
+            transform: activeTab === 'swap' ? 'translateX(0)' : 
+                       activeTab === 'all_schedules' ? 'translateX(-33.333%)' :
+                       activeTab === 'swap_log' ? 'translateX(-66.666%)' :
+                       'translateX(-50%)' 
+          }}
         >
           {/* ----- SWAP PANE ----- */}
-          <div className="w-1/2 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+          <div className={`${!currentUserData ? 'w-1/3' : 'w-1/2'} flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col`}>
             <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
               <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
               <div className="relative z-10 flex flex-col items-center">
@@ -499,33 +550,27 @@ export default function UnifiedStaffPortalPage() {
             </div>
           </div>
 
-          {/* ----- SCHEDULE PANE ----- */}
-          <div className="w-1/2 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
-            <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
-              <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="w-24 h-12 relative mb-4">
-                  <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
+          {currentUserData ? (
+            {/* ----- SCHEDULE PANE (INDIVIDUAL) ----- */}
+            <div className="w-1/2 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+              <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
+                <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className="w-24 h-12 relative mb-4">
+                    <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
+                  </div>
+                  <h1 className="text-2xl font-bold text-white mb-2">My Schedule Reports</h1>
+                  <p className="text-primary-100 text-sm max-w-sm">View and download your personal supervision schedule</p>
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-2">My Schedule Reports</h1>
-                <p className="text-primary-100 text-sm max-w-sm">View and download your personal supervision schedule</p>
               </div>
-            </div>
 
-            <div className="p-8 flex-1 flex flex-col">
-              {scheduleError && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 text-center">
-                  {scheduleError}
-                </div>
-              )}
-
-              {!currentUserData ? (
-                <div className="text-center p-6 bg-amber-50 border border-amber-200 rounded-xl m-auto w-full">
-                  <p className="text-amber-800 text-sm font-medium">
-                    This feature requires a personalized staff account. The generic login cannot generate personal schedules.
-                  </p>
-                </div>
-              ) : (
+              <div className="p-8 flex-1 flex flex-col">
+                {scheduleError && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600 text-center">
+                    {scheduleError}
+                  </div>
+                )}
+                
                 <div className="flex-1 flex flex-col justify-center">
                   {staffMember?.job_title === 'Lecturer' && (
                     <AiQueryBox 
@@ -565,9 +610,133 @@ export default function UnifiedStaffPortalPage() {
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* ----- ALL SCHEDULES PANE (GENERIC) ----- */}
+              <div className="w-1/3 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+                <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
+                  <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="w-24 h-12 relative mb-4">
+                      <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-white mb-2">All Staff Schedules</h1>
+                    <p className="text-primary-100 text-sm max-w-sm">View and download schedules for all staff members</p>
+                  </div>
+                </div>
+
+                <div className="p-8 flex-1 flex flex-col overflow-y-auto">
+                  <div className="card p-7 border border-gray-200 rounded-[1.5rem] bg-white shadow-sm transition-shadow flex-1">
+                    <div className="flex items-center mb-5">
+                      <div className="bg-primary-50 p-3 rounded-2xl">
+                        <Calendar className="w-7 h-7 text-primary-600" />
+                      </div>
+                      <h3 className="text-xl font-bold ml-4 text-slate-900">Global Schedules</h3>
+                    </div>
+                    <p className="text-gray-600 mb-8 text-sm leading-relaxed">
+                      Select an exam week below to generate the master schedule containing all assignments and reserves for all staff.
+                    </p>
+                    
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">Select Exam Week</label>
+                        <select
+                          value={selectedGlobalWeek || currentWeek}
+                          onChange={e => setSelectedGlobalWeek(e.target.value)}
+                          className="block w-full pl-3 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-xl bg-slate-50"
+                        >
+                          <option value="all">All Available Weeks</option>
+                          {availableWeeks.map(w => (
+                            <option key={w} value={w}>Week of {new Date(w).toLocaleDateString()}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 pt-4">
+                        <button 
+                          onClick={() => handleGlobalSchedule('pdf')}
+                          disabled={generatingSchedule === 'global-pdf'}
+                          className="flex-1 flex flex-col items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-6 px-4 rounded-xl shadow-sm transition-all hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
+                        >
+                          {generatingSchedule === 'global-pdf' ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <FileText className="w-6 h-6 text-slate-500" />}
+                          Print PDF
+                        </button>
+                        <button 
+                          onClick={() => handleGlobalSchedule('excel')}
+                          disabled={generatingSchedule === 'global-excel'}
+                          className="flex-1 flex flex-col items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold py-6 px-4 rounded-xl shadow-sm transition-all hover:-translate-y-0.5 disabled:opacity-70 disabled:pointer-events-none"
+                        >
+                          {generatingSchedule === 'global-excel' ? <Loader2 className="w-6 h-6 animate-spin text-indigo-600" /> : <Download className="w-6 h-6 text-indigo-600" />}
+                          Export Excel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ----- SWAP LOG PANE (GENERIC) ----- */}
+              <div className="w-1/3 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+                <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
+                  <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="w-24 h-12 relative mb-4">
+                      <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-white mb-2">Swap Requests Log</h1>
+                    <p className="text-primary-100 text-sm max-w-sm">Read-only view of all shift swap requests</p>
+                  </div>
+                </div>
+
+                <div className="p-8 flex-1 flex flex-col overflow-y-auto bg-slate-50">
+                  {swaps.length === 0 ? (
+                    <div className="p-12 text-center text-gray-500 bg-white rounded-2xl border border-slate-200">No swap requests found.</div>
+                  ) : (
+                    <div className="space-y-4">
+                      {swaps.map(req => (
+                        <div key={req.id} className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex items-center gap-2">
+                              <span className="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full">
+                                {req.exam_date} • Period {req.period}
+                              </span>
+                              <span className="text-sm font-medium text-slate-500 flex items-center gap-1">
+                                <DoorOpen className="w-3.5 h-3.5" />
+                                {req.room?.room_name}
+                              </span>
+                            </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                              req.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                              req.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' :
+                              'bg-amber-50 text-amber-700 border-amber-200'
+                            }`}>
+                              {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-4 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                            <div className="flex-1">
+                              <p className="text-xs text-slate-500 font-medium mb-1">Original Staff</p>
+                              <p className="text-sm font-bold text-slate-900">{req.original_staff?.name}</p>
+                            </div>
+                            <div className="flex flex-col items-center px-4 text-slate-400">
+                              <RefreshCw className="w-5 h-5 mb-1" />
+                            </div>
+                            <div className="flex-1 text-right">
+                              <p className="text-xs text-slate-500 font-medium mb-1">Replacement Staff</p>
+                              <p className="text-sm font-bold text-indigo-700">{req.replacement_staff?.name}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
