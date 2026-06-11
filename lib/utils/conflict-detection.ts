@@ -3,7 +3,7 @@ import { getPeriodFromTime } from '@/types/database.types';
 import { calculateRequiredStaff } from '@/lib/algorithms/auto-assignment';
 
 export interface Conflict {
-  type: 'understaffed' | 'double_booking' | 'consecutive_shift' | 'unavailable';
+  type: 'understaffed' | 'double_booking' | 'consecutive_shift' | 'unavailable' | 'overloaded';
   severity: 'error' | 'warning';
   message: string;
   sessionId: string;
@@ -134,6 +134,24 @@ export function detectSessionConflicts(
         type: 'unavailable',
         severity: 'error',
         message: `${staff.name} is ${staff.availability_status}`,
+        sessionId: session.id,
+        staffId: staff.id,
+      });
+    }
+
+    // Check weekly workload limit based on working_days length
+    const totalSessionAssignments = allSessions.filter(s => s.assignments?.some(a => a.staff_id === staff.id)).length;
+    const totalReserveAssignments = periodFreeStaff.filter(r => r.staff_id === staff.id).length;
+    const totalAssignments = totalSessionAssignments + totalReserveAssignments;
+    const workingDaysCount = staff.working_days?.length || 6; // default 6 days if undefined
+
+    if (totalAssignments > workingDaysCount) {
+      // Find if this specific assignment is an 'extra' one, but typically we just warn on all their assignments
+      // so the user sees they are overloaded overall in the week.
+      conflicts.push({
+        type: 'overloaded',
+        severity: 'warning',
+        message: `${staff.name} is assigned ${totalAssignments} times this week, but only has ${workingDaysCount} working days`,
         sessionId: session.id,
         staffId: staff.id,
       });
