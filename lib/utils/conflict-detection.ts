@@ -140,18 +140,29 @@ export function detectSessionConflicts(
     }
 
     // Check weekly workload limit based on working_days length
-    const totalSessionAssignments = allSessions.filter(s => s.assignments?.some(a => a.staff_id === staff.id)).length;
-    const totalReserveAssignments = periodFreeStaff.filter(r => r.staff_id === staff.id).length;
-    const totalAssignments = totalSessionAssignments + totalReserveAssignments;
+    // We count UNIQUE days assigned, not total assignments
+    const assignedDates = new Set<string>();
+    
+    allSessions.forEach(s => {
+      if (s.assignments?.some(a => a.staff_id === staff.id)) {
+        assignedDates.add(s.exam_date);
+      }
+    });
+    
+    periodFreeStaff.forEach(r => {
+      if (r.staff_id === staff.id) {
+        assignedDates.add(r.exam_date);
+      }
+    });
+
+    const uniqueDaysCount = assignedDates.size;
     const workingDaysCount = staff.working_days?.length || 6; // default 6 days if undefined
 
-    if (totalAssignments > workingDaysCount) {
-      // Find if this specific assignment is an 'extra' one, but typically we just warn on all their assignments
-      // so the user sees they are overloaded overall in the week.
+    if (uniqueDaysCount > workingDaysCount) {
       conflicts.push({
         type: 'overloaded',
         severity: 'warning',
-        message: `${staff.name} is assigned ${totalAssignments} times this week, but only has ${workingDaysCount} working days`,
+        message: `${staff.name} is assigned on ${uniqueDaysCount} distinct days this week, but only has ${workingDaysCount} working days`,
         sessionId: session.id,
         staffId: staff.id,
       });
