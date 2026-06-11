@@ -65,65 +65,7 @@ export default function UnifiedStaffPortalPage() {
   const supabase = createClientComponentClient();
   const router = useRouter();
 
-  useEffect(() => {
-    // Calculate Metrics for the currently selected week context
-    if (exams.length === 0) return;
 
-    const targetWeek = selectedGlobalWeek || currentWeek;
-    if (!targetWeek || targetWeek === 'all') return;
-
-    const getWeekStart = (dateStr: string) => {
-      const d = new Date(`${dateStr}T12:00:00Z`);
-      const day = d.getUTCDay();
-      const offset = day === 6 ? 0 : -(day + 1);
-      const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
-      return start.toISOString().split('T')[0];
-    };
-
-    const currentWeekExams = exams.filter(e => getWeekStart(e.exam_date) === targetWeek);
-    const currentWeekAssignments = assignments.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
-    const currentWeekFreeStaff = freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
-
-    const expectedStaffRequired = currentWeekExams.length * 3;
-    let coverageRatio = 0;
-    if (expectedStaffRequired > 0) {
-      coverageRatio = Math.min(100, Math.round((currentWeekAssignments.length / expectedStaffRequired) * 100));
-    } else if (currentWeekExams.length === 0 && exams.length > 0) {
-      coverageRatio = 100;
-    }
-
-    const assignedReservesCount = assignments.filter(a => (a.role === 'Assistant' || a.role === 'Invigilator') && a.is_manual_override).length;
-
-    const dailyCounts = new Map<string, number>();
-    const daysOrder = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
-    currentWeekExams.forEach(session => {
-      const day = new Date(`${session.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
-      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
-    });
-    
-    const chartData = daysOrder.map(day => ({
-      name: day,
-      exams: dailyCounts.get(day) || 0
-    }));
-
-    setMetrics({
-      totalExams: currentWeekExams.length,
-      totalAssignments: currentWeekAssignments.length,
-      assignedReserves: assignedReservesCount,
-      freeReserves: currentWeekFreeStaff.length,
-      coverage: coverageRatio,
-      chartData: chartData
-    });
-    
-    // Auto-select a date in that week if none selected
-    if (!selectedDate || getWeekStart(selectedDate) !== targetWeek) {
-        if (currentWeekExams.length > 0) {
-            setSelectedDate(currentWeekExams[0].exam_date);
-        } else {
-            setSelectedDate(targetWeek);
-        }
-    }
-  }, [exams, assignments, freeStaffData, selectedGlobalWeek, currentWeek, selectedDate]);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -276,6 +218,66 @@ export default function UnifiedStaffPortalPage() {
   };
 
   const currentWeek = getUpcomingOrCurrentWeek();
+
+  useEffect(() => {
+    // Calculate Metrics for the currently selected week context
+    if (exams.length === 0) return;
+
+    const targetWeek = selectedGlobalWeek || currentWeek;
+    if (!targetWeek || targetWeek === 'all') return;
+
+    const getWeekStart = (dateStr: string) => {
+      const d = new Date(`${dateStr}T12:00:00Z`);
+      const day = d.getUTCDay();
+      const offset = day === 6 ? 0 : -(day + 1);
+      const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
+      return start.toISOString().split('T')[0];
+    };
+
+    const currentWeekExams = exams.filter(e => getWeekStart(e.exam_date) === targetWeek);
+    const currentWeekAssignments = assignments.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
+    const currentWeekFreeStaff = freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
+
+    const expectedStaffRequired = currentWeekExams.length * 3;
+    let coverageRatio = 0;
+    if (expectedStaffRequired > 0) {
+      coverageRatio = Math.min(100, Math.round((currentWeekAssignments.length / expectedStaffRequired) * 100));
+    } else if (currentWeekExams.length === 0 && exams.length > 0) {
+      coverageRatio = 100;
+    }
+
+    const assignedReservesCount = assignments.filter(a => (a.role === 'Assistant' || a.role === 'Invigilator') && a.is_manual_override).length;
+
+    const dailyCounts = new Map<string, number>();
+    const daysOrder = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
+    currentWeekExams.forEach(session => {
+      const day = new Date(`${session.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+      dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
+    });
+    
+    const chartData = daysOrder.map(day => ({
+      name: day,
+      exams: dailyCounts.get(day) || 0
+    }));
+
+    setMetrics({
+      totalExams: currentWeekExams.length,
+      totalAssignments: currentWeekAssignments.length,
+      assignedReserves: assignedReservesCount,
+      freeReserves: currentWeekFreeStaff.length,
+      coverage: coverageRatio,
+      chartData: chartData
+    });
+    
+    // Auto-select a date in that week if none selected
+    if (!selectedDate || getWeekStart(selectedDate) !== targetWeek) {
+        if (currentWeekExams.length > 0) {
+            setSelectedDate(currentWeekExams[0].exam_date);
+        } else {
+            setSelectedDate(targetWeek);
+        }
+    }
+  }, [exams, assignments, freeStaffData, selectedGlobalWeek, currentWeek, selectedDate]);
 
   let weekStartDate = '';
   let weekEndDate = '';
