@@ -467,7 +467,29 @@ export default function UnifiedStaffPortalPage() {
         }
       }
       else if (reportType === 'assigned-reserve') {
-        const merged = assignments.map(a => {
+        const dailyFreeStaff = freeStaffData.filter(fs => fs.exam_date === selectedDate);
+        if (dailyFreeStaff.length === 0) {
+            alert('No reserves found for the selected date.');
+            setGeneratingSchedule(null);
+            return;
+        }
+
+        if (format === 'excel') {
+          const blob = generateAssignedReservesExcel(dailyFreeStaff, `Deployment on ${selectedDate}`);
+          downloadFile(blob, `assigned_reserves_${selectedDate}.xlsx`);
+        } else {
+          const html = generateAssignedReservesHTML(dailyFreeStaff, `Deployment on ${selectedDate}`);
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.write(html);
+            printWindow.document.close();
+          }
+        }
+      }
+      else if (reportType === 'free-reserve') {
+        const dailyExams = exams.filter(e => e.exam_date === selectedDate);
+        
+        const mergedDailyAssignments = assignments.map(a => {
             const session = exams.find(e => e.id === a.exam_session_id);
             return {
                 ...a,
@@ -477,27 +499,13 @@ export default function UnifiedStaffPortalPage() {
                 } : undefined
             };
         });
-        const weekAssignments = targetWeek === 'all' ? merged : merged.filter(a => a.exam_session && getWeekStart(a.exam_session.exam_date) === targetWeek);
+        const dailyAssignments = mergedDailyAssignments.filter(a => a.exam_session && a.exam_session.exam_date === selectedDate);
 
         if (format === 'excel') {
-          const blob = generateAssignedReservesExcel(staffList, weekAssignments, weekLabel);
-          downloadFile(blob, `assigned_reserves_${targetWeek}.xlsx`);
+          const blob = generateFreeInvigilatorsExcel(staffList, dailyExams, dailyAssignments);
+          downloadFile(blob, `free_reserves_${selectedDate}.xlsx`);
         } else {
-          const html = generateAssignedReservesHTML(staffList, weekAssignments, weekLabel);
-          const printWindow = window.open('', '_blank');
-          if (printWindow) {
-            printWindow.document.write(html);
-            printWindow.document.close();
-          }
-        }
-      }
-      else if (reportType === 'free-reserve') {
-        const weekFreeStaff = targetWeek === 'all' ? freeStaffData : freeStaffData.filter(fs => getWeekStart(fs.exam_date) === targetWeek);
-        if (format === 'excel') {
-          const blob = generateFreeInvigilatorsExcel(staffList, weekFreeStaff, weekLabel);
-          downloadFile(blob, `free_reserves_${targetWeek}.xlsx`);
-        } else {
-          const html = generateFreeInvigilatorsHTML(staffList, weekFreeStaff, weekLabel);
+          const html = generateFreeInvigilatorsHTML(staffList, dailyExams, dailyAssignments);
           const printWindow = window.open('', '_blank');
           if (printWindow) {
             printWindow.document.write(html);
