@@ -72,23 +72,7 @@ export async function POST(req: Request) {
     
     if (allSessionsError) throw allSessionsError;
 
-    const { data: replacementAssignments, error: replError } = await supabase
-      .from('assignments')
-      .select('exam_session_id')
-      .eq('staff_id', request.replacement_staff_id);
-
-    if (replError) throw replError;
-
-    const replSessionIds = replacementAssignments?.map(a => a.exam_session_id) || [];
-    const replSessions = allSessionsOnDate?.filter(s => replSessionIds.includes(s.id)) || [];
-
-    for (const targetSession of targetSessions) {
-      for (const rs of replSessions) {
-        if (timesOverlap(targetSession.start_time, targetSession.end_time, rs.start_time, rs.end_time)) {
-           return NextResponse.json({ error: 'The replacement staff member is already assigned to an overlapping exam session.' }, { status: 400 });
-        }
-      }
-    }
+    // Allow staff to be assigned to multiple rooms in the same period during swaps
 
     const { data: replReserves, error: replResError } = await supabase
       .from('period_free_staff')
