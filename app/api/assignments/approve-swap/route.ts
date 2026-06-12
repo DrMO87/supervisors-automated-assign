@@ -8,8 +8,8 @@ export async function POST(req: Request) {
     const { data: { session } } = await supabaseAuth.auth.getSession();
     const email = session?.user?.email?.toLowerCase();
     
-    if (!session || (session.user.user_metadata?.role !== 'control' && email !== 'melkhodary@horus.edu.eg')) {
-      return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
+    if (!session || email !== 'melkhodary@horus.edu.eg') {
+      return NextResponse.json({ error: 'Unauthorized Access. Super Administrators only.' }, { status: 403 });
     }
 
   const supabase = createRouteHandlerClient({ cookies });
