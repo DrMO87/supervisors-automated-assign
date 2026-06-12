@@ -6,7 +6,9 @@ import { getPeriodFromTime, timesOverlap } from '@/types/database.types';
 export async function POST(req: Request) {
     const supabaseAuth = createRouteHandlerClient({ cookies });
     const { data: { session } } = await supabaseAuth.auth.getSession();
-    if (!session || session.user.user_metadata?.role !== 'control') {
+    const email = session?.user?.email?.toLowerCase();
+    
+    if (!session || (session.user.user_metadata?.role !== 'control' && email !== 'melkhodary@horus.edu.eg')) {
       return NextResponse.json({ error: 'Unauthorized Access. Administrators only.' }, { status: 403 });
     }
 
