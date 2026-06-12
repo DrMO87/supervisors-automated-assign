@@ -92,18 +92,31 @@ export async function POST(req: Request) {
 
     const { data: replReserves, error: replResError } = await supabase
       .from('period_free_staff')
-      .select('start_time, period')
+      .select('id, start_time, period')
       .eq('staff_id', request.replacement_staff_id)
       .eq('exam_date', request.exam_date);
 
     if (replResError) throw replResError;
 
+    const overlappingReserveIds: string[] = [];
     for (const targetSession of targetSessions) {
       for (const reserve of replReserves || []) {
         if (timesOverlap(targetSession.start_time, targetSession.end_time, reserve.start_time, null)) {
-           return NextResponse.json({ error: 'The replacement staff member is already assigned as a Reserve during an overlapping time.' }, { status: 400 });
+           if (!overlappingReserveIds.includes(reserve.id)) {
+             overlappingReserveIds.push(reserve.id);
+           }
         }
       }
+    }
+
+    // Delete overlapping reserves since they are being converted to an actual assignment
+    if (overlappingReserveIds.length > 0) {
+      const { error: delResError } = await supabase
+        .from('period_free_staff')
+        .delete()
+        .in('id', overlappingReserveIds);
+        
+      if (delResError) throw delResError;
     }
 
     // Find the assignments for the original staff in these sessions
