@@ -47,22 +47,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'One or both assignments not found' }, { status: 404 });
     }
 
-    const a1 = assignments[0];
-    const a2 = assignments[1];
+    const a1 = assignments[0] as any;
+    const a2 = assignments[1] as any;
 
     // Ensure both are oral exams
-    if (a1.exam_session.exam_type !== 'Oral' || a2.exam_session.exam_type !== 'Oral') {
+    if (a1.exam_session?.exam_type !== 'Oral' || a2.exam_session?.exam_type !== 'Oral') {
        return NextResponse.json({ error: 'Both assignments must be for Oral Exams.' }, { status: 400 });
     }
 
     // Ensure same date
-    if (a1.exam_session.exam_date !== a2.exam_session.exam_date) {
+    if (a1.exam_session?.exam_date !== a2.exam_session?.exam_date) {
       return NextResponse.json({ error: 'Exams must be on the same date.' }, { status: 400 });
     }
 
     // Ensure same period
-    const period1 = getPeriodFromTime(a1.exam_session.start_time);
-    const period2 = getPeriodFromTime(a2.exam_session.start_time);
+    const period1 = getPeriodFromTime(a1.exam_session?.start_time);
+    const period2 = getPeriodFromTime(a2.exam_session?.start_time);
     
     if (period1 !== period2) {
       return NextResponse.json({ error: 'Exams must be in the same period.' }, { status: 400 });
