@@ -15,7 +15,7 @@ export default function HODPortalPage() {
   const [loading, setLoading] = useState(true);
   const [exams, setExams] = useState<ExamSessionWithRelations[]>([]);
   const [generatingSchedule, setGeneratingSchedule] = useState<string | null>(null);
-  const [selectedWeek, setSelectedWeek] = useState<string>('all');
+  const [selectedWeek, setSelectedWeek] = useState<string>('');
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
 
   const supabase = createClientComponentClient();
@@ -57,6 +57,23 @@ export default function HODPortalPage() {
         }
 
         setExams(allExams);
+        
+        // Auto-select current week
+        if (allExams.length > 0) {
+          const d = new Date();
+          const offset = d.getUTCDay() === 6 ? 0 : -(d.getUTCDay() + 1);
+          const start = new Date(d.setUTCDate(d.getUTCDate() + offset));
+          const currentWeekStart = start.toISOString().split('T')[0];
+          
+          const allWeeks = Array.from(new Set(allExams.map(e => getWeekStart(e.exam_date)))).sort();
+          if (allWeeks.includes(currentWeekStart)) {
+            setSelectedWeek(currentWeekStart);
+          } else if (allWeeks.length > 0) {
+            // Find upcoming week
+            const upcoming = allWeeks.find(w => w >= currentWeekStart);
+            setSelectedWeek(upcoming || allWeeks[allWeeks.length - 1]);
+          }
+        }
       } catch (err: any) {
         console.error('Failed to load initial data:', err.message);
       } finally {
@@ -179,7 +196,6 @@ export default function HODPortalPage() {
                   value={selectedWeek}
                   onChange={(e) => setSelectedWeek(e.target.value)}
                 >
-                  <option value="all">All Available Weeks</option>
                   {availableWeeks.map(week => (
                     <option key={week} value={week}>Week starting {week}</option>
                   ))}
