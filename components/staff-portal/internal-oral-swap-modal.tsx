@@ -16,7 +16,7 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
   const supabase = createClientComponentClient();
   
   const [examDate, setExamDate] = useState('');
-  const [period, setPeriod] = useState<string>('1');
+  const [selectedTime, setSelectedTime] = useState<string>('');
   
   const [room1Id, setRoom1Id] = useState('');
   const [assignment1Id, setAssignment1Id] = useState('');
@@ -24,7 +24,7 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
   const [room2Id, setRoom2Id] = useState('');
   const [assignment2Id, setAssignment2Id] = useState('');
   
-  const [sessionsData, setSessionsData] = useState<any[]>([]);
+  const [allSessionsData, setAllSessionsData] = useState<any[]>([]);
   const [loadingData, setLoadingData] = useState(false);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -37,19 +37,20 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
       setSuccess(false);
       setError(null);
       setExamDate('');
-      setPeriod('1');
+      setSelectedTime('');
       setRoom1Id('');
       setAssignment1Id('');
       setRoom2Id('');
       setAssignment2Id('');
-      setSessionsData([]);
+      setAllSessionsData([]);
     }
   }, [isOpen]);
 
-  // Fetch Oral Exam Sessions and Assignments when Date or Period changes
+  // Fetch Oral Exam Sessions and Assignments when Date changes
   useEffect(() => {
-    if (!examDate || !period || !isOpen) {
-      setSessionsData([]);
+    if (!examDate || !isOpen) {
+      setAllSessionsData([]);
+      setSelectedTime('');
       return;
     }
 
@@ -57,9 +58,7 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
       setLoadingData(true);
       setError(null);
       try {
-        const p = parseInt(period);
-        
-        // Fetch only ORAL exams
+        // Fetch only ORAL exams for the selected date unconditionally
         const { data, error } = await supabase
           .from('exam_sessions')
           .select(`
@@ -68,14 +67,23 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
             assignments(id, role, staff_id, staff:staff(id, name))
           `)
           .eq('exam_date', examDate)
-          .eq('exam_type', 'Oral');
+          .eq('exam_type', 'Oral')
+          .order('start_time', { ascending: true });
 
         if (error) throw error;
 
-        // Filter by period
-        const filteredSessions = (data || []).filter(s => getPeriodFromTime(s.start_time) === p);
+        setAllSessionsData(data || []);
         
-        setSessionsData(filteredSessions);
+        // Auto-select first available time if any exist
+        if (data && data.length > 0) {
+           const times = Array.from(new Set(data.map(s => s.start_time)));
+           if (times.length > 0 && !times.includes(selectedTime)) {
+             setSelectedTime(times[0] as string);
+           }
+        } else {
+           setSelectedTime('');
+        }
+        
         setRoom1Id('');
         setAssignment1Id('');
         setRoom2Id('');
@@ -88,7 +96,11 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
     };
 
     fetchOralExams();
-  }, [examDate, period, isOpen, supabase]);
+  }, [examDate, isOpen, supabase]);
+
+  // Derive filtered sessions based on selected time
+  const sessionsData = allSessionsData.filter(s => s.start_time === selectedTime);
+  const availableTimes = Array.from(new Set(allSessionsData.map(s => s.start_time))).sort();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -196,13 +208,21 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
                   <div className="relative">
                     <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                     <select
-                      value={period}
-                      onChange={(e) => setPeriod(e.target.value)}
+                      value={selectedTime}
+                      onChange={(e) => {
+                         setSelectedTime(e.target.value);
+                         setRoom1Id(''); setAssignment1Id(''); setRoom2Id(''); setAssignment2Id('');
+                      }}
                       className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 bg-gray-50"
+                      disabled={availableTimes.length === 0}
                     >
-                      <option value="1">Period 1 (09:00 - 11:00)</option>
-                      <option value="2">Period 2 (13:00 - 15:00)</option>
-                      <option value="3">Period 3 (15:45 - 17:45)</option>
+                      {availableTimes.length === 0 ? (
+                        <option value="">No times available</option>
+                      ) : (
+                        availableTimes.map((t: any) => (
+                           <option key={t} value={t}>Starts at {t}</option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
@@ -215,9 +235,9 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
               )}
 
               {/* Step 2 & 3: Room Selection (Only show if date is selected and loading is false) */}
-              {!loadingData && examDate && sessionsData.length === 0 ? (
+              {!loadingData && examDate && allSessionsData.length === 0 ? (
                 <div className="text-center p-6 bg-amber-50 rounded-xl border border-amber-200">
-                  <p className="text-amber-800 font-medium">No Oral Exams found for this date and period.</p>
+                  <p className="text-amber-800 font-medium">No Oral Exams scheduled for this date.</p>
                 </div>
               ) : null}
 
