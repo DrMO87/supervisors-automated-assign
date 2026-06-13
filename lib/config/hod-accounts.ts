@@ -4,6 +4,5 @@ export const HOD_EMAILS = [
   "ahassan@horus.edu.eg",
   "aelgaml@horus.edu.eg",
   "helewa@horus.edu.eg",
-  "afares@horus.edu.eg",
-  "melkhodary@horus.edu.eg" // Super admin
+  "afares@horus.edu.eg"
 ];
