@@ -16,6 +16,14 @@ export async function middleware(req: NextRequest) {
   const isStaffAccount = session?.user?.email === 'staff@horus.edu.eg' || userMetadata.role === 'staff';
   const isAdminReportsAccount = userMetadata.role === 'admin_reports';
   const isControlAccount = userMetadata.role === 'control';
+  const isHodAccount = userMetadata.role === 'hod';
+
+  console.log('--- MIDDLEWARE DEBUG ---');
+  console.log('Path:', req.nextUrl.pathname);
+  console.log('User Email:', session?.user?.email);
+  console.log('User Metadata:', userMetadata);
+  console.log('isHodAccount:', isHodAccount);
+  console.log('isStaffAccount:', isStaffAccount);
 
   // If there's no session and the user is trying to access a protected route
   if (!session && !req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
@@ -25,10 +33,19 @@ export async function middleware(req: NextRequest) {
   }
 
   // If a generic staff or lecturer tries to access non-staff routes, redirect them to the staff portal
-  if (session && isStaffAccount) {
+  if (session && isStaffAccount && !isHodAccount) {
     if (!req.nextUrl.pathname.startsWith('/staff-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
       const redirectUrl = req.nextUrl.clone();
       redirectUrl.pathname = '/staff-portal';
+      return NextResponse.redirect(redirectUrl);
+    }
+  }
+
+  // If an HOD tries to access anything other than /hod-portal, lock them into their portal
+  if (session && isHodAccount) {
+    if (!req.nextUrl.pathname.startsWith('/hod-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+      const redirectUrl = req.nextUrl.clone();
+      redirectUrl.pathname = '/hod-portal';
       return NextResponse.redirect(redirectUrl);
     }
   }
@@ -54,7 +71,9 @@ export async function middleware(req: NextRequest) {
   // If there is a session and the user is on the login page, redirect to their respective home
   if (session && req.nextUrl.pathname.startsWith('/login')) {
     const redirectUrl = req.nextUrl.clone();
-    if (isStaffAccount) {
+    if (isHodAccount) {
+      redirectUrl.pathname = '/hod-portal';
+    } else if (isStaffAccount) {
       redirectUrl.pathname = '/staff-portal';
     } else if (isAdminReportsAccount) {
       redirectUrl.pathname = '/admin-reports';

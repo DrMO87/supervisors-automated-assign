@@ -1,8 +1,10 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { isStaffAvailable } from '@/lib/algorithms/auto-assignment';
+import { syncStaffScores } from '@/lib/utils/score-sync';
 import type { Staff, ExamSession, Assignment, PeriodFreeStaff, CalendarRule } from '@/types/database.types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -245,6 +247,19 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     await Promise.all(promises);
+
+    // Sync scores for target staff and all replacements
+    const affectedStaffIds = new Set<string>([targetStaffId]);
+    assignmentsToUpdate.forEach(u => affectedStaffIds.add(u.newStaffId));
+    reservesToInsert.forEach(r => affectedStaffIds.add(r.staff_id));
+    
+    await syncStaffScores(supabaseAdmin, Array.from(affectedStaffIds));
+
+    // Invalidate caches
+    revalidatePath('/reports');
+    revalidatePath('/dashboard');
+    revalidatePath('/swaps');
+    revalidatePath('/admin-reports');
 
     return NextResponse.json({ 
       success: true, 

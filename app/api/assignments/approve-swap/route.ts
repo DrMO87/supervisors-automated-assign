@@ -1,7 +1,9 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { getPeriodFromTime, timesOverlap } from '@/types/database.types';
+import { syncStaffScores } from '@/lib/utils/score-sync';
 
 export async function POST(req: Request) {
     const supabaseAuth = createRouteHandlerClient({ cookies });
@@ -133,6 +135,30 @@ export async function POST(req: Request) {
       .eq('id', requestId);
 
     if (finalUpdateError) throw finalUpdateError;
+
+    // Add original staff to reserves (so they become free for that period)
+    // Get the first target session's start time for the reserve record
+    if (targetSessions.length > 0) {
+      const { error: insertReserveError } = await supabase
+        .from('period_free_staff')
+        .insert({
+          exam_date: request.exam_date,
+          period: request.period,
+          start_time: targetSessions[0].start_time,
+          staff_id: request.original_staff_id,
+          role: 'Reserve'
+        });
+      if (insertReserveError) console.error('Failed to add original staff to reserves:', insertReserveError);
+    }
+
+    // Sync scores accurately to avoid trigger race conditions
+    await syncStaffScores(supabase, [request.original_staff_id, request.replacement_staff_id]);
+
+    // Invalidate caches
+    revalidatePath('/reports');
+    revalidatePath('/dashboard');
+    revalidatePath('/swaps');
+    revalidatePath('/admin-reports');
 
     return NextResponse.json({ success: true, message: 'Swap approved and applied successfully' });
 

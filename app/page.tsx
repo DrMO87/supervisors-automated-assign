@@ -9,8 +9,11 @@ import {
   CheckCircle2, Clock, AlertCircle, RefreshCw, Layers, History, Info
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
+import { HOD_EMAILS } from '@/lib/config/hod-accounts';
 
 export default function HomePage() {
+  const router = useRouter();
   const [stats, setStats] = useState({
     staffCount: 0,
     roomCount: 0,
@@ -49,7 +52,13 @@ export default function HomePage() {
           isLoading: false,
         });
 
-        setUserEmail(userRes.data?.user?.email || null);
+        const email = userRes.data?.user?.email || null;
+        if (email && HOD_EMAILS.includes(email.toLowerCase())) {
+          router.push('/hod-portal');
+          return;
+        }
+
+        setUserEmail(email);
         setAuditLogs(logsRes.data || []);
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -58,7 +67,7 @@ export default function HomePage() {
     }
 
     fetchData();
-  }, [isConfigured]);
+  }, [isConfigured, router]);
 
   const cards = [
     {

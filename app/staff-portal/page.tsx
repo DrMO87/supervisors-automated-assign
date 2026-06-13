@@ -22,6 +22,7 @@ import {
 import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
+
 export default function UnifiedStaffPortalPage() {
   const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
