@@ -10,11 +10,14 @@ interface InternalOralSwapModalProps {
   onClose: () => void;
   weekStartDate?: string;
   weekEndDate?: string;
+  selectedWeek?: string;
 }
 
-export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndDate }: InternalOralSwapModalProps) {
+export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndDate, selectedWeek }: InternalOralSwapModalProps) {
   const supabase = createClientComponentClient();
   
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [loadingDates, setLoadingDates] = useState(false);
   const [examDate, setExamDate] = useState('');
   const [selectedTime, setSelectedTime] = useState<string>('');
   
@@ -45,6 +48,47 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
       setAllSessionsData([]);
     }
   }, [isOpen]);
+
+  // Fetch available dates when modal opens
+  useEffect(() => {
+    if (!isOpen) {
+      setAvailableDates([]);
+      return;
+    }
+    const fetchDates = async () => {
+      setLoadingDates(true);
+      const { data, error } = await supabase
+        .from('exam_sessions')
+        .select('exam_date')
+        .ilike('exam_type', 'oral');
+        
+      if (!error && data) {
+         let dates = Array.from(new Set(data.map(d => d.exam_date))).sort();
+         
+         if (selectedWeek && selectedWeek !== 'all') {
+            const start = new Date(selectedWeek);
+            const end = new Date(start);
+            end.setDate(end.getDate() + 5); // 6 day week
+            
+            dates = dates.filter(d => {
+               const date = new Date(d);
+               // Simple string comparison works for YYYY-MM-DD but Date parsing is safer
+               return d >= selectedWeek && date <= end;
+            });
+         }
+         
+         setAvailableDates(dates);
+         if (dates.length > 0) {
+           // Only set if not already set to a valid date
+           setExamDate(prev => dates.includes(prev) ? prev : dates[0]);
+         } else {
+           setExamDate('');
+         }
+      }
+      setLoadingDates(false);
+    };
+    fetchDates();
+  }, [isOpen, selectedWeek, supabase]);
 
   // Fetch Oral Exam Sessions and Assignments when Date changes
   useEffect(() => {
@@ -192,15 +236,22 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Exam Date</label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="date"
+                    <select
                       value={examDate}
                       onChange={(e) => setExamDate(e.target.value)}
-                      min={weekStartDate}
-                      max={weekEndDate}
                       className="w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 bg-gray-50"
-                      required
-                    />
+                      disabled={loadingDates || availableDates.length === 0}
+                    >
+                      {loadingDates ? (
+                         <option value="">Loading dates...</option>
+                      ) : availableDates.length === 0 ? (
+                         <option value="">No Oral Exams found</option>
+                      ) : (
+                         availableDates.map(d => (
+                            <option key={d} value={d}>{new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</option>
+                         ))
+                      )}
+                    </select>
                   </div>
                 </div>
                 <div>

@@ -230,6 +230,7 @@ export default function HODPortalPage() {
       <InternalOralSwapModal
         isOpen={isSwapModalOpen}
         onClose={() => setIsSwapModalOpen(false)}
+        selectedWeek={selectedWeek}
       />
     </div>
   );
