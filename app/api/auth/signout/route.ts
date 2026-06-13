@@ -3,13 +3,15 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
-  const cookieStore = cookies();
-  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+  try {
+    const cookieStore = cookies();
+    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
 
-  // Sign out on the server
-  await supabase.auth.signOut();
+    // Sign out on the server
+    await supabase.auth.signOut();
 
-  return NextResponse.redirect(new URL('/login', request.url), {
-    status: 302,
-  });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to sign out' }, { status: 500 });
+  }
 }

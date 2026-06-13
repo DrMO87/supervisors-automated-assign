@@ -47,7 +47,9 @@ export function Navigation() {
 
   const handleSignOut = async () => {
     try {
+      await supabase.auth.signOut();
       await fetch('/api/auth/signout', { method: 'POST' });
+      document.cookie.split(";").forEach((c) => { document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); });
     } catch(e) {
       console.error(e);
     }
