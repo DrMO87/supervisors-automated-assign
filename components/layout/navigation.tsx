@@ -47,7 +47,7 @@ export function Navigation() {
 
   const handleSignOut = async () => {
     try {
-      await supabase.auth.signOut();
+      await fetch('/api/auth/signout', { method: 'POST' });
     } catch(e) {
       console.error(e);
     }

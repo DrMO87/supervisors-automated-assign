@@ -158,9 +158,12 @@ export default function AdminReportsPage() {
   }, [supabase, router]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    try {
+      await fetch('/api/auth/signout', { method: 'POST' });
+    } catch(e) {
+      console.error(e);
+    }
+    window.location.href = '/login';
   };
 
   const executeDownload = async (reportType: string, format: 'pdf' | 'excel') => {

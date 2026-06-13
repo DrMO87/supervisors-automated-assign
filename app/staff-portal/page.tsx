@@ -341,7 +341,7 @@ export default function UnifiedStaffPortalPage() {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await fetch('/api/auth/signout', { method: 'POST' });
     } catch(e) {
       console.error(e);
     }

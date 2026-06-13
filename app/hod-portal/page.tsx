@@ -69,7 +69,7 @@ export default function HODPortalPage() {
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
+      await fetch('/api/auth/signout', { method: 'POST' });
     } catch (e) {
       console.error('Error signing out:', e);
     }
