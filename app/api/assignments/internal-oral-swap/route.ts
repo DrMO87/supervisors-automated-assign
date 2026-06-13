@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     const a2 = assignments[1] as any;
 
     // Ensure both are oral exams
-    if (a1.exam_session?.exam_type !== 'Oral' || a2.exam_session?.exam_type !== 'Oral') {
+    if (a1.exam_session?.exam_type?.toLowerCase() !== 'oral' || a2.exam_session?.exam_type?.toLowerCase() !== 'oral') {
        return NextResponse.json({ error: 'Both assignments must be for Oral Exams.' }, { status: 400 });
     }
 

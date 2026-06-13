@@ -67,7 +67,7 @@ export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndD
             assignments(id, role, staff_id, staff:staff(id, name))
           `)
           .eq('exam_date', examDate)
-          .eq('exam_type', 'Oral')
+          .ilike('exam_type', 'oral')
           .order('start_time', { ascending: true });
 
         if (error) throw error;
