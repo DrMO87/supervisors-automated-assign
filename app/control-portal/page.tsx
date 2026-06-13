@@ -95,9 +95,12 @@ export default function ControlPortalPage() {
   }, [supabase, router]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    try {
+      await supabase.auth.signOut();
+    } catch(e) {
+      console.error(e);
+    }
+    window.location.href = '/login';
   };
 
   const executeDownload = async (reportType: string, format: 'pdf' | 'excel') => {

@@ -340,9 +340,12 @@ export default function UnifiedStaffPortalPage() {
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    try {
+      await supabase.auth.signOut();
+    } catch(e) {
+      console.error(e);
+    }
+    window.location.href = '/login';
   };
 
   // Schedule Logic moved above

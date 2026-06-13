@@ -68,9 +68,12 @@ export default function HODPortalPage() {
   }, [supabase, router]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push('/login');
-    router.refresh();
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error('Error signing out:', e);
+    }
+    window.location.href = '/login';
   };
 
   const getWeekStart = (dateStr: string) => {
