@@ -53,7 +53,7 @@ export function Navigation() {
     } catch(e) {
       console.error(e);
     }
-    window.location.href = '/login';
+    window.location.href = '/login?clear=1';
   };
 
   return (

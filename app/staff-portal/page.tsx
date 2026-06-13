@@ -347,7 +347,7 @@ export default function UnifiedStaffPortalPage() {
     } catch(e) {
       console.error(e);
     }
-    window.location.href = '/login';
+    window.location.href = '/login?clear=1';
   };
 
   // Schedule Logic moved above

@@ -102,7 +102,7 @@ export default function ControlPortalPage() {
     } catch(e) {
       console.error(e);
     }
-    window.location.href = '/login';
+    window.location.href = '/login?clear=1';
   };
 
   const executeDownload = async (reportType: string, format: 'pdf' | 'excel') => {

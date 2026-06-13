@@ -41,7 +41,7 @@ export default function HODPortalPage() {
         while (hasMore) {
           const { data, error } = await supabase
             .from('exam_sessions')
-            .select('*, room:rooms(*)')
+            .select('*, room:rooms(*), assignments(*, staff:staff(*))')
             .order('exam_date')
             .range(from, from + step - 1);
             
@@ -92,7 +92,7 @@ export default function HODPortalPage() {
     } catch (e) {
       console.error('Error signing out:', e);
     }
-    window.location.href = '/login';
+    window.location.href = '/login?clear=1';
   };
 
   const getWeekStart = (dateStr: string) => {
