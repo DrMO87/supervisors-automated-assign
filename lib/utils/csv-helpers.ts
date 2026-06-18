@@ -672,7 +672,7 @@ export function exportSwapsToExcel(swaps: any[]): Blob {
       'Replacement Staff': swap.replacement_staff?.name || 'Unknown',
       'Reason': swap.reason || '',
       'Session Details': swap.session_details || '',
-      'Room': swap.room?.name || 'Unknown',
+      'Room': swap.room?.room_name || 'Unknown',
       'Reviewed By': swap.reviewed_by_id || '',
       'Reviewed At': swap.reviewed_at ? new Date(swap.reviewed_at).toISOString().split('T')[0] : '',
     };
