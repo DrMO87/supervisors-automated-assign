@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { SwapRequestWithRelations } from '@/types/database.types';
-import { Loader2, CheckCircle2, XCircle, Clock, ArrowRight, Calendar as CalendarIcon, User, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Clock, ArrowRight, Calendar as CalendarIcon, User, RefreshCw, ArrowLeft, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import { exportSwapsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
 import { useRouter } from 'next/navigation';
 
 export default function SwapsPage() {
@@ -93,7 +94,21 @@ export default function SwapsPage() {
             </span>
           )}
         </h1>
-        <p className="text-gray-500 mt-1">Review and manage shift replacement requests from staff.</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-1">
+          <p className="text-gray-500">Review and manage shift replacement requests from staff.</p>
+          {requests.length > 0 && (
+            <button
+              onClick={() => {
+                const blob = exportSwapsToExcel(requests);
+                downloadFile(blob, `swaps_export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 hover:bg-gray-50 rounded-lg text-sm font-semibold transition-colors border border-gray-300 shadow-sm"
+            >
+              <Download className="w-4 h-4" />
+              Export Swaps (Excel)
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
