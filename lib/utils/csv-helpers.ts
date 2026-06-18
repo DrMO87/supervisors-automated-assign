@@ -683,6 +683,8 @@ export function exportSwapsToExcel(swaps: any[]): Blob {
   const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
   return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
+
+/**
  * Generate detailed assignment report (Excel) - WIDE FORMAT
  */
 export function generateAssignmentReport(

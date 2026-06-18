@@ -4,13 +4,13 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = createRouteHandlerClient({ cookies });
 
     // Sign out on the server
     await supabase.auth.signOut();
 
     // Manually delete all sb- cookies just to be absolutely sure
+    const cookieStore = await cookies();
     const allCookies = cookieStore.getAll();
     allCookies.forEach(cookie => {
       if (cookie.name.startsWith('sb-')) {
