@@ -26,6 +26,7 @@ import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 export default function UnifiedStaffPortalPage() {
   const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [roomList, setRoomList] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,6 +76,10 @@ export default function UnifiedStaffPortalPage() {
         if (!session) {
           router.push('/login');
           return;
+        }
+
+        if (session?.user?.email) {
+          setUserEmail(session.user.email);
         }
 
         let staffId = null;
@@ -306,8 +311,10 @@ export default function UnifiedStaffPortalPage() {
     
     if (weekStartDate && weekEndDate) {
       if (examDate < weekStartDate || examDate > weekEndDate) {
-        setSwapError(`You can only swap assignments within the current active week (${weekStartDate} to ${weekEndDate}).`);
-        return;
+        if (userEmail?.toLowerCase() !== 'staff@horus.edu.eg') {
+          setSwapError(`You can only swap assignments within the current active week (${weekStartDate} to ${weekEndDate}).`);
+          return;
+        }
       }
     }
 
@@ -684,8 +691,8 @@ export default function UnifiedStaffPortalPage() {
                           type="date"
                           value={examDate}
                           onChange={(e) => setExamDate(e.target.value)}
-                          min={weekStartDate || undefined}
-                          max={weekEndDate || undefined}
+                          min={userEmail?.toLowerCase() === 'staff@horus.edu.eg' ? undefined : (weekStartDate || undefined)}
+                          max={userEmail?.toLowerCase() === 'staff@horus.edu.eg' ? undefined : (weekEndDate || undefined)}
                           className="block w-full pl-9 pr-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 bg-white"
                           required
                         />
