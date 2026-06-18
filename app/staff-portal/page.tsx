@@ -1239,10 +1239,10 @@ export default function UnifiedStaffPortalPage() {
                       <p className="text-gray-500 text-sm bg-slate-100 p-4 rounded-xl text-center italic">Please select a date above to view reserves.</p>
                     ) : (
                       <div className="space-y-3">
-                        {freeStaffData.filter(fs => fs.exam_date === reserveDate).length === 0 ? (
+                        {freeStaff.filter((fs: any) => fs.exam_date === reserveDate).length === 0 ? (
                           <p className="text-gray-500 text-sm italic bg-slate-100 p-4 rounded-xl text-center">No reserves found for this date.</p>
                         ) : (
-                          freeStaffData.filter(fs => fs.exam_date === reserveDate).sort((a,b) => a.period - b.period).map(fs => (
+                          freeStaff.filter((fs: any) => fs.exam_date === reserveDate).sort((a: any,b: any) => a.period - b.period).map((fs: any) => (
                             <div key={fs.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors">
                               <div>
                                 <p className="font-bold text-slate-800 text-sm">{fs.staff?.name}</p>
