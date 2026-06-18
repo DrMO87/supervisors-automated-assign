@@ -668,6 +668,8 @@ export function exportSwapsToExcel(swaps: any[]): Blob {
       'Request ID': swap.id,
       'Requested On': swap.created_at ? new Date(swap.created_at).toISOString().split('T')[0] : '',
       'Status': swap.status.charAt(0).toUpperCase() + swap.status.slice(1),
+      'Exam Date': swap.exam_date ? new Date(swap.exam_date).toISOString().split('T')[0] : '',
+      'Period': swap.period ? `Period ${swap.period}` : '',
       'Original Staff': swap.original_staff?.name || 'Unknown',
       'Replacement Staff': swap.replacement_staff?.name || 'Unknown',
       'Reason': swap.reason || '',
