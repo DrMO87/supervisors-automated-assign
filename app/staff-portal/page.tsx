@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Staff, Room, getPeriodFromTime, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
-import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download, BarChart3, Users, FileSpreadsheet, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download, BarChart3, Users, FileSpreadsheet, ShieldCheck, AlertCircle, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import {
@@ -24,7 +24,7 @@ import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'rechar
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
 export default function UnifiedStaffPortalPage() {
-  const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules'>('swap');
+  const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules' | 'reserves'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
@@ -53,6 +53,55 @@ export default function UnifiedStaffPortalPage() {
 
   // --- Generic Staff State ---
   const [swaps, setSwaps] = useState<any[]>([]);
+  const [reserveDate, setReserveDate] = useState<string>('');
+  const [reservePeriod, setReservePeriod] = useState<string>('1');
+  const [reserveStaffId, setReserveStaffId] = useState<string>('');
+  const [reserveRole, setReserveRole] = useState<string>('Assistant');
+  const [addingReserve, setAddingReserve] = useState(false);
+  const [reserveMessage, setReserveMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+
+  const handleAddReserve = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reserveDate || !reserveStaffId) return;
+    setAddingReserve(true);
+    setReserveMessage(null);
+    try {
+      const periodExam = exams.find(ex => ex.exam_date === reserveDate && getPeriodFromTime(ex.start_time) === parseInt(reservePeriod));
+      const startTime = periodExam ? periodExam.start_time : '09:00:00'; 
+      const { error } = await supabase.from('period_free_staff').insert({
+        staff_id: reserveStaffId,
+        exam_date: reserveDate,
+        period: parseInt(reservePeriod),
+        start_time: startTime,
+        role: reserveRole
+      });
+      if (error) throw error;
+      setReserveMessage({ type: 'success', text: 'Reserve added successfully' });
+      const { data } = await supabase.from('period_free_staff').select('*, staff(*)');
+      if (data) {
+        setFreeStaffData(data);
+        setFreeStaff(data);
+      }
+    } catch (err: any) {
+      setReserveMessage({ type: 'error', text: err.message });
+    } finally {
+      setAddingReserve(false);
+    }
+  };
+
+  const handleDeleteReserve = async (id: string) => {
+    try {
+      const { error } = await supabase.from('period_free_staff').delete().eq('id', id);
+      if (error) throw error;
+      const { data } = await supabase.from('period_free_staff').select('*, staff(*)');
+      if (data) {
+        setFreeStaffData(data);
+        setFreeStaff(data);
+      }
+    } catch (err: any) {
+      alert('Failed to delete reserve: ' + err.message);
+    }
+  };
   const [selectedGlobalWeek, setSelectedGlobalWeek] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [metrics, setMetrics] = useState({
@@ -589,14 +638,16 @@ export default function UnifiedStaffPortalPage() {
       </div>
 
       {/* Centered Pill Toggle */}
-      <div className={`relative z-30 mb-8 bg-white/10 backdrop-blur-xl p-1.5 rounded-full border border-white/20 shadow-xl flex items-center max-w-full ${!currentUserData ? 'w-[600px]' : 'w-80'}`}>
+      <div className={`relative z-30 mb-8 bg-white/10 backdrop-blur-xl p-1.5 rounded-full border border-white/20 shadow-xl flex items-center max-w-full ${!currentUserData ? 'w-[800px]' : 'w-80'}`}>
         {/* Sliding active background indicator */}
         <div 
           className="absolute top-1.5 bottom-1.5 bg-gradient-to-r from-primary-600 to-indigo-600 rounded-full shadow-lg transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
           style={{ 
-            width: !currentUserData ? 'calc(33.333% - 4px)' : 'calc(50% - 6px)',
+            width: !currentUserData ? 'calc(25% - 3px)' : 'calc(50% - 6px)',
             transform: activeTab === 'swap' ? 'translateX(0)' : 
-                       (activeTab === 'schedule' || activeTab === 'all_schedules') ? (!currentUserData ? 'translateX(calc(100% + 6px))' : 'translateX(calc(100% + 12px))') : 
+                       (activeTab === 'schedule' || activeTab === 'all_schedules') ? (!currentUserData ? 'translateX(calc(100% + 4px))' : 'translateX(calc(100% + 12px))') : 
+                       activeTab === 'swap_log' ? 'translateX(calc(200% + 8px))' :
+                       activeTab === 'reserves' ? 'translateX(calc(300% + 12px))' :
                        'translateX(calc(200% + 12px))'
           }}
         />
@@ -625,6 +676,13 @@ export default function UnifiedStaffPortalPage() {
               <FileText className="w-4 h-4" />
               Swap Log
             </button>
+            <button
+              onClick={() => setActiveTab('reserves')}
+              className={`flex-1 relative z-10 flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-bold rounded-full transition-colors duration-300 ${activeTab === 'reserves' ? 'text-white' : 'text-slate-300 hover:text-white'}`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              Manage Reserves
+            </button>
           </>
         ) : (
           <button
@@ -638,19 +696,20 @@ export default function UnifiedStaffPortalPage() {
       </div>
 
       {/* Sliding Viewport Container */}
-      <div className={`w-full relative z-20 overflow-hidden rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/20 ${!currentUserData ? 'max-w-4xl' : 'max-w-lg'}`}>
+      <div className={`w-full relative z-20 overflow-hidden rounded-[2rem] shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/20 ${!currentUserData ? 'max-w-5xl' : 'max-w-lg'}`}>
         <div 
           className="flex transition-transform duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
           style={{ 
-            width: !currentUserData ? '300%' : '200%',
+            width: !currentUserData ? '400%' : '200%',
             transform: activeTab === 'swap' ? 'translateX(0)' : 
-                       activeTab === 'all_schedules' ? 'translateX(-33.333%)' :
-                       activeTab === 'swap_log' ? 'translateX(-66.666%)' :
+                       activeTab === 'all_schedules' ? 'translateX(-25%)' :
+                       activeTab === 'swap_log' ? 'translateX(-50%)' :
+                       activeTab === 'reserves' ? 'translateX(-75%)' :
                        'translateX(-50%)' 
           }}
         >
           {/* ----- SWAP PANE ----- */}
-          <div className={`${!currentUserData ? 'w-1/3' : 'w-1/2'} flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col`}>
+          <div className={`${!currentUserData ? 'w-1/4' : 'w-1/2'} flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col`}>
             <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
               <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
               <div className="relative z-10 flex flex-col items-center">
@@ -875,7 +934,7 @@ export default function UnifiedStaffPortalPage() {
           ) : (
             <>
               {/* ----- ALL SCHEDULES PANE (GENERIC) ----- */}
-              <div className="w-1/3 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+              <div className="w-1/4 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
                 <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
                   <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
                   <div className="relative z-10 flex flex-col items-center">
@@ -1060,7 +1119,7 @@ export default function UnifiedStaffPortalPage() {
               </div>
 
               {/* ----- SWAP LOG PANE (GENERIC) ----- */}
-              <div className="w-1/3 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+              <div className="w-1/4 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
                 <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
                   <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
                   <div className="relative z-10 flex flex-col items-center">
@@ -1115,6 +1174,89 @@ export default function UnifiedStaffPortalPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* ----- RESERVES PANE (GENERIC) ----- */}
+              <div className="w-1/4 flex-shrink-0 bg-white/95 backdrop-blur-xl h-full flex flex-col">
+                <div className="bg-gradient-to-r from-primary-900 to-indigo-900 p-8 flex flex-col items-center text-center relative overflow-hidden flex-shrink-0">
+                  <div className="absolute top-0 left-0 w-full h-full bg-[url('/images/pattern.svg')] opacity-10"></div>
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="w-24 h-12 relative mb-4">
+                      <Image src="/images/logo-session-master-transparent.png" alt="Logo" fill className="object-contain" />
+                    </div>
+                    <h1 className="text-2xl font-bold text-white mb-2">Manage Reserves</h1>
+                    <p className="text-primary-100 text-sm max-w-sm">Add or delete reserve staff assignments for specific days</p>
+                  </div>
+                </div>
+
+                <div className="p-8 flex-1 flex flex-col overflow-y-auto bg-slate-50 space-y-6">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h2 className="text-xl font-bold text-slate-900 mb-4">Add Reserve</h2>
+                    {reserveMessage && (
+                      <div className={`mb-4 p-3 rounded-lg text-sm font-medium ${reserveMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                        {reserveMessage.text}
+                      </div>
+                    )}
+                    <form onSubmit={handleAddReserve} className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                        <input type="date" required value={reserveDate} onChange={e => setReserveDate(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-xl text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+                        <select value={reservePeriod} onChange={e => setReservePeriod(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-xl text-sm">
+                          <option value="1">Period 1</option>
+                          <option value="2">Period 2</option>
+                          <option value="3">Period 3</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Staff Member</label>
+                        <select required value={reserveStaffId} onChange={e => setReserveStaffId(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-xl text-sm">
+                          <option value="" disabled>Select Staff...</option>
+                          {staffList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                        <select value={reserveRole} onChange={e => setReserveRole(e.target.value)} className="block w-full px-3 py-2 border border-gray-300 rounded-xl text-sm">
+                          <option value="Assistant">Invigilator Reserve</option>
+                          <option value="Exam_Supervisor">Exam Supervisor Reserve</option>
+                        </select>
+                      </div>
+                      <div className="col-span-2 mt-2">
+                        <button type="submit" disabled={addingReserve} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl transition-colors shadow-sm">
+                          {addingReserve ? 'Adding...' : 'Add Reserve'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                    <h2 className="text-xl font-bold text-slate-900 mb-4">Current Reserves for {reserveDate || 'Selected Date'}</h2>
+                    {!reserveDate ? (
+                      <p className="text-gray-500 text-sm bg-slate-100 p-4 rounded-xl text-center italic">Please select a date above to view reserves.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {freeStaffData.filter(fs => fs.exam_date === reserveDate).length === 0 ? (
+                          <p className="text-gray-500 text-sm italic bg-slate-100 p-4 rounded-xl text-center">No reserves found for this date.</p>
+                        ) : (
+                          freeStaffData.filter(fs => fs.exam_date === reserveDate).sort((a,b) => a.period - b.period).map(fs => (
+                            <div key={fs.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-indigo-200 transition-colors">
+                              <div>
+                                <p className="font-bold text-slate-800 text-sm">{fs.staff?.name}</p>
+                                <p className="text-xs text-slate-500 font-medium">Period {fs.period} • {fs.role === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}</p>
+                              </div>
+                              <button onClick={() => handleDeleteReserve(fs.id)} className="text-red-500 hover:text-red-700 p-2 bg-red-50 rounded-lg transition-colors border border-red-100 hover:bg-red-100">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </>
