@@ -11,7 +11,7 @@ import {
   generateDailyHallExcel, generateDailyHallHTML,
   generateAssignedReservesExcel, generateAssignedReservesHTML,
 } from '@/lib/utils/report-generators';
-import { downloadFile } from '@/lib/utils/csv-helpers';
+import { downloadFile, exportSwapsToExcel } from '@/lib/utils/csv-helpers';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
 export default function ControlPortalPage() {
@@ -272,9 +272,23 @@ export default function ControlPortalPage() {
         {activeTab === 'swaps' && (
           <section>
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-              <div className="bg-slate-50 p-4 border-b border-gray-200">
-                <h2 className="text-lg font-bold text-slate-900">Swap Requests Log</h2>
-                <p className="text-sm text-slate-500">Read-only view of all shift swap requests across the system.</p>
+              <div className="bg-slate-50 p-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">Swap Requests Log</h2>
+                  <p className="text-sm text-slate-500">Read-only view of all shift swap requests across the system.</p>
+                </div>
+                {swaps.length > 0 && (
+                  <button
+                    onClick={() => {
+                      const blob = exportSwapsToExcel(swaps);
+                      downloadFile(blob, `swaps_export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-semibold transition-colors border border-indigo-200 shadow-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export Swaps (Excel)
+                  </button>
+                )}
               </div>
               
               {swaps.length === 0 ? (

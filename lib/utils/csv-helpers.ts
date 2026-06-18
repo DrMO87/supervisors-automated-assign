@@ -660,6 +660,29 @@ import { calculateRequiredStaff } from '@/lib/algorithms/auto-assignment';
 // ... (CSV Functions)
 
 /**
+ * Generate an Excel report for all swap requests
+ */
+export function exportSwapsToExcel(swaps: any[]): Blob {
+  const data = swaps.map(swap => {
+    return {
+      'Request ID': swap.id,
+      'Requested On': swap.created_at ? new Date(swap.created_at).toISOString().split('T')[0] : '',
+      'Status': swap.status.charAt(0).toUpperCase() + swap.status.slice(1),
+      'Original Staff': swap.original_staff?.name || 'Unknown',
+      'Replacement Staff': swap.replacement_staff?.name || 'Unknown',
+      'Reason': swap.reason || '',
+      'Session Details': swap.session_details || '',
+      'Room': swap.room?.name || 'Unknown',
+      'Reviewed By': swap.reviewed_by_id || '',
+      'Reviewed At': swap.reviewed_at ? new Date(swap.reviewed_at).toISOString().split('T')[0] : '',
+    };
+  });
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Swap Requests");
+  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
  * Generate detailed assignment report (Excel) - WIDE FORMAT
  */
 export function generateAssignmentReport(

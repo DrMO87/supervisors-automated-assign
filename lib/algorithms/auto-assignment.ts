@@ -311,10 +311,10 @@ export function isStaffAvailable(
 
   // 3b. Oral Exam specific checks (Hard)
   if (examSession.exam_type?.toLowerCase().includes('oral')) {
-    if (!staff.can_supervise_oral) {
+    if (!staff.can_supervise_oral && examSession.exam_date >= '2026-06-20') {
       hardViolations.push({
         type: 'unavailable',
-        message: `${staff.name} does not have the privilege to supervise Oral Exams`,
+        message: `${staff.name} does not have the privilege to supervise Oral Exams (applies starting June 20)`,
         staff_id: staff.id,
         exam_session_id: examSession.id,
       });
