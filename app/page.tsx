@@ -46,28 +46,21 @@ export default function HomePage() {
 
       try {
         let examsQuery = supabase.from('exam_sessions').select('id', { count: 'exact', head: true });
-        let assignQuery = supabase.from('assignments').select('id', { count: 'exact', head: true });
-
-        // Scope queries to active period if present
         if (activePeriod) {
           examsQuery = examsQuery
             .gte('exam_date', activePeriod.start_date)
             .lte('exam_date', activePeriod.end_date);
-          
-          // For assignments, join with exam_sessions or use date filter if possible
-          const { data: periodExams } = await supabase
-            .from('exam_sessions')
-            .select('id')
-            .gte('exam_date', activePeriod.start_date)
-            .lte('exam_date', activePeriod.end_date);
-
-          const periodExamIds = (periodExams || []).map(e => e.id);
-          if (periodExamIds.length > 0) {
-            assignQuery = assignQuery.in('exam_session_id', periodExamIds);
-          } else {
-            assignQuery = assignQuery.eq('exam_session_id', '00000000-0000-0000-0000-000000000000'); // empty
-          }
         }
+
+        const assignQuery = activePeriod
+          ? supabase
+              .from('assignments')
+              .select('id, exam_session:exam_sessions!inner(exam_date)', { count: 'exact', head: true })
+              .gte('exam_session.exam_date', activePeriod.start_date)
+              .lte('exam_session.exam_date', activePeriod.end_date)
+          : supabase.from('assignments').select('id', { count: 'exact', head: true });
+
+
 
         const [staffRes, roomsRes, examsRes, assignRes, userRes, logsRes] = await Promise.all([
           supabase.from('staff').select('id', { count: 'exact', head: true }),
