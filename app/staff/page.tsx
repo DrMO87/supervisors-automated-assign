@@ -13,8 +13,10 @@ import { CSVImportModal } from '@/components/staff/csv-import-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { StaffBulkEditModal } from '@/components/staff/staff-bulk-edit-modal';
 import { exportStaffToExcel, downloadFile } from '@/lib/utils/csv-helpers';
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 
 export default function StaffPage() {
+  const { activePeriod } = useExamPeriod();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -37,7 +39,7 @@ export default function StaffPage() {
     } else {
       setIsLoading(false);
     }
-  }, []);
+  }, [activePeriod]);
 
   // Show setup required if Supabase is not configured
   if (!configStatus.configured) {
@@ -48,9 +50,16 @@ export default function StaffPage() {
     if (!supabase) return;
     if (showLoader) setIsLoading(true);
     try {
+      let examsQuery = supabase.from('exam_sessions').select('exam_date').limit(10000);
+      if (activePeriod) {
+        examsQuery = examsQuery
+          .gte('exam_date', activePeriod.start_date)
+          .lte('exam_date', activePeriod.end_date);
+      }
+
       const [staffRes, examsRes] = await Promise.all([
         supabase.from('staff').select('*').order('name').limit(10000),
-        supabase.from('exam_sessions').select('exam_date').limit(10000)
+        examsQuery
       ]);
       if (staffRes.error) throw staffRes.error;
       if (examsRes.error) throw examsRes.error;
@@ -64,6 +73,7 @@ export default function StaffPage() {
       setIsLoading(false);
     }
   };
+
 
   const handleAddStaff = async (data: StaffFormData) => {
     if (!supabase) return;
