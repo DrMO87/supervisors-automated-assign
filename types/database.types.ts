@@ -209,12 +209,16 @@ export interface AuditLog {
   id: string;
   table_name: string;
   record_id: string;
-  action: string;
-  old_values: any;
-  new_values: any;
-  changed_by: string | null;
+  action: string; // 'INSERT' | 'UPDATE' | 'DELETE' | 'AUTO_ASSIGN' | 'PERIOD_CHANGE'
+  old_values?: any;
+  new_values?: any;
+  changed_by?: string | null;
+  changed_by_email?: string | null;
+  user_role?: string | null;
+  summary?: string | null;
   changed_at: string;
 }
+
 
 // Extended types with relations
 export interface ExamSessionWithRelations extends ExamSession {

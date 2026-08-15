@@ -14,6 +14,8 @@ import { HOD_EMAILS } from '@/lib/config/hod-accounts';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 import { ExamPeriodModal } from '@/components/dashboard/exam-period-modal';
 import { WeeklyBackupModal } from '@/components/dashboard/weekly-backup-modal';
+import { RecentActivityWidget } from '@/components/dashboard/recent-activity-widget';
+
 
 export default function HomePage() {
   const router = useRouter();
@@ -530,36 +532,10 @@ export default function HomePage() {
           </div>
 
           {/* Audit Log / Recent Activity */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
-              <h3 className="text-sm font-bold text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                <History className="w-4 h-4 text-slate-400" />
-                Recent System Activity
-              </h3>
-              <span className="text-xs text-slate-400">Live Audit Log</span>
-            </div>
-
-            {auditLogs.length > 0 ? (
-              <div className="space-y-3">
-                {auditLogs.map((log) => (
-                  <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-0.5 rounded font-bold border ${getActionColor(log.action)}`}>
-                        {log.action}
-                      </span>
-                      <span className="font-semibold text-slate-700">{log.table_name}</span>
-                      <span className="text-slate-400 font-mono text-[10px]">{log.record_id?.substring(0, 8)}...</span>
-                    </div>
-                    <span className="text-slate-400">{new Date(log.changed_at).toLocaleTimeString()}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-400 text-center py-4">No recent activity logged</p>
-            )}
-          </div>
+          <RecentActivityWidget initialLogs={auditLogs} />
         </div>
       </div>
+
 
       {/* Exam Period Modal */}
       <ExamPeriodModal
