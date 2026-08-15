@@ -13,7 +13,10 @@ import { BulkEditModal } from '@/components/exams/bulk-edit-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { exportExamsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function ExamsPage() {
+  const { activePeriod } = useExamPeriod();
   const [exams, setExams] = useState<ExamSessionWithRelations[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -38,7 +41,7 @@ export default function ExamsPage() {
     } else {
       setIsLoading(false);
     }
-  }, []);
+  }, [activePeriod]);
 
   if (!configStatus.configured) {
     return <SetupRequired configStatus={configStatus} />;
@@ -48,8 +51,16 @@ export default function ExamsPage() {
     if (!supabase) return;
     if (showLoader) setIsLoading(true);
     try {
+      let query = supabase.from('exam_sessions').select('*, room:rooms(*)').order('exam_date').order('start_time');
+      
+      if (activePeriod) {
+        query = query
+          .gte('exam_date', activePeriod.start_date)
+          .lte('exam_date', activePeriod.end_date);
+      }
+
       const [examsRes, roomsRes] = await Promise.all([
-        supabase.from('exam_sessions').select('*, room:rooms(*)').order('exam_date').order('start_time'),
+        query,
         supabase.from('rooms').select('*').eq('is_active', true).order('room_name'),
       ]);
       if (examsRes.error) throw examsRes.error;
@@ -62,6 +73,7 @@ export default function ExamsPage() {
       setIsLoading(false);
     }
   };
+
 
   const handleAddExam = async (data: ExamSessionFormData) => {
     if (!supabase) return;

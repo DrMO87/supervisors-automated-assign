@@ -383,3 +383,50 @@ export interface RoomSessionGroup {
   total_students: number;
   isOral?: boolean;
 }
+
+export type SemesterType = 'Fall' | 'Spring' | 'Summer' | 'Midterm' | 'Final' | 'Custom';
+export type ScoreMode = 'continue' | 'fresh';
+
+export interface ExamPeriodScoreSnapshot {
+  staff_id: string;
+  current_score: number;
+  free_staff_score: number;
+}
+
+export interface ExamPeriod {
+  id: string;
+  name: string;
+  semester_type: SemesterType;
+  academic_year?: string | null;
+  start_date: string; // ISO YYYY-MM-DD
+  end_date: string;   // ISO YYYY-MM-DD
+  is_active: boolean;
+  score_mode: ScoreMode;
+  score_snapshot?: ExamPeriodScoreSnapshot[];
+  notes?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ExamPeriodBackup {
+  id: string;
+  period_id: string;
+  period_name: string;
+  week_start_date: string;
+  week_label: string;
+  backup_name: string;
+  trigger_type: 'automatic' | 'manual';
+  snapshot_data: {
+    period: ExamPeriod;
+    staff: Staff[];
+    rooms: Room[];
+    exams: ExamSession[];
+    assignments: Assignment[];
+    period_free_staff: PeriodFreeStaff[];
+    system_settings?: SystemSettings[];
+  };
+  created_at: string;
+}
+
+
+

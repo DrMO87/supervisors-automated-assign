@@ -10,8 +10,11 @@ import { SetupRequired } from '@/components/setup-required';
 import { batchAssign, allocateReserveStaff } from '@/lib/algorithms/auto-assignment';
 import { generateAssignmentReport, exportAssignmentsToExcel, parseAssignmentCSV, downloadFile } from '@/lib/utils/csv-helpers';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function AutoAssignPage() {
     const router = useRouter();
+    const { activePeriod } = useExamPeriod();
     const [isLoading, setIsLoading] = useState(true);
     const [isProcessing, setIsProcessing] = useState(false);
     const [counts, setCounts] = useState({ staff: 0, exams: 0, rooms: 0, assignments: 0 });
@@ -31,33 +34,49 @@ export default function AutoAssignPage() {
         } else {
             setIsLoading(false);
         }
-    }, []);
+    }, [activePeriod]);
 
     const loadData = async (showLoader = false) => {
         if (!supabase) return;
         if (showLoader) setIsLoading(true);
         try {
+            let examsQuery = supabase.from('exam_sessions').select('*').limit(10000);
+            if (activePeriod) {
+                examsQuery = examsQuery
+                    .gte('exam_date', activePeriod.start_date)
+                    .lte('exam_date', activePeriod.end_date);
+            }
+
             const [staffRes, examsRes, roomsRes, assignmentsRes, settingsRes] = await Promise.all([
                 supabase.from('staff').select('*').limit(10000),
-                supabase.from('exam_sessions').select('*').limit(10000),
+                examsQuery,
                 supabase.from('rooms').select('*').limit(10000),
                 supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*)').limit(10000),
-                supabase.from('system_settings').select('*').not('setting_key', 'like', 'backup_%').limit(10000), // Fetch needed settings
+                supabase.from('system_settings').select('*').not('setting_key', 'like', 'backup_%').limit(10000),
             ]);
+
+            let filteredExams = examsRes.data || [];
+            let filteredAssignments = assignmentsRes.data || [];
+
+            if (activePeriod) {
+                filteredAssignments = filteredAssignments.filter(a => {
+                    const date = (a.exam_session as any)?.exam_date;
+                    return date && date >= activePeriod.start_date && date <= activePeriod.end_date;
+                });
+            }
 
             setCounts({
                 staff: staffRes.data?.length || 0,
-                exams: examsRes.data?.length || 0,
+                exams: filteredExams.length,
                 rooms: roomsRes.data?.length || 0,
-                assignments: assignmentsRes.data?.length || 0,
+                assignments: filteredAssignments.length,
             });
 
             setStaff(staffRes.data || []);
-            setExams(examsRes.data || []);
+            setExams(filteredExams);
             setRooms(roomsRes.data || []);
-            setAllAssignments(assignmentsRes.data || []); // We need full assignment data for export
-            setExams(examsRes.data || []);
-            setRooms(roomsRes.data || []);
+            setAllAssignments(filteredAssignments);
+
             setAllAssignments(assignmentsRes.data || []);
 
             // Process Settings

@@ -36,7 +36,10 @@ import {
 import * as XLSX from 'xlsx';
 import { downloadFile } from '@/lib/utils/csv-helpers';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function ReportsPage() {
+  const { activePeriod } = useExamPeriod();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [exams, setExams] = useState<ExamSessionWithRelations[]>([]);
   const [assignments, setAssignments] = useState<AssignmentWithSession[]>([]);
@@ -63,7 +66,8 @@ export default function ReportsPage() {
     } else {
       setIsLoading(false);
     }
-  }, []);
+  }, [activePeriod]);
+
 
   if (!configStatus.configured) {
     return <SetupRequired configStatus={configStatus} />;
@@ -108,11 +112,25 @@ export default function ReportsPage() {
       if (settingsRes.error) throw settingsRes.error;
       if (freeStaffRes.error) throw freeStaffRes.error;
 
+      let loadedExams = examsRes.data || [];
+      let loadedAssignments = assignmentsRes.data || [];
+      let loadedFreeStaff = freeStaffRes.data || [];
+
+      if (activePeriod) {
+        loadedExams = loadedExams.filter(e => e.exam_date >= activePeriod.start_date && e.exam_date <= activePeriod.end_date);
+        loadedAssignments = loadedAssignments.filter(a => {
+          const d = (a.exam_session as any)?.exam_date;
+          return d && d >= activePeriod.start_date && d <= activePeriod.end_date;
+        });
+        loadedFreeStaff = loadedFreeStaff.filter(f => f.exam_date >= activePeriod.start_date && f.exam_date <= activePeriod.end_date);
+      }
+
       setStaff(staffRes.data || []);
-      setExams(examsRes.data || []);
-      setAssignments(assignmentsRes.data || []);
+      setExams(loadedExams);
+      setAssignments(loadedAssignments);
       setRooms(roomsRes.data || []);
-      setFreeStaff(freeStaffRes.data || []);
+      setFreeStaff(loadedFreeStaff);
+
 
       const fetchedSettings: any = {};
       settingsRes.data?.forEach(s => {

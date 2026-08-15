@@ -7,10 +7,11 @@ import { WeekNavigator } from '@/components/dashboard/week-navigator';
 import { StaffSidebar } from '@/components/dashboard/staff-sidebar';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 import { DashboardMetrics } from '@/components/dashboard/dashboard-metrics';
-import { ChevronLeft, ChevronRight, Calendar, Download, Upload, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2, Users, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Download, Upload, Loader2, Sparkles, CheckCircle, Save, RotateCcw, MessageCircle, ArrowRightLeft, Trash2, Users, X, Shield } from 'lucide-react';
 import { DndContext, DragEndEvent, DragStartEvent, pointerWithin, DragOverlay } from '@dnd-kit/core';
 import { StaffItemUI } from '@/components/dashboard/draggable-staff-item';
 import { AutomatedSwapSuggestionsModal } from '@/components/dashboard/automated-swap-suggestions-modal';
+import { WeeklyBackupModal } from '@/components/dashboard/weekly-backup-modal';
 import { supabase } from '@/lib/supabase/client';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { startOfWeek } from 'date-fns';
@@ -19,6 +20,8 @@ import { getPeriodFromTime } from '@/types/database.types';
 
 export default function DashboardPage() {
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 6 }));
+  const [isWeeklyBackupOpen, setIsWeeklyBackupOpen] = useState(false);
+
   const { 
     examSessions, 
     setExamSessions, 
@@ -419,7 +422,7 @@ export default function DashboardPage() {
                   </button>
                 </div>
 
-                {/* ── Group 2: Smart Tools ── */}
+                {/* ── Group 2: Smart Tools & Backups ── */}
                 <div className="flex justify-center items-center rounded-lg border border-primary-200 bg-primary-50 shadow-sm overflow-hidden divide-x divide-primary-200">
                   <button
                     onClick={() => setIsSwapModalOpen(true)}
@@ -429,7 +432,16 @@ export default function DashboardPage() {
                     <ArrowRightLeft className="w-3.5 h-3.5" />
                     Smart Swaps
                   </button>
+                  <button
+                    onClick={() => setIsWeeklyBackupOpen(true)}
+                    title="Manage automatic & manual weekly period backups"
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100 transition-colors"
+                  >
+                    <Shield className="w-3.5 h-3.5 text-indigo-600" />
+                    Weekly Backups
+                  </button>
                 </div>
+
 
                 {/* ── Group 3: Auto-Assign (primary action) ── */}
                 <div className="flex flex-wrap sm:flex-nowrap justify-center items-center rounded-lg overflow-hidden shadow-sm border border-indigo-600 divide-x divide-indigo-500">
@@ -556,7 +568,16 @@ export default function DashboardPage() {
           onClose={() => setIsSwapModalOpen(false)}
         />
       )}
+
+      <WeeklyBackupModal
+        isOpen={isWeeklyBackupOpen}
+        onClose={() => setIsWeeklyBackupOpen(false)}
+        onRestoreSuccess={() => {
+          window.location.reload();
+        }}
+      />
     </DndContext>
   );
 }
+
 
