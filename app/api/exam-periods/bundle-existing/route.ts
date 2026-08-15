@@ -28,19 +28,28 @@ export async function GET() {
     const minDate = dates[0];
     const maxDate = dates[dates.length - 1];
 
-    // 2. Check if a period already covers these dates
+    // 2. Check if an existing period already covers these exam dates
     const { data: existingPeriods } = await supabaseAdmin
       .from('exam_periods')
       .select('*');
 
+    const periodsCount = existingPeriods?.length || 0;
+    const isCovered = (existingPeriods || []).some(
+      p => p.start_date <= minDate && p.end_date >= maxDate
+    );
+
+    // Only prompt to bundle if no period exists yet
+    const needsBundling = periodsCount === 0 && !isCovered;
+
     return NextResponse.json({
-      hasExistingExams: true,
+      hasExistingExams: needsBundling,
       count: exams.length,
       minDate,
       maxDate,
-      periodsCount: existingPeriods?.length || 0,
+      periodsCount,
       existingPeriods: existingPeriods || [],
     });
+
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
