@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
+import { logActivity } from '@/lib/utils/audit-logger';
+
 
 export async function GET() {
   try {
@@ -70,6 +72,15 @@ export async function POST(req: NextRequest) {
       console.error('Error creating exam period:', createErr);
       return NextResponse.json({ error: createErr.message }, { status: 500 });
     }
+
+    await logActivity(supabaseAdmin, {
+      action: 'PERIOD_CHANGE',
+      tableName: 'exam_periods',
+      recordId: newPeriod.id,
+      summary: `Created ${isActive ? 'active' : 'inactive'} Exam Period "${name}" (${start_date} → ${end_date})`,
+      newValues: newPeriod,
+    });
+
 
     // Handle Score Logic
     if (isActive) {

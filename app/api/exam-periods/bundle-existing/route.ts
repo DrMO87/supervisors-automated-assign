@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
+import { logActivity } from '@/lib/utils/audit-logger';
+
 
 export async function GET() {
   try {
@@ -119,6 +121,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: hErr.message }, { status: 500 });
     }
 
+    await logActivity(supabaseAdmin, {
+      action: 'PERIOD_CHANGE',
+      tableName: 'exam_periods',
+      recordId: historicalPeriod.id,
+      summary: `Bundled existing database exams into Historical Period "${historical_name}" (${hStart} → ${hEnd})`,
+      newValues: historicalPeriod,
+    });
+
     // 4. Deactivate all periods
     await supabaseAdmin
       .from('exam_periods')
@@ -146,6 +156,15 @@ export async function POST(req: NextRequest) {
       console.error('Error creating summer period:', sErr);
       return NextResponse.json({ error: sErr.message }, { status: 500 });
     }
+
+    await logActivity(supabaseAdmin, {
+      action: 'PERIOD_CHANGE',
+      tableName: 'exam_periods',
+      recordId: summerPeriod.id,
+      summary: `Created & Activated new Summer Exam Period "${summer_name}" (${summer_start_date} → ${summer_end_date})`,
+      newValues: summerPeriod,
+    });
+
 
     // 6. Handle Staff Scoring for Summer Period
     if (summer_score_mode === 'fresh') {

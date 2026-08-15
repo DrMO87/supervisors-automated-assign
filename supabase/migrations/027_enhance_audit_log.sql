@@ -37,12 +37,12 @@ BEGIN
     END;
 
     IF current_user_email IS NULL OR current_user_email = '' THEN
-        current_user_email := 'System Engine';
+        current_user_email := 'melkhodary@horus.edu.eg';
     END IF;
 
     IF (TG_OP = 'INSERT') THEN
         rec_id := NEW.id;
-        summary_text := 'Created record in ' || TG_TABLE_NAME;
+        summary_text := 'Created new record in ' || TG_TABLE_NAME;
     ELSIF (TG_OP = 'UPDATE') THEN
         rec_id := NEW.id;
         summary_text := 'Updated record in ' || TG_TABLE_NAME;
@@ -51,7 +51,7 @@ BEGIN
         summary_text := 'Deleted record from ' || TG_TABLE_NAME;
     END IF;
 
-    INSERT INTO public.audit_log (table_name, record_id, action, old_values, new_values, changed_by_email, summary)
+    INSERT INTO public.audit_log (table_name, record_id, action, old_values, new_values, changed_by_email, user_role, summary)
     VALUES (
         TG_TABLE_NAME,
         rec_id,
@@ -59,11 +59,38 @@ BEGIN
         CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE NULL END,
         CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN to_jsonb(NEW) ELSE NULL END,
         current_user_email,
+        CASE WHEN current_user_email LIKE '%melkhodary%' THEN 'Super Admin' ELSE 'Head of Department' END,
         summary_text
     );
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 5. Attach triggers to core tables
+DROP TRIGGER IF EXISTS tr_audit_exam_periods ON public.exam_periods;
+CREATE TRIGGER tr_audit_exam_periods
+AFTER INSERT OR UPDATE OR DELETE ON public.exam_periods
+FOR EACH ROW EXECUTE FUNCTION public.tr_auto_audit_log();
+
+DROP TRIGGER IF EXISTS tr_audit_assignments ON public.assignments;
+CREATE TRIGGER tr_audit_assignments
+AFTER INSERT OR UPDATE OR DELETE ON public.assignments
+FOR EACH ROW EXECUTE FUNCTION public.tr_auto_audit_log();
+
+DROP TRIGGER IF EXISTS tr_audit_exam_sessions ON public.exam_sessions;
+CREATE TRIGGER tr_audit_exam_sessions
+AFTER INSERT OR UPDATE OR DELETE ON public.exam_sessions
+FOR EACH ROW EXECUTE FUNCTION public.tr_auto_audit_log();
+
+DROP TRIGGER IF EXISTS tr_audit_staff ON public.staff;
+CREATE TRIGGER tr_audit_staff
+AFTER INSERT OR UPDATE OR DELETE ON public.staff
+FOR EACH ROW EXECUTE FUNCTION public.tr_auto_audit_log();
+
+DROP TRIGGER IF EXISTS tr_audit_rooms ON public.rooms;
+CREATE TRIGGER tr_audit_rooms
+AFTER INSERT OR UPDATE OR DELETE ON public.rooms
+FOR EACH ROW EXECUTE FUNCTION public.tr_auto_audit_log();
 
 COMMIT;
