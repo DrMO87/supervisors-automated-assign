@@ -476,15 +476,8 @@ export default function HomePage() {
                 <h2 className="text-xl font-display font-bold text-slate-900">System Modules</h2>
                 <p className="text-sm text-slate-500">Follow the step-by-step workflow to setup, assign, and manage supervision</p>
               </div>
-              
-              <button
-                onClick={() => setIsPeriodModalOpen(true)}
-                className="btn btn-gold text-xs font-bold px-3 py-2 flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Manage Exam Period
-              </button>
             </div>
+
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {cards.map((card) => {
