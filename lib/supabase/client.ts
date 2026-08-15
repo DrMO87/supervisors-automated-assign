@@ -12,8 +12,7 @@ function isValidSupabaseUrl(url: string | undefined): boolean {
 // Validate Supabase Key
 function isValidSupabaseKey(key: string | undefined): boolean {
   if (!key) return false;
-  // Keys are typically long base64 strings, allow local keys
-  return key.length > 30 && !key.includes('your-') && !key.includes('placeholder');
+  return key.length > 20 && !key.includes('your-') && !key.includes('placeholder');
 }
 
 // Check if Supabase is properly configured
@@ -41,17 +40,14 @@ export function getSupabaseConfigStatus(): {
 }
 
 // Client-side Supabase client for use in React components
-// Only create if properly configured, otherwise create a dummy that will show setup message
 let supabaseInstance: SupabaseClient | null = null;
 
 if (isSupabaseConfigured()) {
   supabaseInstance = createClientComponentClient();
 }
 
-// Safely export supabase client
 export const supabase = supabaseInstance || new Proxy({} as SupabaseClient, {
   get: (_target, prop) => {
-    // Return undefined for 'then' to prevent Promise-like behavior checks from crashing
     if (prop === 'then') return undefined;
     throw new Error(
       'Supabase is not configured. Please check your .env.local file to ensure NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are set correctly.'
@@ -59,15 +55,18 @@ export const supabase = supabaseInstance || new Proxy({} as SupabaseClient, {
   }
 });
 
-// Server-side Supabase client with service role (for admin operations)
-// Only create if properly configured
+// Server-side Supabase client for admin operations
 let supabaseAdminInstance: SupabaseClient | null = null;
 
+// Prefer service role key if valid JWT, else fall back to anon key
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (isValidSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) && isValidSupabaseKey(serviceRoleKey)) {
+const isServiceRoleJwt = serviceRoleKey && !serviceRoleKey.startsWith('sb_secret_') && serviceRoleKey.length > 30;
+const effectiveKey = isServiceRoleJwt ? serviceRoleKey : (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || serviceRoleKey);
+
+if (isValidSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) && isValidSupabaseKey(effectiveKey)) {
   supabaseAdminInstance = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceRoleKey!,
+    effectiveKey!,
     {
       auth: {
         autoRefreshToken: false,
@@ -85,4 +84,3 @@ export const supabaseAdmin = supabaseAdminInstance || new Proxy({} as SupabaseCl
     );
   }
 });
-
