@@ -8,7 +8,10 @@ import { format } from 'date-fns';
 import { exportSwapsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
 import { useRouter } from 'next/navigation';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function SwapsPage() {
+  const { activePeriod } = useExamPeriod();
   const [requests, setRequests] = useState<SwapRequestWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -19,7 +22,7 @@ export default function SwapsPage() {
 
   const fetchRequests = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('swap_requests')
         .select(`
           *,
@@ -29,6 +32,12 @@ export default function SwapsPage() {
         `)
         .order('created_at', { ascending: false });
 
+      if (activePeriod) {
+        query = query.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
       setRequests(data as any);
     } catch (err: any) {
@@ -36,11 +45,12 @@ export default function SwapsPage() {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, activePeriod]);
 
   useEffect(() => {
     fetchRequests();
   }, [fetchRequests]);
+
 
   const handleAction = async (id: string, action: 'approve' | 'reject') => {
     setActionLoading(id);

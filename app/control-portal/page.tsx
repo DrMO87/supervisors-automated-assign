@@ -14,7 +14,10 @@ import {
 import { downloadFile, exportSwapsToExcel } from '@/lib/utils/csv-helpers';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function ControlPortalPage() {
+  const { activePeriod } = useExamPeriod();
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
@@ -45,13 +48,24 @@ export default function ControlPortalPage() {
         
         setCurrentUserData(session.user.user_metadata);
 
+        let examsQuery = supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(5000);
+        let assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions!inner(*, room:rooms(*))').limit(15000);
+        let freeStaffQuery = supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period').limit(5000);
+
+        if (activePeriod) {
+          examsQuery = examsQuery.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+          assignmentsQuery = assignmentsQuery.gte('exam_session.exam_date', activePeriod.start_date).lte('exam_session.exam_date', activePeriod.end_date);
+          freeStaffQuery = freeStaffQuery.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+        }
+
         const [staffRes, examsRes, assignmentsRes, freeStaffRes, swapsRes] = await Promise.all([
           supabase.from('staff').select('*').order('name'),
-          supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(5000),
-          supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').limit(15000),
-          supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period').limit(5000),
+          examsQuery,
+          assignmentsQuery,
+          freeStaffQuery,
           supabase.from('swap_requests').select('*, room:rooms(*), original_staff:staff!original_staff_id(*), replacement_staff:staff!replacement_staff_id(*)').order('created_at', { ascending: false })
         ]);
+
 
         const fetchedExams = examsRes.data || [];
         setStaffList(staffRes.data || []);
@@ -92,7 +106,8 @@ export default function ControlPortalPage() {
       }
     };
     fetchData();
-  }, [supabase, router]);
+  }, [activePeriod, supabase, router]);
+
 
   const handleLogout = async () => {
     try {

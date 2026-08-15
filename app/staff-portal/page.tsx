@@ -23,13 +23,17 @@ import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function UnifiedStaffPortalPage() {
+  const { activePeriod } = useExamPeriod();
   const [activeTab, setActiveTab] = useState<'swap' | 'schedule' | 'swap_log' | 'all_schedules' | 'reserves'>('swap');
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [roomList, setRoomList] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+
 
   // --- Swap State ---
   const [submittingSwap, setSubmittingSwap] = useState(false);
@@ -170,12 +174,22 @@ export default function UnifiedStaffPortalPage() {
           return { data: allData, error: null };
         };
 
+        let examsQ = supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date');
+        let assignQ = supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions!inner(*, room:rooms(*))');
+        let freeStaffQ = supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period');
+
+        if (activePeriod) {
+          examsQ = examsQ.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+          assignQ = assignQ.gte('exam_session.exam_date', activePeriod.start_date).lte('exam_session.exam_date', activePeriod.end_date);
+          freeStaffQ = freeStaffQ.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+        }
+
         if (staffId) {
           const [specificStaffRes, examsRes, assignmentsRes, freeStaffRes] = await Promise.all([
             supabase.from('staff').select('*').eq('id', staffId).single(),
-            fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date')),
-            fetchAll(supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').eq('staff_id', staffId)),
-            fetchAll(supabase.from('period_free_staff').select('*, staff:staff(*)').eq('staff_id', staffId).order('exam_date').order('period'))
+            fetchAll(examsQ),
+            fetchAll(assignQ.eq('staff_id', staffId)),
+            fetchAll(freeStaffQ.eq('staff_id', staffId))
           ]);
 
           if (!specificStaffRes.error) setStaffMember(specificStaffRes.data);
@@ -185,9 +199,9 @@ export default function UnifiedStaffPortalPage() {
         } else {
           // Generic staff: fetch all data needed for reports and swaps
           const [examsRes, assignmentsRes, freeStaffRes, swapsRes] = await Promise.all([
-            fetchAll(supabase.from('exam_sessions').select('*, room:rooms(*)')),
-            fetchAll(supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))')),
-            fetchAll(supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period')),
+            fetchAll(examsQ),
+            fetchAll(assignQ),
+            fetchAll(freeStaffQ),
             supabase.from('swap_requests').select('*, room:rooms(*), original_staff:staff!original_staff_id(*), replacement_staff:staff!replacement_staff_id(*)').order('created_at', { ascending: false })
           ]);
           if (!examsRes.error) setExams(examsRes.data || []);
@@ -203,7 +217,8 @@ export default function UnifiedStaffPortalPage() {
       }
     };
     fetchInitialData();
-  }, [supabase, router]);
+  }, [activePeriod, supabase, router]);
+
 
   // Fetch dynamic data when date/period change (for swap form)
   useEffect(() => {

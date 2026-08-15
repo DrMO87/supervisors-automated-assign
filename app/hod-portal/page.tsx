@@ -10,7 +10,10 @@ import { generateOralExamsHTML, generateOralExamsExcel } from '@/lib/utils/repor
 import { downloadFile } from '@/lib/utils/csv-helpers';
 import { InternalOralSwapModal } from '@/components/staff-portal/internal-oral-swap-modal';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function HODPortalPage() {
+  const { activePeriod } = useExamPeriod();
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [exams, setExams] = useState<ExamSessionWithRelations[]>([]);
@@ -32,18 +35,25 @@ export default function HODPortalPage() {
 
         setCurrentUserData(session.user.user_metadata);
 
-        // Fetch all exam sessions with relations
+        // Fetch exam sessions scoped to active period
+        let query = supabase
+          .from('exam_sessions')
+          .select('*, room:rooms(*), assignments(*, staff:staff(*))')
+          .order('exam_date');
+
+        if (activePeriod) {
+          query = query
+            .gte('exam_date', activePeriod.start_date)
+            .lte('exam_date', activePeriod.end_date);
+        }
+
         let allExams: any[] = [];
         let from = 0;
         const step = 1000;
         let hasMore = true;
         
         while (hasMore) {
-          const { data, error } = await supabase
-            .from('exam_sessions')
-            .select('*, room:rooms(*), assignments(*, staff:staff(*))')
-            .order('exam_date')
-            .range(from, from + step - 1);
+          const { data, error } = await query.range(from, from + step - 1);
             
           if (error) throw error;
           
@@ -57,6 +67,7 @@ export default function HODPortalPage() {
         }
 
         setExams(allExams);
+
         
         // Auto-select current week
         if (allExams.length > 0) {
@@ -82,7 +93,7 @@ export default function HODPortalPage() {
     };
     
     fetchInitialData();
-  }, [supabase, router]);
+  }, [activePeriod, supabase, router]);
 
   const handleLogout = async () => {
     try {

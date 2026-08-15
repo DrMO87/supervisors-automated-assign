@@ -19,7 +19,10 @@ import { downloadFile } from '@/lib/utils/csv-helpers';
 import { AreaChart, Area, Tooltip, ResponsiveContainer, LabelList } from 'recharts';
 import { AiQueryBox } from '@/components/dashboard/ai-query-box';
 
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+
 export default function AdminReportsPage() {
+  const { activePeriod } = useExamPeriod();
   const [currentUserData, setCurrentUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<string | null>(null);
@@ -58,14 +61,23 @@ export default function AdminReportsPage() {
         
         setCurrentUserData(session.user.user_metadata);
 
-        // Fetch entire database for the current reporting purposes
-        // In a production app with huge data, this should be paginated or date-filtered
+        let examsQuery = supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(5000);
+        let assignmentsQuery = supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions!inner(*, room:rooms(*))').limit(15000);
+        let freeStaffQuery = supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period').limit(5000);
+
+        if (activePeriod) {
+          examsQuery = examsQuery.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+          assignmentsQuery = assignmentsQuery.gte('exam_session.exam_date', activePeriod.start_date).lte('exam_session.exam_date', activePeriod.end_date);
+          freeStaffQuery = freeStaffQuery.gte('exam_date', activePeriod.start_date).lte('exam_date', activePeriod.end_date);
+        }
+
         const [staffRes, examsRes, assignmentsRes, freeStaffRes] = await Promise.all([
           supabase.from('staff').select('*').order('name'),
-          supabase.from('exam_sessions').select('*, room:rooms(*), assignments(*, staff:staff(*))').order('exam_date').limit(5000),
-          supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*, room:rooms(*))').limit(15000),
-          supabase.from('period_free_staff').select('*, staff:staff(*)').order('exam_date').order('period').limit(5000)
+          examsQuery,
+          assignmentsQuery,
+          freeStaffQuery
         ]);
+
 
         if (staffRes.error) throw staffRes.error;
         if (examsRes.error) throw examsRes.error;
@@ -155,7 +167,8 @@ export default function AdminReportsPage() {
       }
     };
     fetchData();
-  }, [supabase, router]);
+  }, [activePeriod, supabase, router]);
+
 
   const handleLogout = async () => {
     try {
