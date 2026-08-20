@@ -6,6 +6,8 @@ import { createClient } from '@supabase/supabase-js';
 import { isStaffAvailable } from '@/lib/algorithms/auto-assignment';
 import { syncStaffScores } from '@/lib/utils/score-sync';
 import type { Staff, ExamSession, Assignment, PeriodFreeStaff, CalendarRule } from '@/types/database.types';
+import { logActivity } from '@/lib/utils/audit-logger';
+
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -247,6 +249,16 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     await Promise.all(promises);
+
+    await logActivity(supabaseAdmin, {
+      action: 'UPDATE',
+      tableName: 'assignments',
+      recordId: targetStaffId,
+      summary: `Bulk replaced assignments for staff ID ${targetStaffId} for week starting ${weekStart}`,
+      userEmail: email,
+      userRole: 'Super Admin',
+    });
+
 
     // Sync scores for target staff and all replacements
     const affectedStaffIds = new Set<string>([targetStaffId]);

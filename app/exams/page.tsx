@@ -12,8 +12,9 @@ import { DeleteConfirmModal } from '@/components/ui/delete-confirm-modal';
 import { BulkEditModal } from '@/components/exams/bulk-edit-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { exportExamsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
-
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+import { logActivity } from '@/lib/utils/audit-logger';
+
 
 export default function ExamsPage() {
   const { activePeriod } = useExamPeriod();
@@ -79,8 +80,21 @@ export default function ExamsPage() {
     if (!supabase) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { error } = await supabase.from('exam_sessions').insert([{ ...data, is_locked: false }]);
+      const { data: insertedData, error } = await supabase
+        .from('exam_sessions')
+        .insert([{ ...data, is_locked: false }])
+        .select('id')
+        .single();
       if (error) throw error;
+      
+      await logActivity(supabase, {
+        action: 'INSERT',
+        tableName: 'exam_sessions',
+        recordId: insertedData?.id || 'exam-add',
+        summary: `Created exam session: ${data.subject_name || 'Exam'} on ${data.exam_date}`,
+        newValues: data,
+      });
+
       setIsAddModalOpen(false);
       loadData();
     } catch (error: any) {
@@ -97,6 +111,16 @@ export default function ExamsPage() {
     try {
       const { error } = await supabase.from('exam_sessions').update(data).eq('id', selectedExam.id);
       if (error) throw error;
+
+      await logActivity(supabase, {
+        action: 'UPDATE',
+        tableName: 'exam_sessions',
+        recordId: selectedExam.id,
+        summary: `Updated exam session: ${data.subject_name || selectedExam.subject_name} on ${data.exam_date || selectedExam.exam_date}`,
+        oldValues: selectedExam,
+        newValues: data,
+      });
+
       setIsEditModalOpen(false);
       setSelectedExam(null);
       loadData();
@@ -114,6 +138,15 @@ export default function ExamsPage() {
     try {
       const { error } = await supabase.from('exam_sessions').delete().eq('id', selectedExam.id);
       if (error) throw error;
+
+      await logActivity(supabase, {
+        action: 'DELETE',
+        tableName: 'exam_sessions',
+        recordId: selectedExam.id,
+        summary: `Deleted exam session: ${selectedExam.subject_name} on ${selectedExam.exam_date}`,
+        oldValues: selectedExam,
+      });
+
       setIsDeleteModalOpen(false);
       setSelectedExam(null);
       // Remove from selected list if deleted
@@ -133,6 +166,15 @@ export default function ExamsPage() {
     try {
       const { error } = await supabase.from('exam_sessions').update(updateData).in('id', selectedExamIds);
       if (error) throw error;
+
+      await logActivity(supabase, {
+        action: 'UPDATE',
+        tableName: 'exam_sessions',
+        recordId: selectedExamIds[0],
+        summary: `Bulk updated ${selectedExamIds.length} exam sessions`,
+        newValues: updateData,
+      });
+
       setIsBulkEditModalOpen(false);
       setSelectedExamIds([]); // Clear selection after successful edit
       loadData();
@@ -149,8 +191,17 @@ export default function ExamsPage() {
     if (!confirm(`Are you sure you want to delete ${selectedExamIds.length} selected exams?`)) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
+      const count = selectedExamIds.length;
       const { error } = await supabase.from('exam_sessions').delete().in('id', selectedExamIds);
       if (error) throw error;
+
+      await logActivity(supabase, {
+        action: 'DELETE',
+        tableName: 'exam_sessions',
+        recordId: selectedExamIds[0],
+        summary: `Bulk deleted ${count} exam sessions`,
+      });
+
       setSelectedExamIds([]);
       loadData();
     } catch (error: any) {
@@ -184,8 +235,21 @@ export default function ExamsPage() {
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
       const examsToInsert = data.map(e => ({ ...e, is_locked: false }));
-      const { error } = await supabase.from('exam_sessions').insert(examsToInsert);
+      const { data: insertedData, error } = await supabase
+        .from('exam_sessions')
+        .insert(examsToInsert)
+        .select('id');
       if (error) throw error;
+
+      await logActivity(supabase, {
+        action: 'INSERT',
+        tableName: 'exam_sessions',
+        recordId: insertedData?.[0]?.id || 'bulk-import',
+        summary: `Imported ${data.length} exam sessions via Excel/CSV`,
+        newValues: { count: data.length, sampleSubject: data[0]?.subject_name },
+      });
+
+
       setIsImportModalOpen(false);
       loadData();
     } catch (error: any) {
@@ -195,6 +259,7 @@ export default function ExamsPage() {
       setIsSaving(false);
     }
   };
+
 
   const handleExportExcel = () => {
     const blob = exportExamsToExcel(exams);

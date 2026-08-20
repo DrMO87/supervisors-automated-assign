@@ -2,8 +2,10 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/client';
+import { logActivity } from '@/lib/utils/audit-logger';
 
 export const dynamic = 'force-dynamic';
+
 import { batchAssign, AutoAssignConfig } from '@/lib/algorithms/auto-assignment';
 import { createSnapshot } from '@/lib/utils/snapshot-helpers';
 import type {
@@ -207,7 +209,17 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         );
 
       if (insertError) throw insertError;
+
+      await logActivity(supabaseAdmin, {
+        action: 'AUTO_ASSIGN',
+        tableName: 'assignments',
+        recordId: allNewAssignments[0]?.exam_session_id || 'auto-assign',
+        summary: `Auto-assigned ${allNewAssignments.length} supervisors for week starting ${weekStart}`,
+        userEmail: email,
+        userRole: 'Super Admin',
+      });
     }
+
 
     return NextResponse.json({
       success: true,
