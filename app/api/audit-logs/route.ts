@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/client';
+import { logActivity } from '@/lib/utils/audit-logger';
 
 export async function GET(req: NextRequest) {
   try {
@@ -26,6 +27,17 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ logs: data || [], total: count || 0 });
   } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    await logActivity(supabaseAdmin, body);
+    return NextResponse.json({ success: true });
+  } catch (err: any) {
+    console.error('Error logging audit activity:', err);
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
   }
 }

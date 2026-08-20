@@ -13,7 +13,7 @@ import { BulkEditModal } from '@/components/exams/bulk-edit-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { exportExamsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
-import { logActivity } from '@/lib/utils/audit-logger';
+import { logClientActivity } from '@/lib/utils/audit-logger';
 
 
 export default function ExamsPage() {
@@ -87,7 +87,7 @@ export default function ExamsPage() {
         .single();
       if (error) throw error;
       
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'INSERT',
         tableName: 'exam_sessions',
         recordId: insertedData?.id || 'exam-add',
@@ -112,7 +112,7 @@ export default function ExamsPage() {
       const { error } = await supabase.from('exam_sessions').update(data).eq('id', selectedExam.id);
       if (error) throw error;
 
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'UPDATE',
         tableName: 'exam_sessions',
         recordId: selectedExam.id,
@@ -139,7 +139,7 @@ export default function ExamsPage() {
       const { error } = await supabase.from('exam_sessions').delete().eq('id', selectedExam.id);
       if (error) throw error;
 
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'DELETE',
         tableName: 'exam_sessions',
         recordId: selectedExam.id,
@@ -167,7 +167,7 @@ export default function ExamsPage() {
       const { error } = await supabase.from('exam_sessions').update(updateData).in('id', selectedExamIds);
       if (error) throw error;
 
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'UPDATE',
         tableName: 'exam_sessions',
         recordId: selectedExamIds[0],
@@ -195,7 +195,7 @@ export default function ExamsPage() {
       const { error } = await supabase.from('exam_sessions').delete().in('id', selectedExamIds);
       if (error) throw error;
 
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'DELETE',
         tableName: 'exam_sessions',
         recordId: selectedExamIds[0],
@@ -241,13 +241,14 @@ export default function ExamsPage() {
         .select('id');
       if (error) throw error;
 
-      await logActivity(supabase, {
+      await logClientActivity({
         action: 'INSERT',
         tableName: 'exam_sessions',
         recordId: insertedData?.[0]?.id || 'bulk-import',
         summary: `Imported ${data.length} exam sessions via Excel/CSV`,
         newValues: { count: data.length, sampleSubject: data[0]?.subject_name },
       });
+
 
 
       setIsImportModalOpen(false);
