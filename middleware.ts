@@ -2,90 +2,110 @@ import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+const DEFAULT_SUPABASE_URL = 'https://chauqwnfzjskbucoppwb.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_tIiXKR2izJukHfR8YF_XFg_lEFi3aw-';
+
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  try {
+    const supabase = createMiddlewareClient(
+      { req, res },
+      {
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL,
+        supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY,
+      }
+    );
 
-  const isGenericStaff = session?.user?.email === 'staff@horus.edu.eg';
-  const isIndividualStaff = session?.user?.user_metadata?.role === 'staff';
-  const userMetadata = session?.user?.user_metadata || {};
-  const isStaffAccount = session?.user?.email === 'staff@horus.edu.eg' || userMetadata.role === 'staff';
-  const isAdminReportsAccount = userMetadata.role === 'admin_reports';
-  const isControlAccount = userMetadata.role === 'control';
-  const isHodAccount = userMetadata.role === 'hod';
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-  console.log('--- MIDDLEWARE DEBUG ---');
-  console.log('Path:', req.nextUrl.pathname);
-  console.log('User Email:', session?.user?.email);
-  console.log('User Metadata:', userMetadata);
-  console.log('isHodAccount:', isHodAccount);
-  console.log('isStaffAccount:', isStaffAccount);
+    const isGenericStaff = session?.user?.email === 'staff@horus.edu.eg';
+    const isIndividualStaff = session?.user?.user_metadata?.role === 'staff';
+    const userMetadata = session?.user?.user_metadata || {};
+    const isStaffAccount = session?.user?.email === 'staff@horus.edu.eg' || userMetadata.role === 'staff';
+    const isAdminReportsAccount = userMetadata.role === 'admin_reports';
+    const isControlAccount = userMetadata.role === 'control';
+    const isHodAccount = userMetadata.role === 'hod';
 
-  // If there's no session and the user is trying to access a protected route
-  if (!session && !req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = '/login';
-    return NextResponse.redirect(redirectUrl);
-  }
+    console.log('--- MIDDLEWARE DEBUG ---');
+    console.log('Path:', req.nextUrl.pathname);
+    console.log('User Email:', session?.user?.email);
+    console.log('User Metadata:', userMetadata);
+    console.log('isHodAccount:', isHodAccount);
+    console.log('isStaffAccount:', isStaffAccount);
 
-  // If a generic staff or lecturer tries to access non-staff routes, redirect them to the staff portal
-  if (session && isStaffAccount && !isHodAccount) {
-    if (!req.nextUrl.pathname.startsWith('/staff-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+    // If there's no session and the user is trying to access a protected route
+    if (!session && !req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
       const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = '/staff-portal';
+      redirectUrl.pathname = '/login';
       return NextResponse.redirect(redirectUrl);
     }
-  }
 
-  // If an HOD tries to access anything other than /hod-portal, lock them into their portal
-  if (session && isHodAccount) {
-    if (!req.nextUrl.pathname.startsWith('/hod-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+    // If a generic staff or lecturer tries to access non-staff routes, redirect them to the staff portal
+    if (session && isStaffAccount && !isHodAccount) {
+      if (!req.nextUrl.pathname.startsWith('/staff-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+        const redirectUrl = req.nextUrl.clone();
+        redirectUrl.pathname = '/staff-portal';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+
+    // If an HOD tries to access anything other than /hod-portal, lock them into their portal
+    if (session && isHodAccount) {
+      if (!req.nextUrl.pathname.startsWith('/hod-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+        const redirectUrl = req.nextUrl.clone();
+        redirectUrl.pathname = '/hod-portal';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+
+    // If the admin_reports account tries to access anything other than /admin-reports, lock them into their portal
+    if (session && isAdminReportsAccount) {
+      if (!req.nextUrl.pathname.startsWith('/admin-reports') && !req.nextUrl.pathname.startsWith('/images/')) {
+        const redirectUrl = req.nextUrl.clone();
+        redirectUrl.pathname = '/admin-reports';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+
+    // If the control account tries to access anything other than /control-portal, lock them into their portal
+    if (session && isControlAccount) {
+      if (!req.nextUrl.pathname.startsWith('/control-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
+        const redirectUrl = req.nextUrl.clone();
+        redirectUrl.pathname = '/control-portal';
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+
+    // If there is a session and the user is on the login page, redirect to their respective home
+    if (session && req.nextUrl.pathname.startsWith('/login')) {
       const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = '/hod-portal';
+      if (isHodAccount) {
+        redirectUrl.pathname = '/hod-portal';
+      } else if (isStaffAccount) {
+        redirectUrl.pathname = '/staff-portal';
+      } else if (isAdminReportsAccount) {
+        redirectUrl.pathname = '/admin-reports';
+      } else if (isControlAccount) {
+        redirectUrl.pathname = '/control-portal';
+      } else {
+        redirectUrl.pathname = '/';
+      }
       return NextResponse.redirect(redirectUrl);
     }
-  }
 
-  // If the admin_reports account tries to access anything other than /admin-reports, lock them into their portal
-  if (session && isAdminReportsAccount) {
-    if (!req.nextUrl.pathname.startsWith('/admin-reports') && !req.nextUrl.pathname.startsWith('/images/')) {
+    return res;
+  } catch (error) {
+    console.error('Middleware execution error caught:', error);
+    if (!req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
       const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = '/admin-reports';
+      redirectUrl.pathname = '/login';
       return NextResponse.redirect(redirectUrl);
     }
+    return res;
   }
-
-  // If the control account tries to access anything other than /control-portal, lock them into their portal
-  if (session && isControlAccount) {
-    if (!req.nextUrl.pathname.startsWith('/control-portal') && !req.nextUrl.pathname.startsWith('/images/')) {
-      const redirectUrl = req.nextUrl.clone();
-      redirectUrl.pathname = '/control-portal';
-      return NextResponse.redirect(redirectUrl);
-    }
-  }
-
-  // If there is a session and the user is on the login page, redirect to their respective home
-  if (session && req.nextUrl.pathname.startsWith('/login')) {
-    const redirectUrl = req.nextUrl.clone();
-    if (isHodAccount) {
-      redirectUrl.pathname = '/hod-portal';
-    } else if (isStaffAccount) {
-      redirectUrl.pathname = '/staff-portal';
-    } else if (isAdminReportsAccount) {
-      redirectUrl.pathname = '/admin-reports';
-    } else if (isControlAccount) {
-      redirectUrl.pathname = '/control-portal';
-    } else {
-      redirectUrl.pathname = '/';
-    }
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  return res;
 }
 
 export const config = {

@@ -30,6 +30,8 @@ const DEFAULT_CONSTRAINTS: SchedulingConstraintsConfig = {
   max_rooms_per_lecturer: 3,
   ignore_working_days_if_specific_dates: true,
   max_score_delta_from_average: 3,
+  ignore_staff_working_days: false,
+  custom_days_per_week: 3,
 };
 
 export default function SettingsPage() {

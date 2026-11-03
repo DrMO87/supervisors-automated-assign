@@ -24,6 +24,8 @@ export interface AutoAssignConfig {
   ratios: StaffingRatiosConfig;
   constraints: SchedulingConstraintsConfig;
   calendarRules?: CalendarRule[];
+  ignoreStaffAvailableDays?: boolean;
+  maxDaysPerWeek?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,55 +232,81 @@ export function isStaffAvailable(
   const isUniversalWorkingDayRaw = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
   const isUniversalWorkingDay = !strictOffDays && isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
 
-  // 2a. Strict Specific Off-Dates (Red X)
-  if (staff.specific_off_dates?.includes(examDateISO)) {
-    // If it's a specific requested leave day, we respect it EVEN IF it's a universal working day.
-    hardViolations.push({
-      type: 'unavailable',
-      message: `${staff.name} has a specific day-off on ${examDateISO}`,
-      staff_id: staff.id,
-      exam_session_id: examSession.id,
-    });
-  } else if (!isUniversalWorkingDay) {
-    // 2b. Standard specific off-dates (can be overridden by universal working days)
-    if (staff.specific_standard_off_dates?.includes(examDateISO)) {
+  const ignoreStaffDays = constraints.ignore_staff_working_days;
+  const maxDaysPerWeek = constraints.custom_days_per_week;
+
+  if (ignoreStaffDays) {
+    // When ignoring staff available days, bypass official off-days, but enforce maxDaysPerWeek if configured
+    if (maxDaysPerWeek && maxDaysPerWeek > 0) {
+      const assignedDates = new Set<string>();
+      for (const a of existingAssignments) {
+        if (a.staff_id === staff.id) {
+          const sDate = (a as any).exam_date || (a as any).exam_sessions?.exam_date || (a as any).exam_session?.exam_date;
+          if (sDate) {
+            assignedDates.add(sDate.split('T')[0]);
+          }
+        }
+      }
+      if (!assignedDates.has(examSession.exam_date) && assignedDates.size >= maxDaysPerWeek) {
+        hardViolations.push({
+          type: 'unavailable',
+          message: `${staff.name} has reached the maximum of ${maxDaysPerWeek} assigned days this week`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
+    }
+  } else {
+    // 2a. Strict Specific Off-Dates (Red X)
+    if (staff.specific_off_dates?.includes(examDateISO)) {
+      // If it's a specific requested leave day, we respect it EVEN IF it's a universal working day.
       hardViolations.push({
         type: 'unavailable',
-        message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
+        message: `${staff.name} has a specific day-off on ${examDateISO}`,
         staff_id: staff.id,
         exam_session_id: examSession.id,
       });
-    } else {
-      // 2c. Weekday pattern check: (Only if NOT a universal working day)
-      //   - Start with the staff's manually configured working_days
-      //   - Add any weekdays classified as recurring off-days from specific_off_dates
-      //   - If ignore_working_days_if_specific_dates is ON and staff has specific off-dates,
-      //     skip the manual working_days check (only recurringOffDays from classification apply)
-      const date = new Date(`${examSession.exam_date}T12:00:00Z`);
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-
-      // Check recurring off-days derived from specific_off_dates analysis
-      if (recurringOffDays.includes(dayName)) {
+    } else if (!isUniversalWorkingDay) {
+      // 2b. Standard specific off-dates (can be overridden by universal working days)
+      if (staff.specific_standard_off_dates?.includes(examDateISO)) {
         hardViolations.push({
           type: 'unavailable',
-          message: `${staff.name} does not work on ${dayName}s (recurring off throughout exam period)`,
+          message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
           staff_id: staff.id,
           exam_session_id: examSession.id,
         });
       } else {
-        // Check the manual working_days pattern — but only if:
-        // - Staff has NO specific off-dates, OR
-        // - The "ignore working days if specific dates" setting is disabled
-        const ignoreWorkingDays =
-          constraints.ignore_working_days_if_specific_dates !== false && hasSpecificOffDates;
+        // 2c. Weekday pattern check: (Only if NOT a universal working day)
+        //   - Start with the staff's manually configured working_days
+        //   - Add any weekdays classified as recurring off-days from specific_off_dates
+        //   - If ignore_working_days_if_specific_dates is ON and staff has specific off-dates,
+        //     skip the manual working_days check (only recurringOffDays from classification apply)
+        const date = new Date(`${examSession.exam_date}T12:00:00Z`);
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 
-        if (!ignoreWorkingDays && staff.working_days && !staff.working_days.includes(dayName)) {
+        // Check recurring off-days derived from specific_off_dates analysis
+        if (recurringOffDays.includes(dayName)) {
           hardViolations.push({
             type: 'unavailable',
-            message: `${staff.name} does not work on ${dayName}s`,
+            message: `${staff.name} does not work on ${dayName}s (recurring off throughout exam period)`,
             staff_id: staff.id,
             exam_session_id: examSession.id,
           });
+        } else {
+          // Check the manual working_days pattern — but only if:
+          // - Staff has NO specific off-dates, OR
+          // - The "ignore working days if specific dates" setting is disabled
+          const ignoreWorkingDays =
+            constraints.ignore_working_days_if_specific_dates !== false && hasSpecificOffDates;
+
+          if (!ignoreWorkingDays && staff.working_days && !staff.working_days.includes(dayName)) {
+            hardViolations.push({
+              type: 'unavailable',
+              message: `${staff.name} does not work on ${dayName}s`,
+              staff_id: staff.id,
+              exam_session_id: examSession.id,
+            });
+          }
         }
       }
     }
@@ -753,19 +781,25 @@ export function batchAssign(
   rooms?: Room[],
   periodFreeStaff: PeriodFreeStaff[] = [],
   onlyOral?: boolean,
-  onlyFinal?: boolean
+  onlyFinal?: boolean,
+  onlyMidterm?: boolean
 ): { assignments: Assignment[]; violations: AssignmentConstraintViolation[] } {
+  let effectiveSessions = sessions;
+  if (onlyMidterm) {
+    effectiveSessions = sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral'));
+  }
+
   // Step 1: Group sessions by room+period to detect co-located exams
-  let roomGroups = groupSessionsByRoom(sessions);
+  let roomGroups = groupSessionsByRoom(effectiveSessions);
   
   if (onlyOral) {
     roomGroups = roomGroups.filter(g => {
-      const sample = sessions.find(s => s.id === g.session_ids[0]);
+      const sample = effectiveSessions.find(s => s.id === g.session_ids[0]);
       return sample && sample.exam_type?.toLowerCase().includes('oral');
     });
-  } else if (onlyFinal) {
+  } else if (onlyFinal || onlyMidterm) {
     roomGroups = roomGroups.filter(g => {
-      const sample = sessions.find(s => s.id === g.session_ids[0]);
+      const sample = effectiveSessions.find(s => s.id === g.session_ids[0]);
       return sample && !sample.exam_type?.toLowerCase().includes('oral');
     });
   }
@@ -778,7 +812,7 @@ export function batchAssign(
     }
   }
 
-  const sortedSessions = [...sessions].sort((a, b) => {
+  const sortedSessions = [...effectiveSessions].sort((a, b) => {
     const ga = groupMap.get(a.id)?.total_students ?? a.student_count;
     const gb = groupMap.get(b.id)?.total_students ?? b.student_count;
     return gb - ga;
@@ -788,63 +822,65 @@ export function batchAssign(
   let currentStaff = staff.map((s) => ({ ...s }));
   const allNewAssignments: Assignment[] = [];
   const allViolations: AssignmentConstraintViolation[] = [];
+  const allExamDates = Array.from(new Set(effectiveSessions.map(s => s.exam_date)));
 
   // --- PRE-PASS: UNIVERSAL WORKING DAY COMPENSATORY OFF-DAYS ---
-  // Automatically swap a lost off-day (due to Universal Working Day) to a low-load day
-  const dailyLoads = new Map<string, number>();
-  const allExamDates = Array.from(new Set(sessions.map(s => s.exam_date)));
-  for (const date of allExamDates) {
-    dailyLoads.set(date, sessions.filter(s => s.exam_date === date).length);
-  }
-
-  const universalWorkingDays = new Set<string>();
-  const calendarRules = config.calendarRules || [];
-  for (const date of allExamDates) {
-    const isUWD = calendarRules.some(r => r.is_universal_working_day && r.start_date <= date && r.end_date >= date);
-    if (isUWD) {
-      universalWorkingDays.add(date);
+  // (Skipped if ignoring staff working days)
+  if (!config.constraints?.ignore_staff_working_days && !config.ignoreStaffAvailableDays) {
+    const dailyLoads = new Map<string, number>();
+    for (const date of allExamDates) {
+      dailyLoads.set(date, effectiveSessions.filter(s => s.exam_date === date).length);
     }
-  }
 
-  for (const uwdDate of universalWorkingDays) {
-    const dateObj = new Date(`${uwdDate}T12:00:00Z`);
-    const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-    
-    for (const s of currentStaff) {
-      if (s.supervision_role === 'Committees Supervisor') continue; // Not subject to Universal Working Day
+    const universalWorkingDays = new Set<string>();
+    const calendarRules = config.calendarRules || [];
+    for (const date of allExamDates) {
+      const isUWD = calendarRules.some(r => r.is_universal_working_day && r.start_date <= date && r.end_date >= date);
+      if (isUWD) {
+        universalWorkingDays.add(date);
+      }
+    }
+
+    for (const uwdDate of universalWorkingDays) {
+      const dateObj = new Date(`${uwdDate}T12:00:00Z`);
+      const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
       
-      const { recurringOffDays } = classifyOffDays(s.specific_off_dates || [], allExamDates);
-      const isDefaultOffDay = (s.working_days && !s.working_days.includes(dayName)) || recurringOffDays.includes(dayName);
-      
-      if (isDefaultOffDay) {
-        let bestCompensatoryDate: string | null = null;
-        let minLoad = Infinity;
+      for (const s of currentStaff) {
+        if (s.supervision_role === 'Committees Supervisor') continue; // Not subject to Universal Working Day
         
-        for (const candidateDate of allExamDates) {
-          if (universalWorkingDays.has(candidateDate)) continue;
+        const { recurringOffDays } = classifyOffDays(s.specific_off_dates || [], allExamDates);
+        const isDefaultOffDay = (s.working_days && !s.working_days.includes(dayName)) || recurringOffDays.includes(dayName);
+        
+        if (isDefaultOffDay) {
+          let bestCompensatoryDate: string | null = null;
+          let minLoad = Infinity;
           
-          const candObj = new Date(`${candidateDate}T12:00:00Z`);
-          const candDayName = candObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-          
-          const isAlreadyOff = (s.working_days && !s.working_days.includes(candDayName)) 
-            || recurringOffDays.includes(candDayName) 
-            || (s.specific_off_dates && s.specific_off_dates.includes(candidateDate))
-            || (s.specific_standard_off_dates && s.specific_standard_off_dates.includes(candidateDate));
+          for (const candidateDate of allExamDates) {
+            if (universalWorkingDays.has(candidateDate)) continue;
             
-          if (!isAlreadyOff) {
-            const load = dailyLoads.get(candidateDate) || 0;
-            if (load < minLoad) {
-              minLoad = load;
-              bestCompensatoryDate = candidateDate;
+            const candObj = new Date(`${candidateDate}T12:00:00Z`);
+            const candDayName = candObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+            
+            const isAlreadyOff = (s.working_days && !s.working_days.includes(candDayName)) 
+              || recurringOffDays.includes(candDayName) 
+              || (s.specific_off_dates && s.specific_off_dates.includes(candidateDate))
+              || (s.specific_standard_off_dates && s.specific_standard_off_dates.includes(candidateDate));
+              
+            if (!isAlreadyOff) {
+              const load = dailyLoads.get(candidateDate) || 0;
+              if (load < minLoad) {
+                minLoad = load;
+                bestCompensatoryDate = candidateDate;
+              }
             }
           }
-        }
-        
-        if (bestCompensatoryDate) {
-          // Deep copy to avoid mutating the original staff object passed into the function
-          s.specific_standard_off_dates = s.specific_standard_off_dates ? [...s.specific_standard_off_dates] : [];
-          if (!s.specific_standard_off_dates.includes(bestCompensatoryDate)) {
-            s.specific_standard_off_dates.push(bestCompensatoryDate);
+          
+          if (bestCompensatoryDate) {
+            // Deep copy to avoid mutating the original staff object passed into the function
+            s.specific_standard_off_dates = s.specific_standard_off_dates ? [...s.specific_standard_off_dates] : [];
+            if (!s.specific_standard_off_dates.includes(bestCompensatoryDate)) {
+              s.specific_standard_off_dates.push(bestCompensatoryDate);
+            }
           }
         }
       }

@@ -6,7 +6,8 @@ import { Navigation } from '@/components/layout/navigation';
 import {
   Calendar, Users, DoorOpen, Settings, FileText,
   LayoutDashboard, Zap, ArrowRight, ChevronRight,
-  CheckCircle2, Clock, AlertCircle, RefreshCw, Layers, History, Info, Plus, ChevronDown, Shield
+  CheckCircle2, Clock, AlertCircle, RefreshCw, Layers, History, Info, Plus, ChevronDown, Shield,
+  Pencil, Check, X
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -21,7 +22,21 @@ export default function HomePage() {
   const router = useRouter();
   const { activePeriod, allPeriods, activatePeriod, refetchPeriod } = useExamPeriod();
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
+  const [periodModalMode, setPeriodModalMode] = useState<'standard' | 'bundle' | 'manage'>('standard');
+  const [periodModalEditId, setPeriodModalEditId] = useState<string | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+
+  const openEditPeriod = (periodId?: string) => {
+    setPeriodModalMode('manage');
+    setPeriodModalEditId(periodId || activePeriod?.id || null);
+    setIsPeriodModalOpen(true);
+  };
+
+  const openNewPeriod = () => {
+    setPeriodModalMode('standard');
+    setPeriodModalEditId(null);
+    setIsPeriodModalOpen(true);
+  };
 
 
   const [stats, setStats] = useState({
@@ -38,8 +53,10 @@ export default function HomePage() {
   const isConfigured = isSupabaseConfigured();
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchData() {
-      if (!isConfigured || !supabase) {
+      if (!isSupabaseConfigured() || !supabase) {
         setStats(s => ({ ...s, isLoading: false }));
         return;
       }
@@ -60,33 +77,47 @@ export default function HomePage() {
               .lte('exam_session.exam_date', activePeriod.end_date)
           : supabase.from('assignments').select('id', { count: 'exact', head: true });
 
-
-
-        const [staffRes, roomsRes, examsRes, assignRes, userRes, logsRes] = await Promise.all([
+        // 3-second safety timeout on database count queries
+        const countsPromise = Promise.all([
           supabase.from('staff').select('id', { count: 'exact', head: true }),
           supabase.from('rooms').select('id', { count: 'exact', head: true }),
           examsQuery,
           assignQuery,
-          supabase.auth.getUser(),
-          supabase.from('audit_log').select('*').order('changed_at', { ascending: false }).limit(5)
         ]);
 
-        setStats({
-          staffCount: staffRes.count || 0,
-          roomCount: roomsRes.count || 0,
-          examCount: examsRes.count || 0,
-          assignmentCount: assignRes.count || 0,
-          isLoading: false,
-        });
+        const timeoutPromise = new Promise<any>((resolve) =>
+          setTimeout(() => resolve(null), 3000)
+        );
 
-        const email = userRes.data?.user?.email || null;
-        if (email && HOD_EMAILS.includes(email.toLowerCase())) {
-          router.push('/hod-portal');
-          return;
+        const results = await Promise.race([countsPromise, timeoutPromise]);
+
+        if (isMounted && results) {
+          const [staffRes, roomsRes, examsRes, assignRes] = results;
+          setStats({
+            staffCount: staffRes?.count || 0,
+            roomCount: roomsRes?.count || 0,
+            examCount: examsRes?.count || 0,
+            assignmentCount: assignRes?.count || 0,
+            isLoading: false,
+          });
+        } else if (isMounted) {
+          setStats(s => ({ ...s, isLoading: false }));
         }
 
-        setUserEmail(email);
-        setAuditLogs(logsRes.data || []);
+        // Secondary non-blocking calls (user & audit logs)
+        Promise.all([
+          supabase.auth.getUser().catch(() => ({ data: { user: null } })),
+          Promise.resolve(supabase.from('audit_log').select('*').order('changed_at', { ascending: false }).limit(5)).catch(() => ({ data: [] }))
+        ]).then(([userRes, logsRes]: [any, any]) => {
+          if (!isMounted) return;
+          const email = userRes.data?.user?.email || null;
+          if (email && HOD_EMAILS.includes(email.toLowerCase())) {
+            router.push('/hod-portal');
+            return;
+          }
+          setUserEmail(email);
+          setAuditLogs(logsRes.data || []);
+        }).catch(() => {});
 
         // Passive end-of-week auto backup check
         if (activePeriod) {
@@ -94,11 +125,12 @@ export default function HomePage() {
         }
       } catch (error) {
         console.error('Error fetching data:', error);
-        setStats(s => ({ ...s, isLoading: false }));
+        if (isMounted) setStats(s => ({ ...s, isLoading: false }));
       }
     }
 
     fetchData();
+    return () => { isMounted = false; };
   }, [isConfigured, router, activePeriod]);
 
 
@@ -229,7 +261,7 @@ export default function HomePage() {
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gold-400/20 rounded-full blur-[100px] translate-x-1/3 -translate-y-1/3 pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-blue-500/20 rounded-full blur-[80px] -translate-x-1/3 translate-y-1/3 pointer-events-none" />
           
-          <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.03] mix-blend-overlay pointer-events-none"></div>
+          
 
           <div className="relative z-10 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-xs font-medium mb-6 backdrop-blur-md shadow-glow-gold/20">
@@ -261,8 +293,8 @@ export default function HomePage() {
                 View Schedule
               </Link>
               <button
-                onClick={() => setIsPeriodModalOpen(true)}
-                className="btn bg-gold-500/20 text-gold-300 border border-gold-400/40 hover:bg-gold-500/30 btn-lg backdrop-blur-md transition-all flex items-center gap-2"
+                onClick={openNewPeriod}
+                className="btn bg-gold-500/20 text-gold-300 border border-gold-400/40 hover:bg-gold-500/30 btn-lg backdrop-blur-md transition-all flex items-center gap-2 cursor-pointer"
               >
                 <Plus className="w-5 h-5" />
                 New Exam Period
@@ -284,7 +316,7 @@ export default function HomePage() {
                   <select
                     value={activePeriod?.id || ''}
                     onChange={(e) => activatePeriod(e.target.value)}
-                    className="bg-white/10 border border-white/20 rounded-lg text-xs font-medium text-white px-2 py-1 focus:outline-none focus:bg-slate-900"
+                    className="bg-white/10 border border-white/20 rounded-lg text-xs font-medium text-white px-2 py-1 focus:outline-none focus:bg-slate-900 cursor-pointer"
                   >
                     {allPeriods.map(p => (
                       <option key={p.id} value={p.id} className="bg-slate-900 text-white">
@@ -297,12 +329,27 @@ export default function HomePage() {
 
               {activePeriod ? (
                 <div>
-                  <h3 className="text-xl font-bold font-display text-white mb-1">
-                    {activePeriod.name}
-                  </h3>
-                  <div className="flex items-center gap-2 text-xs text-white/80 mb-4">
-                    <span className="px-2 py-0.5 rounded bg-gold-400/20 text-gold-300 border border-gold-400/30 font-semibold">
-                      {activePeriod.semester_type} Semester
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <h3 className="text-xl font-bold font-display text-white truncate">
+                      {activePeriod.name}
+                    </h3>
+                    <button
+                      onClick={() => openEditPeriod(activePeriod.id)}
+                      title="Edit period details and off-days rule"
+                      className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-gold-300 border border-white/20 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-white/80 mb-3">
+                    <span className={`px-2 py-0.5 rounded font-semibold border ${
+                      activePeriod.semester_type === 'Midterm'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'
+                        : 'bg-gold-400/20 text-gold-300 border-gold-400/30'
+                    }`}>
+                      {activePeriod.semester_type === 'Midterm' ? 'Midterm (Written Only • No Oral)' : `${activePeriod.semester_type} Semester`}
                     </span>
                     {activePeriod.academic_year && (
                       <span className="text-white/60">({activePeriod.academic_year})</span>
@@ -317,6 +364,20 @@ export default function HomePage() {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
+                      <span className="text-white/60">Staff Days:</span>
+                      <button
+                        type="button"
+                        onClick={() => openEditPeriod(activePeriod.id)}
+                        className="font-semibold text-white hover:text-gold-300 underline decoration-dotted text-right cursor-pointer flex items-center gap-1.5 transition-colors"
+                        title="Click to edit working days policy"
+                      >
+                        {activePeriod.ignore_staff_working_days
+                          ? `Bypass Off-Days (Max ${activePeriod.custom_days_per_week || 3}d/wk)`
+                          : 'Respects Staff Off-Days'}
+                        <Pencil className="w-3 h-3 text-gold-300 shrink-0" />
+                      </button>
+                    </div>
+                    <div className="flex justify-between items-center">
                       <span className="text-white/60">Scoring Mode:</span>
                       <span className="font-semibold text-gold-300 capitalize">
                         {activePeriod.score_mode === 'fresh' ? '🆕 Start Fresh' : '🔄 Continue Scores'}
@@ -324,13 +385,17 @@ export default function HomePage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-between">
-                    <span className="text-xs text-white/70 flex items-center gap-1">
-                      <Shield className="w-3.5 h-3.5 text-emerald-400" /> End-of-Week Backups Active
-                    </span>
+                  <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => openEditPeriod(activePeriod.id)}
+                      className="px-3 py-1.5 rounded-lg bg-gold-500/20 hover:bg-gold-500/30 border border-gold-400/40 text-xs font-bold text-gold-300 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit Details &amp; Rules
+                    </button>
                     <button
                       onClick={() => setIsBackupModalOpen(true)}
-                      className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-all flex items-center gap-1.5"
+                      className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-all flex items-center gap-1.5 cursor-pointer"
                     >
                       <Shield className="w-3.5 h-3.5 text-gold-400" />
                       Weekly Backups
@@ -343,8 +408,8 @@ export default function HomePage() {
                   <p className="text-sm font-semibold text-white">No Active Exam Period</p>
                   <p className="text-xs text-white/60 mb-4">Create a period to scope exams, dates & scores</p>
                   <button
-                    onClick={() => setIsPeriodModalOpen(true)}
-                    className="btn btn-gold btn-sm px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5"
+                    onClick={openNewPeriod}
+                    className="btn btn-gold btn-sm px-4 py-2 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" /> Create Exam Period
                   </button>
@@ -376,7 +441,12 @@ export default function HomePage() {
               <RefreshCw className={`w-4 h-4 text-slate-400 ${stats.isLoading ? 'animate-spin' : ''}`} />
               Live System Metrics {activePeriod ? `(${activePeriod.name})` : ''}
             </h2>
-            {!isConfigured && (
+            {isConfigured ? (
+              <span className="text-xs font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1.5 shadow-sm">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Connected to Supabase
+              </span>
+            ) : (
               <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-1 rounded-md border border-amber-200 flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5" /> Database not connected
               </span>
@@ -526,8 +596,13 @@ export default function HomePage() {
       {/* Exam Period Modal */}
       <ExamPeriodModal
         isOpen={isPeriodModalOpen}
-        onClose={() => setIsPeriodModalOpen(false)}
+        onClose={() => {
+          setIsPeriodModalOpen(false);
+          setPeriodModalEditId(null);
+        }}
         onSuccess={() => refetchPeriod()}
+        initialMode={periodModalMode}
+        initialEditPeriodId={periodModalEditId}
       />
 
       {/* Weekly Backup Modal */}

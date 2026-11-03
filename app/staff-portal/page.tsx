@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { Staff, Room, getPeriodFromTime, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
 import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download, BarChart3, Users, FileSpreadsheet, ShieldCheck, AlertCircle, Trash2 } from 'lucide-react';
 import Image from 'next/image';
@@ -116,8 +116,6 @@ export default function UnifiedStaffPortalPage() {
     coverage: 0,
     chartData: [] as any[]
   });
-
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
 

@@ -231,6 +231,54 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
         </div>
       </div>
 
+      {/* Staff Available Working Days Override */}
+      <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
+        <label className={`flex items-start cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+          <input
+            type="checkbox"
+            checked={!!config.ignore_staff_working_days}
+            onChange={(e) => updateConstraint('ignore_staff_working_days', e.target.checked)}
+            className="sr-only"
+            disabled={disabled}
+          />
+          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center mr-3 mt-0.5 ${config.ignore_staff_working_days ? 'bg-primary-600 border-primary-600' : 'border-gray-300'}`}>
+            {config.ignore_staff_working_days && <Check className="w-3 h-3 text-white" />}
+          </div>
+          <div className="flex-1">
+            <div className="font-medium text-gray-900">Do Not Use Available Staff Days (Bypass Weekly Off-Days)</div>
+            <p className="text-sm text-gray-600 mt-1">
+              When checked, staff can be assigned on any day regardless of their standard recurring non-working days.
+              All other constraints (double-booking avoidance, minimum gaps, supervision roles) remain strictly active.
+            </p>
+          </div>
+        </label>
+
+        {config.ignore_staff_working_days && (
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-between pl-8">
+            <div>
+              <label className="text-sm font-medium text-gray-900 block">
+                Maximum Days Per Week Per Staff Member
+              </label>
+              <p className="text-xs text-gray-500">
+                Limits the number of unique days a staff member can be assigned during the exam week.
+              </p>
+            </div>
+            <select
+              value={config.custom_days_per_week || 3}
+              onChange={(e) => updateConstraint('custom_days_per_week', parseInt(e.target.value, 10))}
+              disabled={disabled}
+              className="px-3 py-1.5 bg-white border border-gray-300 rounded-md text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              {[1, 2, 3, 4, 5, 6].map(num => (
+                <option key={num} value={num}>
+                  {num} {num === 1 ? 'day' : 'days'} / week {num === 3 ? '(Default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
       {/* Summary */}
       <div className="p-3 bg-gray-50 rounded-lg mt-4">
         <div className="text-xs font-medium text-gray-500 mb-2">Current Policy Summary:</div>

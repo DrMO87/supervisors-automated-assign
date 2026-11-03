@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { Staff, ExamSessionWithRelations, AssignmentWithSession, PeriodFreeStaff, SwapRequestWithRelations } from '@/types/database.types';
 import { Loader2, Download, LogOut, FileText, CheckCircle2, ShieldCheck, RefreshCw, Calendar as CalendarIcon, Clock, XCircle, User, ArrowRight } from 'lucide-react';
 import Image from 'next/image';
@@ -32,8 +32,6 @@ export default function ControlPortalPage() {
   const [selectedDate, setSelectedDate] = useState<string>('');
   
   const [weekRange, setWeekRange] = useState({ start: '', end: '' });
-
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
   useEffect(() => {

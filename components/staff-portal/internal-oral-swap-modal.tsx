@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { X, Calendar, Clock, DoorOpen, User, ArrowRightLeft, Loader2, CheckCircle2 } from 'lucide-react';
 import { getPeriodFromTime } from '@/types/database.types';
 
@@ -14,7 +14,6 @@ interface InternalOralSwapModalProps {
 }
 
 export function InternalOralSwapModal({ isOpen, onClose, weekStartDate, weekEndDate, selectedWeek }: InternalOralSwapModalProps) {
-  const supabase = createClientComponentClient();
   
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [loadingDates, setLoadingDates] = useState(false);

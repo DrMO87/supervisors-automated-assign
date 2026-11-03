@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, RefreshCw, Play, RotateCcw, AlertTriangle, Layers, Sun, CheckCircle2, Package } from 'lucide-react';
+import { X, Calendar, RefreshCw, Play, RotateCcw, AlertTriangle, Layers, Sun, CheckCircle2, Package, Pencil, Check } from 'lucide-react';
 import { SemesterType, ScoreMode } from '@/types/database.types';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 import { useToast } from '@/components/ui/toast';
@@ -10,19 +10,43 @@ interface ExamPeriodModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialMode?: 'standard' | 'bundle' | 'manage';
+  initialEditPeriodId?: string | null;
 }
 
-export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalProps) {
-  const { refetchPeriod } = useExamPeriod();
+interface EditPeriodForm {
+  id: string;
+  name: string;
+  semester_type: SemesterType;
+  academic_year: string;
+  start_date: string;
+  end_date: string;
+  ignore_staff_working_days: boolean;
+  custom_days_per_week: number;
+}
+
+export function ExamPeriodModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  initialMode,
+  initialEditPeriodId,
+}: ExamPeriodModalProps) {
+  const { refetchPeriod, allPeriods, activePeriod, activatePeriod } = useExamPeriod();
   const toast = useToast();
 
-  const [mode, setMode] = useState<'standard' | 'bundle'>('standard');
+  const [mode, setMode] = useState<'standard' | 'bundle' | 'manage'>(initialMode || 'standard');
   const [existingDataInfo, setExistingDataInfo] = useState<{
     hasExistingExams: boolean;
     count: number;
     minDate: string | null;
     maxDate: string | null;
   } | null>(null);
+
+  // Edit / Rename state
+  const [editingPeriodId, setEditingPeriodId] = useState<string | null>(initialEditPeriodId || null);
+  const [editForm, setEditForm] = useState<EditPeriodForm | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Standard creation state
   const [name, setName] = useState('');
@@ -32,6 +56,8 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
   const [endDate, setEndDate] = useState('');
   const [scoreMode, setScoreMode] = useState<ScoreMode>('fresh');
   const [notes, setNotes] = useState('');
+  const [ignoreStaffWorkingDays, setIgnoreStaffWorkingDays] = useState(false);
+  const [customDaysPerWeek, setCustomDaysPerWeek] = useState(3);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Bundle mode state
@@ -41,24 +67,103 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
   const [summerEnd, setSummerEnd] = useState('');
   const [summerScoreMode, setSummerScoreMode] = useState<ScoreMode>('fresh');
 
+  const startEditing = (period: any) => {
+    setEditingPeriodId(period.id);
+    setEditForm({
+      id: period.id,
+      name: period.name || '',
+      semester_type: period.semester_type || 'Summer',
+      academic_year: period.academic_year || '2025-2026',
+      start_date: period.start_date || '',
+      end_date: period.end_date || '',
+      ignore_staff_working_days: !!period.ignore_staff_working_days,
+      custom_days_per_week: Number(period.custom_days_per_week) || 3,
+    });
+  };
+
   useEffect(() => {
     if (isOpen) {
+      if (initialMode) {
+        setMode(initialMode);
+      }
+      if (initialEditPeriodId) {
+        const target = allPeriods.find(p => p.id === initialEditPeriodId);
+        if (target) {
+          startEditing(target);
+        }
+      }
       // Check if existing exams exist in DB without periods
       fetch('/api/exam-periods/bundle-existing')
         .then(res => res.json())
         .then(data => {
           if (data.hasExistingExams) {
             setExistingDataInfo(data);
-            if (data.periodsCount === 0) {
+            if (data.periodsCount === 0 && !initialMode) {
               setMode('bundle'); // Suggest bundle mode if no periods created yet
             }
           }
         })
         .catch(err => console.error('Error checking existing exams:', err));
+    } else {
+      setEditingPeriodId(null);
+      setEditForm(null);
     }
-  }, [isOpen]);
+  }, [isOpen, initialMode, initialEditPeriodId, allPeriods]);
 
   if (!isOpen) return null;
+
+  const handleSavePeriodEdit = async (periodId: string) => {
+    if (!editForm) return;
+
+    if (!editForm.name.trim()) {
+      toast.error('Period name cannot be empty');
+      return;
+    }
+    if (!editForm.start_date || !editForm.end_date) {
+      toast.error('Please select both start and end dates');
+      return;
+    }
+    if (editForm.end_date < editForm.start_date) {
+      toast.error('End date must be after or equal to start date');
+      return;
+    }
+
+    try {
+      setIsSavingEdit(true);
+      const res = await fetch('/api/exam-periods', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: periodId,
+          name: editForm.name.trim(),
+          semester_type: editForm.semester_type,
+          academic_year: editForm.academic_year?.trim() || null,
+          start_date: editForm.start_date,
+          end_date: editForm.end_date,
+          ignore_staff_working_days: editForm.ignore_staff_working_days,
+          custom_days_per_week: editForm.custom_days_per_week,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update exam period details');
+
+      toast.success(
+        `Updated "${editForm.name.trim()}"`,
+        editForm.ignore_staff_working_days
+          ? `Bypassing off-days (Max ${editForm.custom_days_per_week} days/week)`
+          : 'Considering staff off-days'
+      );
+      setEditingPeriodId(null);
+      setEditForm(null);
+      await refetchPeriod();
+      if (onSuccess) onSuccess();
+    } catch (err: any) {
+      toast.error('Failed to update period', err.message);
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
 
   const handleSubmitStandard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,6 +195,8 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
           score_mode: scoreMode,
           notes: notes.trim() || null,
           set_active: true,
+          ignore_staff_working_days: ignoreStaffWorkingDays,
+          custom_days_per_week: customDaysPerWeek,
         }),
       });
 
@@ -176,8 +283,49 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
           </button>
         </div>
 
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-3 gap-2">
+          <button
+            type="button"
+            onClick={() => setMode('standard')}
+            className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              mode === 'standard'
+                ? 'border-gold-500 text-slate-900 bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" /> Create New Period
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => setMode('manage')}
+            className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+              mode === 'manage'
+                ? 'border-gold-500 text-slate-900 bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Pencil className="w-3.5 h-3.5" /> Manage &amp; Edit Periods ({allPeriods.length})
+          </button>
+
+          {existingDataInfo?.hasExistingExams && (
+            <button
+              type="button"
+              onClick={() => setMode('bundle')}
+              className={`pb-2.5 px-3 text-xs font-bold border-b-2 transition-all flex items-center gap-1.5 ${
+                mode === 'bundle'
+                  ? 'border-gold-500 text-slate-900 bg-white rounded-t-lg'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              <Package className="w-3.5 h-3.5" /> Bundle Database Exams
+            </button>
+          )}
+        </div>
+
         {/* Existing Exams Notification Banner */}
-        {existingDataInfo?.hasExistingExams && (
+        {existingDataInfo?.hasExistingExams && mode !== 'bundle' && (
           <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2 text-amber-900 font-medium">
               <Package className="w-4 h-4 text-amber-600 shrink-0" />
@@ -188,17 +336,304 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => setMode(mode === 'bundle' ? 'standard' : 'bundle')}
+                onClick={() => setMode('bundle')}
                 className="px-2.5 py-1 rounded bg-amber-600 text-white font-bold hover:bg-amber-700 transition-colors"
               >
-                {mode === 'bundle' ? 'Use Standard Form' : 'Bundle & Create Summer Period'}
+                Bundle Existing Exams
               </button>
             </div>
           </div>
         )}
 
         {/* Form Body */}
-        {mode === 'bundle' ? (
+        {mode === 'manage' ? (
+          <div className="p-6 overflow-y-auto space-y-4 flex-1">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">All Created Exam Periods</h3>
+                <p className="text-xs text-slate-500">Edit period details, date ranges, and off-days rules, or switch the active period</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMode('standard')}
+                className="btn btn-gold px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 shadow-sm cursor-pointer"
+              >
+                + New Period
+              </button>
+            </div>
+
+            {allPeriods.length === 0 ? (
+              <div className="text-center py-10 bg-slate-50 rounded-xl border border-slate-200">
+                <Calendar className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                <p className="text-sm font-semibold text-slate-700">No exam periods created yet</p>
+                <p className="text-xs text-slate-500 mt-1">Click &quot;Create New Period&quot; above to create one.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {allPeriods.map((period) => {
+                  const isEditingThis = editingPeriodId === period.id;
+
+                  return (
+                    <div
+                      key={period.id}
+                      className={`p-4 rounded-xl border transition-all ${
+                        period.is_active
+                          ? 'border-gold-400/80 bg-gold-50/20 shadow-sm ring-1 ring-gold-400/30'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      {isEditingThis && editForm ? (
+                        <div className="space-y-4 animate-fadeIn">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                            <div className="flex items-center gap-2">
+                              <span className="p-1.5 bg-gold-100 text-gold-700 rounded-lg">
+                                <Pencil className="w-4 h-4" />
+                              </span>
+                              <h4 className="text-sm font-bold text-slate-900">
+                                Edit Period Details &amp; Working Days Rule
+                              </h4>
+                            </div>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              period.is_active
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {period.is_active ? 'Active Period' : 'Inactive'}
+                            </span>
+                          </div>
+
+                          {/* Row 1: Name and Semester Type */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Period Name <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.name}
+                                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-gold-500 text-xs font-bold text-slate-900 bg-white shadow-xs"
+                                placeholder="e.g. Summer 2026 Exams"
+                                autoFocus
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Semester / Exam Type <span className="text-red-500">*</span>
+                              </label>
+                              <select
+                                value={editForm.semester_type}
+                                onChange={(e) => setEditForm({ ...editForm, semester_type: e.target.value as SemesterType })}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-gold-500 text-xs font-medium text-slate-900 bg-white"
+                              >
+                                <option value="Summer">Summer Semester</option>
+                                <option value="Final">Final Exams</option>
+                                <option value="Midterm">Midterm Exams</option>
+                                <option value="Fall">Fall Semester</option>
+                                <option value="Spring">Spring Semester</option>
+                                <option value="Custom">Custom Period</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Row 2: Academic Year & Dates */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Academic Year
+                              </label>
+                              <input
+                                type="text"
+                                value={editForm.academic_year}
+                                onChange={(e) => setEditForm({ ...editForm, academic_year: e.target.value })}
+                                placeholder="e.g. 2025-2026"
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-gold-500 text-xs font-medium text-slate-900 bg-white"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                Start Date <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={editForm.start_date}
+                                onChange={(e) => setEditForm({ ...editForm, start_date: e.target.value })}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-gold-500 text-xs font-medium text-slate-900 bg-white"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                                End Date <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={editForm.end_date}
+                                onChange={(e) => setEditForm({ ...editForm, end_date: e.target.value })}
+                                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-gold-500 text-xs font-medium text-slate-900 bg-white"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Row 3: Staff Working Days Policy */}
+                          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                id={`edit_ignore_days_${period.id}`}
+                                checked={editForm.ignore_staff_working_days}
+                                onChange={(e) => setEditForm({ ...editForm, ignore_staff_working_days: e.target.checked })}
+                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-gold-600 focus:ring-gold-500 cursor-pointer"
+                              />
+                              <label htmlFor={`edit_ignore_days_${period.id}`} className="cursor-pointer select-none">
+                                <span className="text-xs font-bold text-slate-800 block">
+                                  Do not use available staff days (Bypass official off-days)
+                                </span>
+                                <span className="text-[11px] text-slate-500 block mt-0.5 leading-relaxed">
+                                  {editForm.ignore_staff_working_days
+                                    ? '⚡ Bypassing off-days: Staff can be scheduled on any day of the week, capped by the weekly limit below.'
+                                    : '🛡️ Considering staff off-days: Staff will ONLY be scheduled on their registered available working days.'}
+                                </span>
+                              </label>
+                            </div>
+
+                            {editForm.ignore_staff_working_days && (
+                              <div className="pt-2.5 border-t border-slate-200 flex items-center justify-between">
+                                <div>
+                                  <label className="text-xs font-bold text-slate-700 block">
+                                    Max Days Per Week Per Staff
+                                  </label>
+                                  <span className="text-[10px] text-slate-500">
+                                    Auto-assignment will not schedule any staff more than this number of days per week.
+                                  </span>
+                                </div>
+                                <select
+                                  value={editForm.custom_days_per_week}
+                                  onChange={(e) => setEditForm({ ...editForm, custom_days_per_week: parseInt(e.target.value, 10) })}
+                                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                                >
+                                  {[1, 2, 3, 4, 5, 6].map(num => (
+                                    <option key={num} value={num}>
+                                      {num} {num === 1 ? 'day' : 'days'} / week {num === 3 ? '(Recommended)' : ''}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Footer Actions */}
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPeriodId(null);
+                                setEditForm(null);
+                              }}
+                              disabled={isSavingEdit}
+                              className="px-3.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-xs font-semibold text-slate-600 transition-colors cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSavingEdit}
+                              onClick={() => handleSavePeriodEdit(period.id)}
+                              className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {isSavingEdit ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving Changes...
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="w-3.5 h-3.5" /> Save Changes
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-bold text-slate-900 text-base truncate">
+                                {period.name}
+                              </h4>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                period.is_active
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {period.is_active ? 'Active Period' : 'Inactive'}
+                              </span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                {period.semester_type === 'Midterm' ? 'Midterm (Written Only)' : `${period.semester_type} Semester`}
+                              </span>
+                              {period.academic_year && (
+                                <span className="text-slate-400">({period.academic_year})</span>
+                              )}
+                              <span className="font-mono text-slate-600 ml-1">
+                                📅 {period.start_date} → {period.end_date}
+                              </span>
+                              {period.ignore_staff_working_days ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-semibold flex items-center gap-1">
+                                  ⚡ Bypass Off-Days (Max {period.custom_days_per_week || 3}d/wk)
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
+                                  🛡️ Respects Staff Off-Days
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditing(period)}
+                              className="px-3 py-1.5 rounded-lg border border-slate-200 hover:border-slate-300 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-slate-500" />
+                              Edit Details &amp; Rules
+                            </button>
+                            {!period.is_active && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await activatePeriod(period.id);
+                                  toast.success(`Activated period: "${period.name}"`);
+                                }}
+                                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+                              >
+                                Activate
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : mode === 'bundle' ? (
           <form onSubmit={handleSubmitBundle} className="p-6 overflow-y-auto space-y-5 flex-1">
             <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 to-indigo-950 text-white space-y-2">
               <h3 className="text-sm font-bold flex items-center gap-2 text-gold-300">
@@ -398,6 +833,17 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
               </div>
             </div>
 
+            {/* Midterm Specific Rules Callout */}
+            {semesterType === 'Midterm' && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong className="block font-bold mb-0.5">Midterm Mode Rules: Written Exams Only (No Oral)</strong>
+                  Oral exam sessions are strictly excluded from assignments. Written ratios (Head Supervisor + Assistants) and Committees Supervisors are applied.
+                </div>
+              </div>
+            )}
+
             {/* Date Range */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
               <div>
@@ -425,6 +871,51 @@ export function ExamPeriodModal({ isOpen, onClose, onSuccess }: ExamPeriodModalP
                   required
                 />
               </div>
+            </div>
+
+            {/* Staff Working Days Rule */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="modal_ignore_staff_working_days"
+                  checked={ignoreStaffWorkingDays}
+                  onChange={e => setIgnoreStaffWorkingDays(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-gold-600 focus:ring-gold-500"
+                />
+                <label htmlFor="modal_ignore_staff_working_days" className="cursor-pointer">
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                    Do not use available staff days (Bypass official off-days)
+                  </span>
+                  <span className="text-xs text-slate-500 block mt-0.5">
+                    Allow staff to be assigned on any day of the week regardless of their standard recurring non-working days.
+                  </span>
+                </label>
+              </div>
+
+              {ignoreStaffWorkingDays && (
+                <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 block">
+                      Max Days Per Week Per Staff
+                    </label>
+                    <span className="text-[11px] text-slate-500">
+                      Enforce a weekly assignment day cap per person
+                    </span>
+                  </div>
+                  <select
+                    value={customDaysPerWeek}
+                    onChange={e => setCustomDaysPerWeek(parseInt(e.target.value, 10))}
+                    className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  >
+                    {[1, 2, 3, 4, 5, 6].map(num => (
+                      <option key={num} value={num}>
+                        {num} {num === 1 ? 'day' : 'days'} / week {num === 3 ? '(Recommended)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Score Management Strategy */}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { LogOut, Loader2, FileText, FileSpreadsheet, ArrowRightLeft, BookOpen } from 'lucide-react';
 import Image from 'next/image';
@@ -20,8 +20,6 @@ export default function HODPortalPage() {
   const [generatingSchedule, setGeneratingSchedule] = useState<string | null>(null);
   const [selectedWeek, setSelectedWeek] = useState<string>('');
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
-
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
   useEffect(() => {

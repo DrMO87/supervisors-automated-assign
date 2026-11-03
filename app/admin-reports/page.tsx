@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { Staff, ExamSessionWithRelations, AssignmentWithSession, PeriodFreeStaff } from '@/types/database.types';
 import { Loader2, Download, LogOut, BarChart3, FileText, CheckCircle2, AlertCircle, Users, FileSpreadsheet, ShieldCheck, Calendar as CalendarIcon } from 'lucide-react';
 import Image from 'next/image';
@@ -45,8 +45,6 @@ export default function AdminReportsPage() {
   });
   
   const [weekRange, setWeekRange] = useState({ start: '', end: '' });
-
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
   useEffect(() => {

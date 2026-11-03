@@ -37,11 +37,6 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
 
     const body = await request.json();
     const { weekStart, onlyOral, assignmentScope } = body;
-    
-    // assignmentScope can be 'final', 'oral', 'reserve', or 'all'
-    const isFinalOnly = assignmentScope === 'final';
-    const isOralOnly = assignmentScope === 'oral' || onlyOral;
-    const isReserveOnly = assignmentScope === 'reserve';
 
     if (!weekStart) {
       return NextResponse.json({ error: 'weekStart is required' }, { status: 400 });
@@ -54,7 +49,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     const endStr = endDate.toISOString().split('T')[0];
 
     // ── Fetch all required data in parallel ──────────────────────────────
-    const [staffResult, periodFreeStaffResult, sessionsResult, existingAssignmentsResult, roomsResult, ratiosSettingResult, constraintsSettingResult, calendarRulesResult] =
+    const [staffResult, periodFreeStaffResult, sessionsResult, existingAssignmentsResult, roomsResult, ratiosSettingResult, constraintsSettingResult, calendarRulesResult, activePeriodResult, activePeriodSettingResult] =
       await Promise.all([
         supabaseAdmin.from('staff').select('*').eq('availability_status', 'Available').limit(10000),
         supabaseAdmin.from('period_free_staff').select('*').gte('exam_date', startStr).lt('exam_date', endStr).limit(10000),
@@ -73,7 +68,17 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'staffing_ratios').single(),
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'scheduling_constraints').single(),
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'calendar_rules').single(),
+        supabaseAdmin.from('exam_periods').select('*').eq('is_active', true).maybeSingle(),
+        supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'active_exam_period').maybeSingle(),
       ]);
+
+    const activePeriod = activePeriodResult.data || activePeriodSettingResult.data?.setting_value || null;
+
+    // Check if current active period is Midterm (or requested scope is midterm)
+    const isMidtermOnly = assignmentScope === 'midterm' || activePeriod?.semester_type === 'Midterm' || activePeriod?.period_type === 'midterm';
+    const isFinalOnly = !isMidtermOnly && assignmentScope === 'final';
+    const isOralOnly = !isMidtermOnly && (assignmentScope === 'oral' || onlyOral);
+    const isReserveOnly = assignmentScope === 'reserve';
 
     if (staffResult.error) throw staffResult.error;
     if (periodFreeStaffResult.error) throw periodFreeStaffResult.error;
@@ -101,6 +106,14 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     const savedConstraints: Partial<SchedulingConstraintsConfig> =
       constraintsSettingResult.data?.setting_value || {};
 
+    const shouldIgnoreStaffDays = body.ignoreStaffAvailableDays !== undefined
+      ? Boolean(body.ignoreStaffAvailableDays)
+      : (activePeriod?.ignore_staff_working_days ?? savedConstraints.ignore_staff_working_days ?? false);
+
+    const effectiveMaxDaysPerWeek = body.maxDaysPerWeek !== undefined
+      ? Number(body.maxDaysPerWeek)
+      : (activePeriod?.custom_days_per_week ?? savedConstraints.custom_days_per_week ?? 3);
+
     const constraints: SchedulingConstraintsConfig = {
       allow_consecutive_shifts: savedConstraints.allow_consecutive_shifts ?? false,
       max_hours_per_week_ft:    savedConstraints.max_hours_per_week_ft    ?? 16,
@@ -108,6 +121,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       max_hours_per_week_chemist: savedConstraints.max_hours_per_week_chemist ?? 20,
       enforce_strict_roles:     savedConstraints.enforce_strict_roles     ?? false, // default OFF for best coverage
       max_rooms_per_lecturer:   savedConstraints.max_rooms_per_lecturer   ?? 3,
+      ignore_staff_working_days: shouldIgnoreStaffDays,
+      custom_days_per_week: effectiveMaxDaysPerWeek,
     };
 
     if (sessions.length === 0) {
@@ -130,7 +145,13 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
 
     // ── Run the batch assignment algorithm ───────────────────────────────
     const calendarRules = calendarRulesResult.data?.setting_value || [];
-    const config: AutoAssignConfig = { ratios: staffingRatios, constraints, calendarRules };
+    const config: AutoAssignConfig = {
+      ratios: staffingRatios,
+      constraints,
+      calendarRules,
+      ignoreStaffAvailableDays: shouldIgnoreStaffDays,
+      maxDaysPerWeek: effectiveMaxDaysPerWeek,
+    };
 
     // Take snapshot before major assignment
     try {
@@ -147,7 +168,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       let sessionsToClear = sessions;
       if (isOralOnly) {
         sessionsToClear = sessions.filter(s => !!s.exam_type?.toLowerCase().includes('oral'));
-      } else if (isFinalOnly) {
+      } else if (isFinalOnly || isMidtermOnly) {
         sessionsToClear = sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral'));
       }
 
@@ -176,7 +197,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     // Ensure we don't pass the deleted assignments to the algorithm
-    const sessionIdsToDeleteSet = new Set(!isReserveOnly ? (isOralOnly ? sessions.filter(s => !!s.exam_type?.toLowerCase().includes('oral')) : isFinalOnly ? sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral')) : sessions).map(s => s.id) : []);
+    const sessionIdsToDeleteSet = new Set(!isReserveOnly ? (isOralOnly ? sessions.filter(s => !!s.exam_type?.toLowerCase().includes('oral')) : (isFinalOnly || isMidtermOnly) ? sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral')) : sessions).map(s => s.id) : []);
     const filteredExistingAssignments = existingAssignments.filter(a => !sessionIdsToDeleteSet.has(a.exam_session_id));
 
     if (!isReserveOnly) {
@@ -189,7 +210,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         rooms,
         [],
         isOralOnly,
-        isFinalOnly
+        isFinalOnly,
+        isMidtermOnly
       );
       allNewAssignments = result.assignments;
       allViolations = result.violations;

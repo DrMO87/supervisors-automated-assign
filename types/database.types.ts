@@ -316,6 +316,8 @@ export interface SchedulingConstraintsConfig {
   max_rooms_per_lecturer: number; // Default 3
   ignore_working_days_if_specific_dates?: boolean; // Default true
   max_score_delta_from_average?: number; // Default undefined (no hard cap)
+  ignore_staff_working_days?: boolean; // When true, bypass staff available days (allow any day)
+  custom_days_per_week?: number; // Max number of days per week per staff member when configured
 }
 
 // Form types
@@ -408,6 +410,8 @@ export interface ExamPeriod {
   score_mode: ScoreMode;
   score_snapshot?: ExamPeriodScoreSnapshot[];
   notes?: string | null;
+  ignore_staff_working_days?: boolean;
+  custom_days_per_week?: number;
   created_at?: string;
   updated_at?: string;
 }

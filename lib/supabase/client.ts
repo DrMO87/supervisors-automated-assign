@@ -1,6 +1,13 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Fallback project credentials if env vars are momentarily unset in browser chunks
+export const DEFAULT_SUPABASE_URL = 'https://chauqwnfzjskbucoppwb.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_tIiXKR2izJukHfR8YF_XFg_lEFi3aw-';
+
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+
 // Validate Supabase URL
 function isValidSupabaseUrl(url: string | undefined): boolean {
   if (!url) return false;
@@ -18,8 +25,8 @@ function isValidSupabaseKey(key: string | undefined): boolean {
 // Check if Supabase is properly configured
 export function isSupabaseConfigured(): boolean {
   return (
-    isValidSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
-    isValidSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+    isValidSupabaseUrl(SUPABASE_URL) &&
+    isValidSupabaseKey(SUPABASE_ANON_KEY)
   );
 }
 
@@ -30,12 +37,11 @@ export function getSupabaseConfigStatus(): {
   keyValid: boolean;
   url: string;
 } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   return {
     configured: isSupabaseConfigured(),
-    urlValid: isValidSupabaseUrl(url),
-    keyValid: isValidSupabaseKey(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
-    url: url,
+    urlValid: isValidSupabaseUrl(SUPABASE_URL),
+    keyValid: isValidSupabaseKey(SUPABASE_ANON_KEY),
+    url: SUPABASE_URL,
   };
 }
 
@@ -43,7 +49,28 @@ export function getSupabaseConfigStatus(): {
 let supabaseInstance: SupabaseClient | null = null;
 
 if (isSupabaseConfigured()) {
-  supabaseInstance = createClientComponentClient();
+  try {
+    supabaseInstance = createClientComponentClient({
+      supabaseUrl: SUPABASE_URL,
+      supabaseKey: SUPABASE_ANON_KEY,
+    });
+  } catch (err) {
+    console.warn('createClientComponentClient failed, using createClient fallback:', err);
+    supabaseInstance = createClient(
+      SUPABASE_URL,
+      SUPABASE_ANON_KEY,
+      {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          lock: async (_name: string, _acquireTimeout: number, fn: () => Promise<any>) => {
+            return await fn();
+          },
+        }
+      }
+    );
+  }
 }
 
 export const supabase = supabaseInstance || new Proxy({} as SupabaseClient, {
@@ -61,12 +88,12 @@ let supabaseAdminInstance: SupabaseClient | null = null;
 // Prefer service role key if valid JWT, else fall back to anon key
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const isServiceRoleJwt = serviceRoleKey && !serviceRoleKey.startsWith('sb_secret_') && serviceRoleKey.length > 30;
-const effectiveKey = isServiceRoleJwt ? serviceRoleKey : (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || serviceRoleKey);
+const effectiveKey: string = (isServiceRoleJwt && serviceRoleKey ? serviceRoleKey : SUPABASE_ANON_KEY);
 
-if (isValidSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL) && isValidSupabaseKey(effectiveKey)) {
+if (isValidSupabaseUrl(SUPABASE_URL) && isValidSupabaseKey(effectiveKey)) {
   supabaseAdminInstance = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    effectiveKey!,
+    SUPABASE_URL,
+    effectiveKey,
     {
       auth: {
         autoRefreshToken: false,

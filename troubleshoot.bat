@@ -48,6 +48,9 @@ if exist ".env.local" (
     )
     
     findstr /C:"eyJ" .env.local >nul
+    if %ERRORLEVEL% NEQ 0 (
+        findstr /C:"sb_" .env.local >nul
+    )
     if %ERRORLEVEL% EQU 0 (
         echo   ✅ API keys configured
     ) else (
@@ -81,14 +84,13 @@ if exist ".next\" (
 echo.
 
 REM Check 6: Port availability
-echo [6/6] Checking port 3000...
-netstat -ano | findstr ":3000" >nul
+echo [6/6] Checking port 3010...
+netstat -ano | findstr ":3010" >nul
 if %ERRORLEVEL% EQU 0 (
-    echo   ⚠️  Port 3000 is in use
-    echo   → Stop other apps using port 3000
-    echo   → Or change port in package.json
+    echo   ⚠️  Port 3010 is in use
+    echo   → App may already be running or port is occupied
 ) else (
-    echo   ✅ Port 3000 is available
+    echo   ✅ Port 3010 is available
 )
 echo.
 
@@ -111,4 +113,3 @@ echo   - COMPLETE_SETUP_GUIDE.md
 echo   - VISUAL_SETUP_GUIDE.md
 echo.
 pause
-

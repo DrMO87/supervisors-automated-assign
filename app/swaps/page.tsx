@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { SwapRequestWithRelations } from '@/types/database.types';
 import { Loader2, CheckCircle2, XCircle, Clock, ArrowRight, Calendar as CalendarIcon, User, RefreshCw, ArrowLeft, Download } from 'lucide-react';
 import { format } from 'date-fns';
@@ -16,8 +16,6 @@ export default function SwapsPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const supabase = createClientComponentClient();
   const router = useRouter();
 
   const fetchRequests = useCallback(async () => {

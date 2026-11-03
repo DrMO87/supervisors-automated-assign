@@ -17,8 +17,10 @@ import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { startOfWeek } from 'date-fns';
 import { generateAssignmentReport, downloadFile, parseScheduleImportCSV } from '@/lib/utils/csv-helpers';
 import { getPeriodFromTime } from '@/types/database.types';
+import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 
 export default function DashboardPage() {
+  const { activePeriod } = useExamPeriod();
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 6 }));
   const [isWeeklyBackupOpen, setIsWeeklyBackupOpen] = useState(false);
 
@@ -85,10 +87,13 @@ export default function DashboardPage() {
   };
 
   const handleAutoAssign = async () => {
-    let confirmMsg = 'This will auto-assign Final & Oral Exams for this week. Continue?';
-    if (assignScope === 'final') confirmMsg = 'This will auto-assign Final Exams ONLY for this week. Continue?';
-    if (assignScope === 'oral') confirmMsg = 'This will auto-assign Oral Exams ONLY for this week. Continue?';
-    if (assignScope === 'reserve') confirmMsg = 'This will automatically allocate available staff as Reserves/Standbys for each period this week. Continue?';
+    const isMidterm = activePeriod?.semester_type === 'Midterm';
+    const periodLabel = isMidterm ? 'Midterm Exams ONLY (no oral)' : 'Final & Oral Exams';
+    const customDaysLabel = activePeriod?.ignore_staff_working_days
+      ? ` (bypassing available staff days, max ${activePeriod.custom_days_per_week || 3} days/week)`
+      : '';
+
+    const confirmMsg = `This will auto-assign ${periodLabel} for this week${customDaysLabel} according to rules configured on the Home Screen. Continue?`;
     
     if (!confirm(confirmMsg)) {
       return;
@@ -98,13 +103,13 @@ export default function DashboardPage() {
     setAssignFreeResult(null);
 
     try {
-      const endpoint = assignScope === 'reserve' 
-        ? '/api/assignments/assign-free-invigilators' 
-        : '/api/assignments/auto-assign';
-        
-      const payload = assignScope === 'reserve' 
-        ? { weekStart: currentWeekStart.toISOString() }
-        : { weekStart: currentWeekStart.toISOString(), assignmentScope: assignScope };
+      const endpoint = '/api/assignments/auto-assign';
+      const payload = {
+        weekStart: currentWeekStart.toISOString(),
+        assignmentScope: isMidterm ? 'midterm' : 'all',
+        ignoreStaffAvailableDays: activePeriod?.ignore_staff_working_days,
+        maxDaysPerWeek: activePeriod?.custom_days_per_week,
+      };
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -445,17 +450,17 @@ export default function DashboardPage() {
 
                 {/* ── Group 3: Auto-Assign (primary action) ── */}
                 <div className="flex flex-wrap sm:flex-nowrap justify-center items-center rounded-lg overflow-hidden shadow-sm border border-indigo-600 divide-x divide-indigo-500">
-                  <select
-                    value={assignScope}
-                    onChange={e => setAssignScope(e.target.value as any)}
-                    className="bg-indigo-600 text-white text-xs font-medium border-none focus:ring-0 py-2 pl-3 pr-7 cursor-pointer hover:bg-indigo-700 transition-colors appearance-none"
-                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 6px center' }}
-                  >
-                    <option value="all">Final &amp; Oral</option>
-                    <option value="final">Final Only</option>
-                    <option value="oral">Oral Only</option>
-                    <option value="reserve">Free Reserve</option>
-                  </select>
+                  <div className="bg-indigo-700/90 text-white text-xs font-semibold px-3 py-2 flex items-center gap-1.5">
+                    <span>Period:</span>
+                    <span className="font-bold text-gold-300">
+                      {activePeriod?.semester_type === 'Midterm' ? 'Midterm (No Oral)' : 'Final & Oral'}
+                    </span>
+                    {activePeriod?.ignore_staff_working_days && (
+                      <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded border border-amber-300/30">
+                        Max {activePeriod.custom_days_per_week || 3}d/wk
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={handleAutoAssign}
                     disabled={isAssigning || getSessionsByWeek(currentWeekStart).length === 0}

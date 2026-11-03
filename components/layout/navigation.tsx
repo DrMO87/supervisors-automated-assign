@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, DoorOpen, Calendar,
   FileText, Settings, Home, Zap, ChevronRight, TrendingUp, LogOut, Menu, X, RefreshCw
 } from 'lucide-react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
 
 const navGroups = [
@@ -43,7 +43,6 @@ export function Navigation() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   const handleSignOut = async () => {
     try {

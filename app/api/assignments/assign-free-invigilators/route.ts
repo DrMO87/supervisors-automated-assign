@@ -94,6 +94,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       max_hours_per_week_pt:    savedConstraints.max_hours_per_week_pt    ?? 10,
       enforce_strict_roles:     savedConstraints.enforce_strict_roles     ?? false,
       max_rooms_per_lecturer:   savedConstraints.max_rooms_per_lecturer   ?? 3,
+      ignore_staff_working_days: savedConstraints.ignore_staff_working_days ?? false,
+      custom_days_per_week:     savedConstraints.custom_days_per_week ?? 3,
     };
 
     const config = {

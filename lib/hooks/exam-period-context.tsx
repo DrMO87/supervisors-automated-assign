@@ -28,30 +28,38 @@ export function ExamPeriodProvider({ children }: { children: React.ReactNode }) 
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchPeriods = useCallback(async () => {
-    if (!isSupabaseConfigured() || !supabase) {
-      setIsLoading(false);
-      return;
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/exam-periods');
+      if (res.ok) {
+        const apiData = await res.json();
+        if (Array.isArray(apiData)) {
+          setAllPeriods(apiData as ExamPeriod[]);
+          const active = apiData.find((p: any) => p.is_active);
+          setActivePeriod((active as ExamPeriod) || null);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (apiErr) {
+      console.warn('API fetch periods error, trying direct supabase fallback:', apiErr);
     }
 
     try {
-      const { data, error } = await supabase
-        .from('exam_periods')
-        .select('*')
-        .order('start_date', { ascending: false });
+      if (supabase) {
+        const { data, error } = await supabase
+          .from('exam_periods')
+          .select('*')
+          .order('start_date', { ascending: false });
 
-      if (error) {
-        console.warn('Exam periods table query issue:', error.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (data) {
-        setAllPeriods(data as ExamPeriod[]);
-        const active = data.find(p => p.is_active);
-        setActivePeriod((active as ExamPeriod) || null);
+        if (!error && Array.isArray(data)) {
+          setAllPeriods(data as ExamPeriod[]);
+          const active = data.find((p: any) => p.is_active);
+          setActivePeriod((active as ExamPeriod) || null);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch exam periods:', err);
+      console.error('Error fetching exam periods directly:', err);
     } finally {
       setIsLoading(false);
     }
