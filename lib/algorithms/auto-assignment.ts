@@ -250,7 +250,7 @@ export function isStaffAvailable(
   targetRoom?: Room | null,
   periodFreeStaff: PeriodFreeStaff[] = [],
   calendarRules: CalendarRule[] = [],
-  averageScore?: number,
+  peerMinScore?: number,
   strictOffDays: boolean = false,
   allowWorkloadCapRelax: boolean = false,
   allowDayCapRelax: boolean = false
@@ -638,20 +638,22 @@ export function isStaffAvailable(
   // 7. Health issue -> prefer M/P rooms (Soft warning removed to prevent score decrease)
   // Health issue staff will simply be prioritized in sorting when the room is near pharmacy.
 
-  // 8. Workload Cap
-  if (constraints.max_score_delta_from_average !== undefined && averageScore !== undefined) {
-    if (staff.current_score > averageScore + constraints.max_score_delta_from_average) {
+  // 8. Peer Workload Spread Cap (Fairness)
+  if (constraints.max_score_delta_from_average !== undefined && peerMinScore !== undefined) {
+    const score = getEffectiveScore(staff);
+    const scoreDelta = score - peerMinScore;
+    if (scoreDelta >= constraints.max_score_delta_from_average - 1e-6) {
       if (allowWorkloadCapRelax) {
         softViolations.push({
           type: 'workload_cap',
-          message: `${staff.name} is above average workload (${staff.current_score} vs ${averageScore.toFixed(1)}) but assigned to prevent room deficiency`,
+          message: `${staff.name} is at peer workload cap (score ${score.toFixed(2)} vs lowest peer ${peerMinScore.toFixed(2)}) but assigned to prevent room deficiency`,
           staff_id: staff.id,
           exam_session_id: examSession.id,
         });
       } else {
         hardViolations.push({
           type: 'workload_cap',
-          message: `${staff.name} has reached the hard workload cap (${staff.current_score} assignments vs average ${averageScore.toFixed(1)}). Locked out until others catch up.`,
+          message: `${staff.name} has reached the peer workload cap (score ${score.toFixed(2)} vs lowest peer ${peerMinScore.toFixed(2)}). Locked out until peers catch up.`,
           staff_id: staff.id,
           exam_session_id: examSession.id,
         });
@@ -668,12 +670,43 @@ export function isStaffAvailable(
 
 export function getEffectiveScore(staff: Staff): number {
   // A reserve duty is treated as 25% of a full room assignment
-  const baseScore = staff.current_score + ((staff.free_staff_score || 0) * 0.25);
+  const reserveCredits = ((staff.free_staff_score ?? (staff as any).reserve_count ?? 0) * 0.25);
+  const baseScore = (staff.current_score ?? 0) + reserveCredits;
   if (staff.is_overloaded && staff.overload_percentage > 0) {
     const factor = Math.max(0.01, 1 - (staff.overload_percentage / 100));
     return (baseScore / factor) + (staff.overload_percentage / 1000);
   }
   return baseScore;
+}
+
+/**
+ * Computes the minimum effective workload score for each peer group (cohort)
+ * among active, available staff who have scheduled working days.
+ * This establishes the peer floor for maximum spread calculations.
+ */
+export function getPeerMinScores(allStaff: Staff[]): Map<string, number> {
+  const peerScores = new Map<string, number[]>();
+
+  for (const s of allStaff) {
+    // Only active, available staff who have working days can set the peer cohort baseline
+    if (s.availability_status !== 'Available') continue;
+    if (!s.working_days || s.working_days.length === 0) continue;
+
+    const group = s.job_title || s.supervision_role || 'General';
+    const score = getEffectiveScore(s);
+    if (!peerScores.has(group)) {
+      peerScores.set(group, []);
+    }
+    peerScores.get(group)!.push(score);
+  }
+
+  const minMap = new Map<string, number>();
+  for (const [group, scores] of peerScores.entries()) {
+    if (scores.length > 0) {
+      minMap.set(group, Math.min(...scores));
+    }
+  }
+  return minMap;
 }
 
 export function sortStaffByPriority(
@@ -787,16 +820,16 @@ export function assignStaffToSession(
   const strictRoles = config.constraints.enforce_strict_roles !== false;
   const nearPharmacy = targetRoom ? isNearPharmacy(targetRoom.room_name) : false;
 
-  // Calculate average score for workload cap
-  const availableCount = allStaff.filter(s => s.availability_status === 'Available').length;
-  const averageScore = availableCount > 0
-    ? allStaff.reduce((sum, s) => s.availability_status === 'Available' ? sum + s.current_score : sum, 0) / availableCount
-    : undefined;
+  // Precompute the lowest effective score for each peer group among active colleagues
+  const peerMinScores = getPeerMinScores(allStaff);
 
   // Evaluate each staff member's availability
   const staffWithStatus = allStaff.map((staff) => {
+    const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
     const { available, hardViolations, softViolations } = isStaffAvailable(
-      staff, examSession, existingAssignments, allExamSessions, config.constraints, Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff, config.calendarRules, averageScore
+      staff, examSession, existingAssignments, allExamSessions, config.constraints,
+      Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom,
+      periodFreeStaff, config.calendarRules, peerMinScore
     );
     return { staff, available, hardViolations, softViolations };
   });
@@ -859,12 +892,13 @@ export function assignStaffToSession(
     if (headSupervisors.length < required.headSupervisors) {
       // Tier 2 Fallback: Relax workload cap to prevent room deficiency
       const fallbackStaffWithStatus = allStaff.map((staff) => {
+        const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, averageScore, false, true, false
+            config.calendarRules, peerMinScore, false, true, false
           )
         };
       });
@@ -890,12 +924,13 @@ export function assignStaffToSession(
     if (headSupervisors.length < required.headSupervisors) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
       const emergencyStaffWithStatus = allStaff.map((staff) => {
+        const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, averageScore, false, true, true
+            config.calendarRules, peerMinScore, false, true, true
           )
         };
       });
@@ -972,12 +1007,13 @@ export function assignStaffToSession(
     if (assignedAssistants < required.assistants) {
       // Tier 2 Fallback: Relax workload cap to prevent assistant deficiency
       const fallbackStaffWithStatus = allStaff.map((staff) => {
+        const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, averageScore, false, true, false
+            config.calendarRules, peerMinScore, false, true, false
           )
         };
       });
@@ -1008,12 +1044,13 @@ export function assignStaffToSession(
     if (assignedAssistants < required.assistants) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
       const emergencyStaffWithStatus = allStaff.map((staff) => {
+        const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, averageScore, false, true, true
+            config.calendarRules, peerMinScore, false, true, true
           )
         };
       });
@@ -1312,9 +1349,9 @@ export function batchAssign(
           return !csAssignedPeriods.get(s.id)?.has(slotKey);
         });
 
-        // Calculate average score for workload cap among Committees Supervisors
-        const csStaff = currentStaff.filter(s => s.supervision_role === 'Committees Supervisor' && s.availability_status === 'Available');
-        const averageScore = csStaff.length > 0 ? csStaff.reduce((sum, s) => sum + s.current_score, 0) / csStaff.length : undefined;
+        // Calculate min score for peer workload spread cap among Committees Supervisors
+        const csStaff = currentStaff.filter(s => s.supervision_role === 'Committees Supervisor' && s.availability_status === 'Available' && (s.working_days?.length || 0) > 0);
+        const minCSScore = csStaff.length > 0 ? Math.min(...csStaff.map(s => getEffectiveScore(s))) : undefined;
 
         const getCSCandidates = (relaxWorkload: boolean, relaxDayCap: boolean) => {
           return availableInPeriodCandidates.map(s => {
@@ -1328,7 +1365,7 @@ export function batchAssign(
               
               const status = isStaffAvailable(
                 s, rSession, currentAssignments, sessions, config.constraints, allExamDates,
-                rooms?.find(r => r.id === roomGroup.room_id), periodFreeStaff, config.calendarRules, averageScore,
+                rooms?.find(r => r.id === roomGroup.room_id), periodFreeStaff, config.calendarRules, minCSScore,
                 false, relaxWorkload, relaxDayCap
               );
               
@@ -1673,10 +1710,14 @@ export function allocateReserveStaff(
       updated_at: new Date().toISOString()
     };
 
-    // 2. Filter available staff who are not already assigned
-    const availableStaff = allStaff.filter(staff => {
+    const peerMinScores = getPeerMinScores(allStaff);
+
+    // 2. Filter available staff who are not already assigned (respecting peer workload spread cap)
+    let availableStaff = allStaff.filter(staff => {
       // Must not be already assigned in this period
       if (assignedStaffIds.has(staff.id)) return false;
+
+      const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
 
       // Must be available according to standard rules
       const { available } = isStaffAvailable(
@@ -1689,11 +1730,35 @@ export function allocateReserveStaff(
         undefined,
         reserveAssignments as any,
         config.calendarRules,
-        undefined,
+        peerMinScore,
         !config.constraints.ignore_staff_working_days // Do not force strict off-days if ignoring working days (e.g. Midterm)
       );
       return available;
     });
+
+    // If reserve pool is smaller than target, relax workload cap so reserve slots can still be staffed
+    const neededReserves = (config.constraints?.reserve_supervisors_target ?? 3) + (config.constraints?.reserve_assistants_target ?? 3);
+    if (availableStaff.length < neededReserves) {
+      availableStaff = allStaff.filter(staff => {
+        if (assignedStaffIds.has(staff.id)) return false;
+        const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
+        const { available } = isStaffAvailable(
+          staff,
+          representativeSession,
+          currentAssignments,
+          sessions,
+          config.constraints,
+          Array.from(new Set(sessions.map(s => s.exam_date))),
+          undefined,
+          reserveAssignments as any,
+          config.calendarRules,
+          peerMinScore,
+          !config.constraints.ignore_staff_working_days,
+          true // allowWorkloadCapRelax
+        );
+        return available;
+      });
+    }
 
     if (availableStaff.length === 0) continue;
 

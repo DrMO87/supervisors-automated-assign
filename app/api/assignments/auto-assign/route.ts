@@ -155,9 +155,11 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         ? Boolean(body.reserveDeprioritizeChemistsP2)
         : (savedConstraints.reserve_deprioritize_chemists_p2 !== false),
       oral_exam_assignment_mode: effectiveOralMode,
-      max_score_delta_from_average: body.maxScoreDelta !== undefined
-        ? Number(body.maxScoreDelta)
-        : (savedConstraints.max_score_delta_from_average ?? 3),
+      max_score_delta_from_average: body.maxPeerScoreSpread !== undefined
+        ? Number(body.maxPeerScoreSpread)
+        : (body.maxScoreDelta !== undefined
+          ? Number(body.maxScoreDelta)
+          : (savedConstraints.max_score_delta_from_average ?? 3)),
       ignore_working_days_if_specific_dates: savedConstraints.ignore_working_days_if_specific_dates ?? true,
       availability_policy:      effectiveAvailabilityPolicy,
       ignore_staff_working_days: shouldIgnoreStaffDays,

@@ -319,7 +319,7 @@ export interface SchedulingConstraintsConfig {
   oral_exam_assignment_mode?: OralAssignmentMode; // Default 'combined'
   availability_policy?: StaffAvailabilityPolicy; // Unified 3-mode availability policy
   ignore_working_days_if_specific_dates?: boolean; // Legacy fallback flag
-  max_score_delta_from_average?: number; // Default 3 (fairness delta)
+  max_score_delta_from_average?: number; // Default 3 (fairness delta / max score gap between highest and lowest peer in cohort)
   ignore_staff_working_days?: boolean; // Legacy fallback flag
   custom_days_per_week?: number; // Max days per week per staff member (1-6)
   max_daily_shifts?: number; // Max daily room shifts / periods per staff member (Default 2)
