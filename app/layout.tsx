@@ -36,12 +36,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(function(regs) {
-                  for (var i = 0; i < regs.length; i++) {
-                    regs[i].unregister();
-                  }
-                });
+              if (typeof window !== 'undefined') {
+                if ('serviceWorker' in navigator) {
+                  navigator.serviceWorker.getRegistrations().then(function(regs) {
+                    for (var i = 0; i < regs.length; i++) {
+                      regs[i].unregister();
+                    }
+                  });
+                }
+                if ('caches' in window) {
+                  caches.keys().then(function(keys) {
+                    for (var i = 0; i < keys.length; i++) {
+                      caches.delete(keys[i]);
+                    }
+                  });
+                }
               }
             `,
           }}

@@ -1,7 +1,7 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import type { Staff, StaffFormData, JobTitle, EmploymentStatus, AvailabilityStatus, Room, RoomFormData, Assignment, ExamSession, AssignmentRole, StaffingRatiosConfig, SupervisionRole, CalendarRule } from '@/types/database.types';
-import { parseRoomCode, getPeriodFromTime } from '@/types/database.types';
+import { parseRoomCode, getPeriodFromTime, getSessionPeriod, normalizeSessionTimes } from '@/types/database.types';
 
 // Valid values for validation
 const VALID_JOB_TITLES: JobTitle[] = ['Chemist', 'Demonstrator', 'Teaching Assistant', 'Lecturer'];
@@ -536,7 +536,13 @@ export async function parseExamCSV(file: File, roomMap: Map<string, string>): Pr
         errors.push(`Row ${rowNum}: Date is required`);
         return;
       }
-      // Try multiple common headers for Room/Place
+      let cleanExamDate = String(examDate).trim();
+      if ((examDate as any) instanceof Date) {
+        cleanExamDate = (examDate as any).toISOString().slice(0, 10);
+      } else if (cleanExamDate.includes('T')) {
+        cleanExamDate = cleanExamDate.split('T')[0];
+      }
+
       // Try multiple common headers for Room/Place
       const roomName = getValueFuzzy(row, ['Place', 'Room', 'Hall', 'Location', 'Venue', 'room_name', 'Room Name']);
 
@@ -551,7 +557,9 @@ export async function parseExamCSV(file: File, roomMap: Map<string, string>): Pr
         roomId = '';
       }
 
-      const startTime = getValueFuzzy(row, ['From', 'Start Time', 'start_time', 'Time']) || '09:30';
+      const rawStartTime = getValueFuzzy(row, ['strat time', 'strat_time', 'Start Time', 'start_time', 'StartTime', 'From', 'Start', 'Time', 'start']) || '09:00';
+      const rawEndTime = getValueFuzzy(row, ['ed time', 'ed_time', 'End Time', 'end_time', 'EndTime', 'To', 'End', 'end']);
+      const { startTime, endTime } = normalizeSessionTimes(rawStartTime, rawEndTime);
 
       const studentCountVal = getValueFuzzy(row, ['Count', 'Student Count', 'student_count', 'No of Students']);
       const studentCount = parseInt(studentCountVal || '0', 10);
@@ -560,16 +568,15 @@ export async function parseExamCSV(file: File, roomMap: Map<string, string>): Pr
         return;
       }
 
-
       data.push({
         subject_name: subjectName,
-        exam_date: examDate,
+        exam_date: cleanExamDate,
         start_time: startTime,
         student_count: studentCount,
         room_name: roomName,
         room_id: roomId,
         exam_type: safeTrim(row['Type']) || safeTrim(row.exam_type) || undefined,
-        end_time: safeTrim(row['To']) || safeTrim(row.end_time) || undefined,
+        end_time: endTime,
         student_start: safeTrim(row['Start']) || safeTrim(row.student_start) || undefined,
         student_end: safeTrim(row['End']) || safeTrim(row.student_end) || undefined,
       });
@@ -590,7 +597,7 @@ export function exportExamsToExcel(exams: any[]): Blob {
       program: e.program || '',
     exam_type: e.exam_type || '',
     exam_date: e.exam_date,
-    period: getPeriodFromTime(e.start_time),
+    period: getSessionPeriod(e, exams),
     start_time: e.start_time,
     end_time: e.end_time || '',
     room_name: e.room?.room_name || e.room_name || '',
@@ -740,7 +747,7 @@ export function generateAssignmentReport(
     const requiredHead = req.headSupervisors;
     const requiredAssist = req.assistants;
 
-    const period = getPeriodFromTime(exam.start_time);
+    const period = getSessionPeriod(exam, exams);
 
     // --- Detect missing supervision roles ---
     const missingParts: string[] = [];
@@ -873,7 +880,7 @@ export function exportAssignmentsToExcel(
         'Program': session?.program || '',
         'Exam Type': session?.exam_type || '',
       'Date': session?.exam_date || '',
-      'Period': session ? getPeriodFromTime(session.start_time) : '',
+      'Period': session ? getSessionPeriod(session, exams) : '',
       'Time': session?.start_time || '',
       'Room': roomName,
       'Student Count': session?.student_count || '',
@@ -1023,7 +1030,7 @@ function findExamSession(
     const normTimeOrPeriod = timeOrPeriod.toLowerCase().trim();
     const timeCandidates = candidates.filter(e => {
       if (e.start_time.toLowerCase().includes(normTimeOrPeriod)) return true;
-      const period = String(getPeriodFromTime(e.start_time));
+      const period = String(getSessionPeriod(e, exams));
       if (period === normTimeOrPeriod) return true;
       return false;
     });
@@ -1656,6 +1663,7 @@ export async function parseScheduleImportCSV(
     const assignmentsToInsert: { exam_session_id: string; staff_id: string; role: AssignmentRole; is_manual_override: boolean }[] = [];
     const affectedSessionIds = new Set<string>();
     const globalAssignedKeys = new Set<string>();
+    const assignedStaffSlots = new Map<string, { roomName: string; sessionId: string; role: AssignmentRole }>();
     const errors: string[] = [];
 
     // Helper to find staff ID by name (case-insensitive fuzzy match)
@@ -1726,6 +1734,26 @@ export async function parseScheduleImportCSV(
             if (globalAssignedKeys.has(assignmentKey)) {
               return; // Already assigned to this session, skip duplicate to prevent DB error
             }
+
+            // Strictly prevent non-committee supervisors from being assigned to multiple rooms at the same time
+            const isCommitteeRole = role === 'Committees_Supervisor' || role === 'Head_Supervisor';
+            const sStaff = staffList.find(st => st.id === sId);
+            const isCommitteeStaff = sStaff?.supervision_role === 'Committees Supervisor';
+
+            if (!isCommitteeRole && !isCommitteeStaff) {
+              const period = getSessionPeriod(matchingSession, weekSessions);
+              const slotKey = `${sId}_${date}_P${period}`;
+              if (assignedStaffSlots.has(slotKey)) {
+                const existing = assignedStaffSlots.get(slotKey)!;
+                const isSameRoom = existing.roomName.trim().toLowerCase() === roomName.trim().toLowerCase();
+                if (!isSameRoom) {
+                  errors.push(`Row ${rowNum}: "${sName}" is already assigned to a DIFFERENT room ("${existing.roomName}") in Period ${period} on ${date}. An Invigilator / Exam Supervisor cannot be in multiple rooms at the same time. Skipped duplicate assignment.`);
+                  return;
+                }
+              }
+              assignedStaffSlots.set(slotKey, { roomName, sessionId, role });
+            }
+
             globalAssignedKeys.add(assignmentKey);
 
             assignmentsToInsert.push({

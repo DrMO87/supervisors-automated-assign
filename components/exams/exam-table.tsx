@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ExamSessionWithRelations, getPeriodFromTime } from '@/types/database.types';
+import { ExamSessionWithRelations, getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import { Loader2, Edit, Trash2, Lock, Unlock, BookOpen, ArrowUpDown, ArrowUp, ArrowDown, Search, LayoutGrid, List } from 'lucide-react';
 import { format } from 'date-fns';
 import { useMobileView } from '@/lib/hooks/use-mobile-view';
@@ -169,7 +169,7 @@ export function ExamTable({ exams, isLoading, onEdit, onDelete, onToggleLock, se
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <span>{format(new Date(exam.exam_date), 'MMM d')}</span>
                     <span>•</span>
-                    <span>P{getPeriodFromTime(exam.start_time)}</span>
+                    <span>P{getSessionPeriod(exam, exams)}</span>
                     <span>•</span>
                     <span className="truncate max-w-[80px]">{exam.room?.room_name || 'TBD'}</span>
                   </div>
@@ -208,7 +208,7 @@ export function ExamTable({ exams, isLoading, onEdit, onDelete, onToggleLock, se
               <div className="font-medium text-gray-900">{formatDate(exam.exam_date)}</div>
               
               <div className="text-gray-500">Time</div>
-              <div className="font-medium text-gray-900">P{getPeriodFromTime(exam.start_time)}: {exam.start_time}-{exam.end_time || '?'}</div>
+              <div className="font-medium text-gray-900">P{getSessionPeriod(exam, exams)}: {exam.start_time}-{exam.end_time || '?'}</div>
               
               <div className="text-gray-500">Place</div>
               <div className="font-medium text-gray-900">{exam.room?.room_name || 'TBD'}</div>
@@ -299,7 +299,7 @@ export function ExamTable({ exams, isLoading, onEdit, onDelete, onToggleLock, se
                   {formatDate(exam.exam_date)}
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-600">
-                  <div className="whitespace-nowrap">P{getPeriodFromTime(exam.start_time)}: {exam.start_time} - {exam.end_time || '?'}</div>
+                  <div className="whitespace-nowrap">P{getSessionPeriod(exam, exams)}: {exam.start_time} - {exam.end_time || '?'}</div>
                 </td>
                 <td className="px-4 py-4 text-sm text-gray-900">
                   {exam.room?.room_name || 'TBD'}

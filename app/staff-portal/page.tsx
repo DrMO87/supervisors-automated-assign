@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { Staff, Room, getPeriodFromTime, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
+import { Staff, Room, getPeriodFromTime, getSessionPeriod, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
 import { Loader2, Calendar, Clock, DoorOpen, User, RefreshCw, LogOut, CheckCircle2, FileText, Download, BarChart3, Users, FileSpreadsheet, ShieldCheck, AlertCircle, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -70,7 +70,7 @@ export default function UnifiedStaffPortalPage() {
     setAddingReserve(true);
     setReserveMessage(null);
     try {
-      const periodExam = exams.find(ex => ex.exam_date === reserveDate && getPeriodFromTime(ex.start_time) === parseInt(reservePeriod));
+      const periodExam = exams.find(ex => ex.exam_date === reserveDate && getSessionPeriod(ex, exams) === parseInt(reservePeriod));
       const startTime = periodExam ? periodExam.start_time : '09:00:00'; 
       const { error } = await supabase.from('period_free_staff').insert({
         staff_id: reserveStaffId,
@@ -231,7 +231,7 @@ export default function UnifiedStaffPortalPage() {
       const [sessionsRes, freeRes] = await Promise.all([
         supabase
           .from('exam_sessions')
-          .select(`id, start_time, room_id, room:rooms(id, room_name, building_code), assignments(staff_id, staff:staff(*))`)
+          .select(`id, exam_date, start_time, end_time, room_id, room:rooms(id, room_name, building_code), assignments(staff_id, staff:staff(*))`)
           .eq('exam_date', examDate),
         supabase
           .from('period_free_staff')
@@ -240,7 +240,8 @@ export default function UnifiedStaffPortalPage() {
           .eq('period', p)
       ]);
 
-      let filteredSessions = (sessionsRes.data || []).filter(s => getPeriodFromTime(s.start_time) === p);
+      const allDaySessions = sessionsRes.data || [];
+      let filteredSessions = allDaySessions.filter(s => getSessionPeriod(s, allDaySessions) === p);
       
       if (currentUserData?.staff_id) {
         filteredSessions = filteredSessions.filter(s => 

@@ -5,7 +5,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { FileText, Download, Loader2, Calendar, Users, BarChart3, FileSpreadsheet, Building2, UserCheck, Mail } from 'lucide-react';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
 import type { Staff, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import { SetupRequired } from '@/components/setup-required';
 import { StaffSelectModal } from '@/components/reports/staff-select-modal';
 import { DateSelectModal } from '@/components/reports/date-select-modal';
@@ -453,7 +453,7 @@ export default function ReportsPage() {
         staffAssignments.forEach(a => {
           const exam = a.exam_session!;
           rows.push([
-            s.name, exam.exam_date, `Period ${getPeriodFromTime(exam.start_time)}`, exam.start_time,
+            s.name, exam.exam_date, `Period ${getSessionPeriod(exam, exams)}`, exam.start_time,
             exam.subject_name, exam.room?.room_name || '', 
             a.role === 'Exam_Supervisor' ? 'Exam Supervisor' : a.role === 'Head_Supervisor' || a.role === 'Committees_Supervisor' ? 'ComSupervisor' : 'Invigilator'
           ]);

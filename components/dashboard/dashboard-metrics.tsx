@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import { groupSessionsByRoom, calculateRequiredStaff } from '@/lib/algorithms/auto-assignment';
 import { format, addDays } from 'date-fns';
 import { AlertCircle, CheckCircle2, Users, LayoutDashboard, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
@@ -57,7 +57,7 @@ export function DashboardMetrics({ weekStart }: { weekStart: Date }) {
       const isOral = !!session.exam_type?.toLowerCase().includes('oral');
       if (!isOral) {
         const building = session.room?.building_code || session.room?.building || 'UNKNOWN';
-        const key = `${session.exam_date}_${getPeriodFromTime(session.start_time)}_${building}`;
+        const key = `${session.exam_date}_${getSessionPeriod(session, examSessions)}_${building}`;
         if (!buildingPeriodRooms.has(key)) buildingPeriodRooms.set(key, new Set());
         buildingPeriodRooms.get(key)!.add(session.room_id);
       }

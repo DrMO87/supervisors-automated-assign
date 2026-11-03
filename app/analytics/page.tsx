@@ -15,7 +15,7 @@ import {
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { LOGO_DTU_BASE64, LOGO_PHARMACY_BASE64, LOGO_HUE_BASE64, LOGO_SESSION_MASTER_BASE64 } from '@/lib/utils/logo-base64';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import type { Staff, ExamSessionWithRelations, Room } from '@/types/database.types';
 import { calculateRequiredStaff } from '@/lib/algorithms/auto-assignment';
 
@@ -186,7 +186,7 @@ export default function AnalyticsPage() {
     const dayPeriodReqs = new Map<string, { reqInvig: number; reqExamSup: number; reqCommSup: number }>();
     const examGroupsByDayPeriodRoom = new Map<string, { students: number; isOral: boolean }>();
     filteredExams.forEach(e => {
-      const p = getPeriodFromTime(e.start_time);
+      const p = getSessionPeriod(e, filteredExams);
       const key = `${e.exam_date}_${p}_${e.room_id}`;
       const ex = examGroupsByDayPeriodRoom.get(key) || { students: 0, isOral: false };
       examGroupsByDayPeriodRoom.set(key, { students: ex.students + e.student_count, isOral: ex.isOral || !!e.exam_type?.toLowerCase().includes('oral') });
@@ -203,7 +203,7 @@ export default function AnalyticsPage() {
     filteredExams.forEach(e => {
       const isOral = !!e.exam_type?.toLowerCase().includes('oral');
       if (isOral) return;
-      const p = getPeriodFromTime(e.start_time);
+      const p = getSessionPeriod(e, filteredExams);
       const building = e.room?.building_code || e.room?.building || e.room?.room_name?.[0] || 'UNKNOWN';
       const dpbKey = `${e.exam_date}_${p}_${building}`;
       if (!roomsPerDayPeriodBuilding.has(dpbKey)) roomsPerDayPeriodBuilding.set(dpbKey, new Set());
@@ -247,7 +247,7 @@ export default function AnalyticsPage() {
 
     const densityMap = new Map<string, any>();
     filteredExams.forEach(e => {
-      const p = getPeriodFromTime(e.start_time);
+      const p = getSessionPeriod(e, filteredExams);
       if (!densityMap.has(e.exam_date)) densityMap.set(e.exam_date, { date: e.exam_date, p1: 0, p2: 0, p3: 0 });
       const entry = densityMap.get(e.exam_date);
       if (p === 1) entry.p1++; else if (p === 2) entry.p2++; else if (p === 3) entry.p3++;
@@ -261,7 +261,7 @@ export default function AnalyticsPage() {
     const committeesPerDayMap = new Map<string, Set<string>>();
     filteredExams.forEach(e => {
       if (!committeesPerDayMap.has(e.exam_date)) committeesPerDayMap.set(e.exam_date, new Set());
-      committeesPerDayMap.get(e.exam_date)!.add(`${getPeriodFromTime(e.start_time)}_${e.room_id}`);
+      committeesPerDayMap.get(e.exam_date)!.add(`${getSessionPeriod(e, filteredExams)}_${e.room_id}`);
     });
     const committeesPerDayData = Array.from(committeesPerDayMap.entries()).map(([date, set]) => ({ date, count: set.size })).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -281,12 +281,13 @@ export default function AnalyticsPage() {
       if (!s) return;
       const e = data.exams.find(ex => ex.id === a.exam_session_id);
       if (!e) return;
+      const p = getSessionPeriod(e, data.exams);
       if (s.supervision_role === 'Committees Supervisor') {
         if (!commSupPeriods.has(s.id)) commSupPeriods.set(s.id, new Set());
-        commSupPeriods.get(s.id)!.add(`${e.exam_date}_${getPeriodFromTime(e.start_time)}`);
+        commSupPeriods.get(s.id)!.add(`${e.exam_date}_${p}`);
       } else {
         if (!staffSlotsMap.has(s.id)) staffSlotsMap.set(s.id, new Set());
-        staffSlotsMap.get(s.id)!.add(`${e.exam_date}_${getPeriodFromTime(e.start_time)}_${e.room_id}`);
+        staffSlotsMap.get(s.id)!.add(`${e.exam_date}_${p}_${e.room_id}`);
       }
     });
     staffSlotsMap.forEach((slots, staffId) => workloadMap.set(staffId, slots.size));

@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase/client';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { startOfWeek } from 'date-fns';
 import { generateAssignmentReport, downloadFile, parseScheduleImportCSV } from '@/lib/utils/csv-helpers';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, timesOverlap } from '@/types/database.types';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 
 export default function DashboardPage() {
@@ -89,9 +89,12 @@ export default function DashboardPage() {
   const handleAutoAssign = async () => {
     const isMidterm = activePeriod?.semester_type === 'Midterm';
     const periodLabel = isMidterm ? 'Midterm Exams ONLY (no oral)' : 'Final & Oral Exams';
-    const customDaysLabel = activePeriod?.ignore_staff_working_days
-      ? ` (bypassing available staff days, max ${activePeriod.custom_days_per_week || 3} days/week)`
-      : '';
+    const policy = activePeriod?.availability_policy || (activePeriod?.ignore_staff_working_days ? 'cap_days_per_week' : 'respect_all_off_days');
+    const customDaysLabel = policy === 'cap_days_per_week'
+      ? ` (Flexible mode: max ${activePeriod?.custom_days_per_week || 5} days/week)`
+      : policy === 'smart_dates_priority'
+      ? ' (Smart dates priority)'
+      : ' (Strict off-days)';
 
     const confirmMsg = `This will auto-assign ${periodLabel} for this week${customDaysLabel} according to rules configured on the Home Screen. Continue?`;
     
@@ -107,6 +110,10 @@ export default function DashboardPage() {
       const payload = {
         weekStart: currentWeekStart.toISOString(),
         assignmentScope: isMidterm ? 'midterm' : 'all',
+        availabilityPolicy: activePeriod?.availability_policy,
+        oralExamAssignmentMode: activePeriod?.oral_exam_assignment_mode,
+        reserveSupervisorsTarget: activePeriod?.reserve_supervisors_target,
+        reserveAssistantsTarget: activePeriod?.reserve_assistants_target,
         ignoreStaffAvailableDays: activePeriod?.ignore_staff_working_days,
         maxDaysPerWeek: activePeriod?.custom_days_per_week,
       };
@@ -213,14 +220,44 @@ export default function DashboardPage() {
     }
 
     // Check if staff is already a reserve for this period
-    const sessionPeriod = getPeriodFromTime(sessionData.start_time);
+    const sessionPeriod = getSessionPeriod(sessionData, examSessions);
     const isReserve = periodFreeStaff.some(
-      r => r.staff_id === staffData.id && r.exam_date === sessionData.exam_date && r.period === sessionPeriod
+      r => r.staff_id === staffData.id && r.exam_date === sessionData.exam_date && (
+        r.period === sessionPeriod ||
+        r.start_time === sessionData.start_time ||
+        timesOverlap(r.start_time, undefined, sessionData.start_time, sessionData.end_time)
+      )
     );
 
     if (isReserve) {
       alert(`${staffData.name} is already assigned as a Reserve for this period. Please remove them from reserves first.`);
       return;
+    }
+
+    // STRICT CHECK: Only Committees Supervisors can oversee multiple rooms at the same time
+    const isCommitteeSupervisor = staffData.supervision_role === 'Committees Supervisor' || targetRole === 'Head_Supervisor';
+    if (!isCommitteeSupervisor) {
+      const isAlreadyInAnotherRoom = examSessions.some((s: any) => {
+        if (s.id === sessionData.id || s.exam_date !== sessionData.exam_date) return false;
+        if (!areSessionsInSamePeriod(s, sessionData, examSessions)) return false;
+        // Check if it's the SAME room (co-located exams sharing the room)
+        const isSameRoom = Boolean(
+          (s.room_id && sessionData.room_id && s.room_id === sessionData.room_id) ||
+          (s.room?.room_name && sessionData.room?.room_name &&
+           s.room.room_name.trim().toLowerCase() === sessionData.room.room_name.trim().toLowerCase()) ||
+          ((s as any).room_name && (sessionData as any).room_name &&
+           (s as any).room_name.trim().toLowerCase() === (sessionData as any).room_name.trim().toLowerCase())
+        );
+        if (isSameRoom) return false; // Allowed! Not a conflict if in the same room.
+
+        const differentRoom = true;
+        return differentRoom && s.assignments?.some((a: any) => a.staff_id === staffData.id);
+      });
+
+      if (isAlreadyInAnotherRoom) {
+        alert(`Cannot assign ${staffData.name}: They are already assigned to another room during Period ${sessionPeriod}. Only Committees Supervisors can oversee multiple rooms at the same time.`);
+        return;
+      }
     }
 
     try {
@@ -457,7 +494,7 @@ export default function DashboardPage() {
                     </span>
                     {activePeriod?.ignore_staff_working_days && (
                       <span className="text-[10px] bg-amber-400/20 text-amber-200 px-1.5 py-0.5 rounded border border-amber-300/30">
-                        Max {activePeriod.custom_days_per_week || 3}d/wk
+                        Max {activePeriod.custom_days_per_week || 5}d/wk
                       </span>
                     )}
                   </div>

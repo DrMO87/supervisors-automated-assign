@@ -45,18 +45,22 @@ export function getSupabaseConfigStatus(): {
   };
 }
 
-// Client-side Supabase client for use in React components
-let supabaseInstance: SupabaseClient | null = null;
+// Global singleton cache across Next.js HMR and module re-evaluations
+const globalForSupabase = globalThis as unknown as {
+  __supabaseInstance?: SupabaseClient;
+  __supabaseAdminInstance?: SupabaseClient;
+};
 
-if (isSupabaseConfigured()) {
+// Client-side Supabase client for use in React components (singleton)
+if (!globalForSupabase.__supabaseInstance && isSupabaseConfigured()) {
   try {
-    supabaseInstance = createClientComponentClient({
+    globalForSupabase.__supabaseInstance = createClientComponentClient({
       supabaseUrl: SUPABASE_URL,
       supabaseKey: SUPABASE_ANON_KEY,
     });
   } catch (err) {
     console.warn('createClientComponentClient failed, using createClient fallback:', err);
-    supabaseInstance = createClient(
+    globalForSupabase.__supabaseInstance = createClient(
       SUPABASE_URL,
       SUPABASE_ANON_KEY,
       {
@@ -73,7 +77,7 @@ if (isSupabaseConfigured()) {
   }
 }
 
-export const supabase = supabaseInstance || new Proxy({} as SupabaseClient, {
+export const supabase = globalForSupabase.__supabaseInstance || new Proxy({} as SupabaseClient, {
   get: (_target, prop) => {
     if (prop === 'then') return undefined;
     throw new Error(
@@ -82,30 +86,32 @@ export const supabase = supabaseInstance || new Proxy({} as SupabaseClient, {
   }
 });
 
-// Server-side Supabase client for admin operations
-let supabaseAdminInstance: SupabaseClient | null = null;
+// Server-side Supabase client for admin operations (Strictly server-only; NEVER instantiated on the browser)
+if (typeof window === 'undefined') {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const isServiceRoleJwt = serviceRoleKey && !serviceRoleKey.startsWith('sb_secret_') && serviceRoleKey.length > 30;
+  const effectiveKey: string = (isServiceRoleJwt && serviceRoleKey ? serviceRoleKey : SUPABASE_ANON_KEY);
 
-// Prefer service role key if valid JWT, else fall back to anon key
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const isServiceRoleJwt = serviceRoleKey && !serviceRoleKey.startsWith('sb_secret_') && serviceRoleKey.length > 30;
-const effectiveKey: string = (isServiceRoleJwt && serviceRoleKey ? serviceRoleKey : SUPABASE_ANON_KEY);
-
-if (isValidSupabaseUrl(SUPABASE_URL) && isValidSupabaseKey(effectiveKey)) {
-  supabaseAdminInstance = createClient(
-    SUPABASE_URL,
-    effectiveKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false
+  if (!globalForSupabase.__supabaseAdminInstance && isValidSupabaseUrl(SUPABASE_URL) && isValidSupabaseKey(effectiveKey)) {
+    globalForSupabase.__supabaseAdminInstance = createClient(
+      SUPABASE_URL,
+      effectiveKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
       }
-    }
-  );
+    );
+  }
 }
 
-export const supabaseAdmin = supabaseAdminInstance || new Proxy({} as SupabaseClient, {
+export const supabaseAdmin = (typeof window === 'undefined' ? globalForSupabase.__supabaseAdminInstance : globalForSupabase.__supabaseInstance) || new Proxy({} as SupabaseClient, {
   get: (_target, prop) => {
     if (prop === 'then') return undefined;
+    if (typeof window !== 'undefined' && globalForSupabase.__supabaseInstance) {
+      return (globalForSupabase.__supabaseInstance as any)[prop];
+    }
     throw new Error(
       'Supabase Admin is not configured. Please check your .env.local file to ensure SUPABASE_SERVICE_ROLE_KEY is set correctly.'
     );

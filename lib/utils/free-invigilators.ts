@@ -23,7 +23,7 @@ import type {
   AssignmentWithSession,
   SchedulingConstraintsConfig,
 } from '@/types/database.types';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod, getDayUniquePeriods } from '@/types/database.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -122,7 +122,7 @@ function isAssignedInPeriod(
     if (a.staff_id !== staffId) return false;
     const session = allSessions.find(s => s.id === a.exam_session_id);
     if (!session) return false;
-    return session.exam_date === date && getPeriodFromTime(session.start_time) === period;
+    return session.exam_date === date && getSessionPeriod(session, allSessions) === period;
   });
 }
 
@@ -185,31 +185,25 @@ export function computeFreeInvigilatorsReport(
     const weekDates = [...new Set(weekSessions.map(s => s.exam_date))].sort();
     const weekEnd = weekDates[weekDates.length - 1];
 
-    // Unique period-keys in this week (date + period + startTime)
-    const periodMap = new Map<string, ExamPeriodKey>();
-    for (const session of weekSessions) {
-      const p = getPeriodFromTime(session.start_time);
-      const key = `${session.exam_date}_${p}`;
-      if (!periodMap.has(key)) {
-        periodMap.set(key, {
-          date: session.exam_date,
-          period: p,
-          startTime: session.start_time,
-        });
-      }
-    }
-
+    // Unique period-keys in this week from day unique periods
+    const dayPeriodsMap = getDayUniquePeriods(weekSessions);
     const periods: PeriodFreePool[] = [];
     let totalFreeSlots = 0;
 
-    for (const [, periodKey] of periodMap.entries()) {
-      const { date, period } = periodKey;
-      const dayName = getDayName(date);
+    for (const [date, dayPeriods] of dayPeriodsMap.entries()) {
+      for (const dp of dayPeriods) {
+        const periodKey: ExamPeriodKey = {
+          date: dp.exam_date,
+          period: dp.period,
+          startTime: dp.start_time,
+        };
+        const { period } = periodKey;
+        const dayName = getDayName(date);
 
-      // All sessions active in this period
-      const activeSessions = weekSessions.filter(
-        s => s.exam_date === date && getPeriodFromTime(s.start_time) === period
-      );
+        // All sessions active in this period
+        const activeSessions = weekSessions.filter(
+          s => s.exam_date === date && getSessionPeriod(s, weekSessions) === period
+        );
 
       // For each available staff: check if they work that day AND are not assigned
       const freeEntries: FreeInvigilatorEntry[] = [];
@@ -257,12 +251,13 @@ export function computeFreeInvigilatorsReport(
 
       totalFreeSlots += freeEntries.length;
 
-      periods.push({
-        periodKey,
-        activeSessions,
-        freeInvigilators: freeEntries,
-        busyStaff,
-      });
+        periods.push({
+          periodKey,
+          activeSessions,
+          freeInvigilators: freeEntries,
+          busyStaff,
+        });
+      }
     }
 
     // Sort periods by date then by period number

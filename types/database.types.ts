@@ -139,61 +139,53 @@ export interface Assignment {
   is_manual_override: boolean;
 }
 
+import {
+  type DayPeriodInfo,
+  getDayUniquePeriods,
+  getSessionPeriod,
+  areSessionsInSamePeriod,
+  normalizeTimeString,
+  normalizeSessionTimes,
+  timesOverlap,
+  fallbackGetPeriodFromTime,
+} from '@/lib/utils/period-helpers';
+
+export {
+  type DayPeriodInfo,
+  getDayUniquePeriods,
+  getSessionPeriod,
+  areSessionsInSamePeriod,
+  normalizeTimeString,
+  normalizeSessionTimes,
+  timesOverlap,
+};
+
 /**
- * Calculates a period index (1, 2, 3...) based on start time.
- * Standard slots (can be customized in settings later):
- * Slot 1: 08:00 - 11:00
- * Slot 2: 11:00 - 14:00
- * Slot 3: 14:00 - 17:00
- * etc.
+ * Calculates a period index (1, 2, 3, 4...) based on start time, or exact unique day periods if sessions context is given.
  */
-export function getPeriodFromTime(startTime: string): number {
-  if (!startTime) return 1;
-  try {
-    const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes;
-    
-    // Example logic: Every 180 minutes (3 hours) is a new period, starting from 8:00 AM
-    const startMinutesAt8AM = 8 * 60;
-    const diff = totalMinutes - startMinutesAt8AM;
-    
-    if (diff < 0) return 1; // Before 8 AM is Period 1
-    return Math.floor(diff / 180) + 1;
-  } catch (e) {
-    return 1;
+export function getPeriodFromTime(
+  startTime: string,
+  endTime?: string | null,
+  daySessions?: Array<{ exam_date: string; start_time: string; end_time?: string | null }>
+): number {
+  if (daySessions && daySessions.length > 0 && daySessions[0].exam_date) {
+    return getSessionPeriod(
+      { exam_date: daySessions[0].exam_date, start_time: startTime, end_time: endTime },
+      daySessions
+    );
   }
+  return fallbackGetPeriodFromTime(startTime);
 }
 
 export function getDurationInMinutes(startTime: string, endTime?: string | null): number {
-  if (!startTime || !endTime) return 180; // Default 3 hours
+  if (!startTime || !endTime) return 120; // Default 2 hours for standard exam sessions
   try {
     const [h1, m1] = startTime.split(':').map(Number);
     const [h2, m2] = endTime.split(':').map(Number);
     const diff = (h2 * 60 + m2) - (h1 * 60 + m1);
-    return diff > 0 ? diff : 180;
+    return diff > 0 ? diff : 120;
   } catch (e) {
-    return 180;
-  }
-}
-
-export function timesOverlap(start1: string, end1: string | null | undefined, start2: string, end2: string | null | undefined): boolean {
-  try {
-    const toMins = (t: string) => {
-      const [h, m] = t.split(':').map(Number);
-      return h * 60 + m;
-    };
-    
-    const s1 = toMins(start1);
-    const e1 = end1 ? toMins(end1) : s1 + 180;
-    
-    const s2 = toMins(start2);
-    const e2 = end2 ? toMins(end2) : s2 + 180;
-    
-    // Overlap: interval 1 starts before interval 2 ends AND interval 2 starts before interval 1 ends
-    return s1 < e2 && s2 < e1;
-  } catch (e) {
-    // If parsing fails, fall back to safe assumption
-    return false;
+    return 120;
   }
 }
 
@@ -307,17 +299,29 @@ export interface WorkingHoursConfig {
   };
 }
 
+export type StaffAvailabilityPolicy = 'respect_all_off_days' | 'cap_days_per_week' | 'smart_dates_priority';
+export type OralAssignmentMode = 'combined' | 'separate' | 'skip';
+export type ConsecutiveShiftPolicy = 'avoid' | 'strictly_prevent' | 'allow';
+
 export interface SchedulingConstraintsConfig {
   allow_consecutive_shifts: boolean;
-  max_hours_per_week_ft: number; // Default 18
-  max_hours_per_week_pt: number; // Default 10
+  consecutive_shifts_policy?: ConsecutiveShiftPolicy;
+  max_hours_per_week_ft: number; // Default 16
+  max_hours_per_week_pt: number; // Default 8
   max_hours_per_week_chemist?: number; // Default 20
   enforce_strict_roles: boolean; // Default true
   max_rooms_per_lecturer: number; // Default 3
-  ignore_working_days_if_specific_dates?: boolean; // Default true
-  max_score_delta_from_average?: number; // Default undefined (no hard cap)
-  ignore_staff_working_days?: boolean; // When true, bypass staff available days (allow any day)
-  custom_days_per_week?: number; // Max number of days per week per staff member when configured
+  max_floors_per_supervisor?: number; // Default 2
+  require_committees_supervisors?: boolean; // Default true
+  reserve_supervisors_target?: number; // Default 3
+  reserve_assistants_target?: number; // Default 3
+  reserve_deprioritize_chemists_p2?: boolean; // Default true
+  oral_exam_assignment_mode?: OralAssignmentMode; // Default 'combined'
+  availability_policy?: StaffAvailabilityPolicy; // Unified 3-mode availability policy
+  ignore_working_days_if_specific_dates?: boolean; // Legacy fallback flag
+  max_score_delta_from_average?: number; // Default 3 (fairness delta)
+  ignore_staff_working_days?: boolean; // Legacy fallback flag
+  custom_days_per_week?: number; // Max days per week per staff member (1-6)
 }
 
 // Form types
@@ -410,6 +414,10 @@ export interface ExamPeriod {
   score_mode: ScoreMode;
   score_snapshot?: ExamPeriodScoreSnapshot[];
   notes?: string | null;
+  availability_policy?: StaffAvailabilityPolicy;
+  oral_exam_assignment_mode?: OralAssignmentMode;
+  reserve_supervisors_target?: number;
+  reserve_assistants_target?: number;
   ignore_staff_working_days?: boolean;
   custom_days_per_week?: number;
   created_at?: string;

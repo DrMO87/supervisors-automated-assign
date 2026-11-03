@@ -36,8 +36,23 @@ export async function middleware(req: NextRequest) {
     console.log('isHodAccount:', isHodAccount);
     console.log('isStaffAccount:', isStaffAccount);
 
+    // Allow public assets and service worker cleanups to pass directly
+    const isPublicAsset = 
+      req.nextUrl.pathname.startsWith('/images/') ||
+      req.nextUrl.pathname === '/manifest.json' ||
+      req.nextUrl.pathname === '/sw.js' ||
+      req.nextUrl.pathname.startsWith('/workbox-');
+
+    if (isPublicAsset) {
+      return res;
+    }
+
     // If there's no session and the user is trying to access a protected route
-    if (!session && !req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
+    if (!session && !req.nextUrl.pathname.startsWith('/login')) {
+      // For API routes, return 401 instead of redirecting to login HTML
+      if (req.nextUrl.pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
       const redirectUrl = req.nextUrl.clone();
       redirectUrl.pathname = '/login';
       return NextResponse.redirect(redirectUrl);
@@ -99,7 +114,13 @@ export async function middleware(req: NextRequest) {
     return res;
   } catch (error) {
     console.error('Middleware execution error caught:', error);
-    if (!req.nextUrl.pathname.startsWith('/login') && !req.nextUrl.pathname.startsWith('/images/')) {
+    if (!req.nextUrl.pathname.startsWith('/login') && 
+        !req.nextUrl.pathname.startsWith('/images/') &&
+        req.nextUrl.pathname !== '/manifest.json' &&
+        req.nextUrl.pathname !== '/sw.js') {
+      if (req.nextUrl.pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Middleware error' }, { status: 500 });
+      }
       const redirectUrl = req.nextUrl.clone();
       redirectUrl.pathname = '/login';
       return NextResponse.redirect(redirectUrl);
@@ -111,12 +132,8 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * Feel free to modify this pattern to include more paths.
+     * Match all request paths except static files
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|workbox-.*\\.js).*)',
   ],
 };

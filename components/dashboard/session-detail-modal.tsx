@@ -5,7 +5,7 @@ import { Dialog, Transition } from '@headlessui/react';
 import { X, Users, MapPin, Calendar, Clock, Lock, Unlock, Plus, Trash2, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import type { ExamSessionWithRelations, Staff, AssignmentWithStaff } from '@/types/database.types';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, timesOverlap } from '@/types/database.types';
 import { supabase } from '@/lib/supabase/client';
 import { Conflict } from '@/lib/utils/conflict-detection';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
@@ -99,17 +99,24 @@ export function SessionDetailModal({ isOpen, onClose, session, availableStaff, c
     }
 
     // Check if double booked (excluding Committees Supervisor under rule 5)
-    const period = getPeriodFromTime(session.start_time);
     const sessionsAtSlot = examSessions.filter(
-      s => s.exam_date === session.exam_date && getPeriodFromTime(s.start_time) === period
+      s => s.exam_date === session.exam_date && areSessionsInSamePeriod(s, session, examSessions)
     );
     
-    // Rule 5: double booking should not be considered for Committees Supervisor or same room
-    const isDoubleBooked = sessionsAtSlot.some(s => 
-      s.assignments?.some(a => a.staff_id === member.id && s.room_id !== session.room_id)
-    );
-    if (isDoubleBooked && member.supervision_role !== 'Committees Supervisor') {
-      return 'Assigned in Period';
+    // Rule 5: double booking should not be considered for Committees Supervisor or same room (co-located exams)
+    const isDoubleBooked = sessionsAtSlot.some(s => {
+      const isSameRoom = Boolean(
+        (s.room_id && session.room_id && s.room_id === session.room_id) ||
+        (s.room?.room_name && session.room?.room_name &&
+         s.room.room_name.trim().toLowerCase() === session.room.room_name.trim().toLowerCase()) ||
+        ((s as any).room_name && (session as any).room_name &&
+         (s as any).room_name.trim().toLowerCase() === (session as any).room_name.trim().toLowerCase())
+      );
+      if (isSameRoom) return false;
+      return s.assignments?.some(a => a.staff_id === member.id);
+    });
+    if (isDoubleBooked && member.supervision_role !== 'Committees Supervisor' && selectedRole !== 'Head_Supervisor') {
+      return 'Assigned in Different Room';
     }
 
     return 'Unavailable';
@@ -136,6 +143,37 @@ export function SessionDetailModal({ isOpen, onClose, session, availableStaff, c
 
   const handleAddAssignment = async () => {
     if (!supabase || !selectedStaffId) return;
+
+    // Strict validation: Only Committees Supervisors can be assigned to multiple rooms at the same time
+    const chosenStaff = staff.find(s => s.id === selectedStaffId);
+    const isComm = chosenStaff?.supervision_role === 'Committees Supervisor' || selectedRole === 'Head_Supervisor';
+    if (!isComm) {
+      const period = getSessionPeriod(session, examSessions);
+      const isAlreadyInOtherRoom = examSessions.some(s => {
+        if (s.id === session.id || s.exam_date !== session.exam_date) return false;
+        if (!areSessionsInSamePeriod(s, session, examSessions)) return false;
+        const isSameRoom = Boolean(
+          (s.room_id && session.room_id && s.room_id === session.room_id) ||
+          (s.room?.room_name && session.room?.room_name &&
+           s.room.room_name.trim().toLowerCase() === session.room.room_name.trim().toLowerCase()) ||
+          ((s as any).room_name && (session as any).room_name &&
+           (s as any).room_name.trim().toLowerCase() === (session as any).room_name.trim().toLowerCase())
+        );
+        if (isSameRoom) return false; // Allowed in same room for co-located exams!
+
+        const diffRoom = true;
+        return diffRoom && s.assignments?.some(a => a.staff_id === selectedStaffId);
+      });
+
+      if (isAlreadyInOtherRoom) {
+        setMessage({
+          type: 'error',
+          text: `Cannot assign ${chosenStaff?.name || 'this staff'}: Already assigned to another room in Period ${period}. Only Committees Supervisors can be assigned to multiple rooms simultaneously.`
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       const { error } = await supabase.from('assignments').insert({
@@ -255,7 +293,7 @@ export function SessionDetailModal({ isOpen, onClose, session, availableStaff, c
                     </div>
                     <div className="flex items-center gap-2 text-gray-600">
                       <Clock className="w-4 h-4" />
-                      <span>Period {getPeriodFromTime(session.start_time)} • {session.start_time}</span>
+                      <span>Period {getSessionPeriod(session, examSessions)} • {session.start_time} - {session.end_time || '?'}</span>
                     </div>
                     <div className="flex items-center gap-2 text-gray-600">
                       <MapPin className="w-4 h-4" />

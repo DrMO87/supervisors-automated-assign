@@ -1,7 +1,7 @@
 import { format } from 'date-fns';
 import * as XLSX from 'xlsx';
 import type { Staff, ExamSessionWithRelations, AssignmentWithSession, Room, Assignment, ExamSession, SchedulingConstraintsConfig, PeriodFreeStaff } from '@/types/database.types';
-import { getPeriodFromTime, getDurationInMinutes } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod, getDurationInMinutes } from '@/types/database.types';
 import { computeFreeInvigilatorsReport, type WeeklyFreeReport, type PeriodFreePool } from './free-invigilators';
 import { LOGO_DTU_BASE64, LOGO_PHARMACY_BASE64, LOGO_HUE_BASE64, LOGO_SESSION_MASTER_BASE64 } from './logo-base64';
 
@@ -785,8 +785,8 @@ export function generateWeeklyHallHTML(exams: ExamSessionWithRelations[], weekLa
   const sortedExams = [...exams].sort((a, b) => {
     const dateCompare = a.exam_date.localeCompare(b.exam_date);
     if (dateCompare !== 0) return dateCompare;
-    const pA = getPeriodFromTime(a.start_time);
-    const pB = getPeriodFromTime(b.start_time);
+    const pA = getSessionPeriod(a, exams);
+    const pB = getSessionPeriod(b, exams);
     if (pA !== pB) return pA - pB;
     const isOralA = a.exam_type === 'Oral' ? 1 : 0;
     const isOralB = b.exam_type === 'Oral' ? 1 : 0;
@@ -796,7 +796,7 @@ export function generateWeeklyHallHTML(exams: ExamSessionWithRelations[], weekLa
 
   const periodCounts = new Map<string, number>();
   sortedExams.forEach(exam => {
-    const key = `${exam.exam_date}_${getPeriodFromTime(exam.start_time)}`;
+    const key = `${exam.exam_date}_${getSessionPeriod(exam, exams)}`;
     periodCounts.set(key, (periodCounts.get(key) || 0) + 1);
   });
 
@@ -807,7 +807,7 @@ export function generateWeeklyHallHTML(exams: ExamSessionWithRelations[], weekLa
     if (i > 0) {
       const prev = arr[i-1];
       if (prev.exam_date !== exam.exam_date) classes.push('day-separator');
-      else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) classes.push('period-separator');
+      else if (getSessionPeriod(prev, exams) !== getSessionPeriod(exam, exams)) classes.push('period-separator');
     }
     if (exam.exam_type === 'Oral') classes.push('oral-exam-row');
     const sep = classes.length > 0 ? ` class="${classes.join(' ')}"` : '';
@@ -816,7 +816,7 @@ export function generateWeeklyHallHTML(exams: ExamSessionWithRelations[], weekLa
     ).join('') || '<em>Not assigned</em>';
 
     const dateStr = exam.exam_date;
-    const period = getPeriodFromTime(exam.start_time);
+    const period = getSessionPeriod(exam, exams);
     const key = `${dateStr}_${period}`;
     const isFirstInPeriod = !periodSeen.has(key);
     
@@ -892,8 +892,8 @@ export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekL
   const sortedExams = [...exams].sort((a, b) => {
     const dateCompare = a.exam_date.localeCompare(b.exam_date);
     if (dateCompare !== 0) return dateCompare;
-    const pA = getPeriodFromTime(a.start_time);
-    const pB = getPeriodFromTime(b.start_time);
+    const pA = getSessionPeriod(a, exams);
+    const pB = getSessionPeriod(b, exams);
     if (pA !== pB) return pA - pB;
     const isOralA = a.exam_type === 'Oral' ? 1 : 0;
     const isOralB = b.exam_type === 'Oral' ? 1 : 0;
@@ -920,7 +920,7 @@ export function generateWeeklyHallExcel(exams: ExamSessionWithRelations[], weekL
     const inv4 = invigilators[3] || '';
     
     const dateStr = exam.exam_date;
-    const period = getPeriodFromTime(exam.start_time);
+    const period = getSessionPeriod(exam, exams);
     const key = `${dateStr}_${period}`;
 
     if (key !== currentPeriodKey) {
@@ -992,6 +992,8 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
     assignments.some(a => a.staff_id === staff.id && a.exam_session)
   );
 
+  const allSessions = assignments.map(a => a.exam_session!).filter(Boolean);
+
   const reportBlocks = assignedStaff.map(staff => {
     const showTeam = staff.supervision_role === 'Committees Supervisor' || staff.supervision_role === 'Exam Supervisor';
     const staffAssignments = assignments
@@ -999,14 +1001,16 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
       .sort((a, b) => {
         const dateCompare = (a.exam_session?.exam_date || '').localeCompare(b.exam_session?.exam_date || '');
         if (dateCompare !== 0) return dateCompare;
-        return getPeriodFromTime(a.exam_session?.start_time || '') - getPeriodFromTime(b.exam_session?.start_time || '');
+        const pA = a.exam_session ? getSessionPeriod(a.exam_session, allSessions) : 0;
+        const pB = b.exam_session ? getSessionPeriod(b.exam_session, allSessions) : 0;
+        return pA - pB;
       });
 
       // Group assignments to avoid showing duplicates for concurrent sessions in the same room
       const groupedAssignments: { [key: string]: AssignmentWithSession[] } = {};
       for (const a of staffAssignments) {
         const exam = a.exam_session!;
-        const period = getPeriodFromTime(exam.start_time);
+        const period = getSessionPeriod(exam, allSessions);
         const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
         if (!groupedAssignments[key]) groupedAssignments[key] = [];
         groupedAssignments[key].push(a);
@@ -1016,7 +1020,7 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
       const consolidatedAssignments: AssignmentWithSession[][] = [];
       for (const a of staffAssignments) {
         const exam = a.exam_session!;
-        const period = getPeriodFromTime(exam.start_time);
+        const period = getSessionPeriod(exam, allSessions);
         const key = `${exam.exam_date}_${period}_${exam.start_time}_${exam.room_id}`;
         if (!processedKeys.has(key)) {
           processedKeys.add(key);
@@ -1030,7 +1034,7 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
           const prev = arr[i-1][0].exam_session!;
           const curr = group[0].exam_session!;
           if (prev.exam_date !== curr.exam_date) sep = ' class="day-separator"';
-          else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(curr.start_time)) sep = ' class="period-separator"';
+          else if (getSessionPeriod(prev, allSessions) !== getSessionPeriod(curr, allSessions)) sep = ' class="period-separator"';
         }
         const baseAssignment = group[0];
         const exam = baseAssignment.exam_session!;
@@ -1056,7 +1060,7 @@ export function generateAllStaffSchedulesHTML(staffList: Staff[], assignments: A
 
         return `<tr${sep}>
           <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
-          <td>Period ${getPeriodFromTime(exam.start_time)}</td>
+          <td>Period ${getSessionPeriod(exam, allSessions)}</td>
           <td>${exam.start_time}</td>
           <td>${exam.end_time || '-'}</td>
           <td>${subjectName}</td><td>${program}</td><td>${examType}</td>
@@ -1147,7 +1151,7 @@ export function generateAllRoomSchedulesHTML(rooms: Room[], exams: ExamSessionWi
       .sort((a, b) => {
         const dateCompare = a.exam_date.localeCompare(b.exam_date);
         if (dateCompare !== 0) return dateCompare;
-        return getPeriodFromTime(a.start_time) - getPeriodFromTime(b.start_time);
+        return getSessionPeriod(a, exams) - getSessionPeriod(b, exams);
       });
 
     const rows = roomExams.map((exam, i, arr) => {
@@ -1155,7 +1159,7 @@ export function generateAllRoomSchedulesHTML(rooms: Room[], exams: ExamSessionWi
     if (i > 0) {
       const prev = arr[i-1];
       if (prev.exam_date !== exam.exam_date) sep = ' class="day-separator"';
-      else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) sep = ' class="period-separator"';
+      else if (getSessionPeriod(prev, exams) !== getSessionPeriod(exam, exams)) sep = ' class="period-separator"';
     }
       const supervisors = exam.assignments?.map(a =>
         `<div style="margin-bottom:0.5mm"><strong>${a.staff?.name || 'Unknown'}</strong> <small>(${getShortRole(a.role)})</small></div>`
@@ -1163,7 +1167,7 @@ export function generateAllRoomSchedulesHTML(rooms: Room[], exams: ExamSessionWi
 
       return `<tr${sep}>
         <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
-        <td>Period ${getPeriodFromTime(exam.start_time)}</td>
+        <td>Period ${getSessionPeriod(exam, exams)}</td>
         <td>${exam.start_time}</td>
         <td>${exam.subject_name}</td><td>${exam.program || '-'}</td><td>${exam.exam_type || '-'}</td>
         <td style="text-align:center">${exam.student_count}</td>
@@ -1905,8 +1909,8 @@ export function generateOralExamsHTML(exams: ExamSessionWithRelations[], weekLab
   const sortedExams = oralExams.sort((a, b) => {
     const dateCompare = a.exam_date.localeCompare(b.exam_date);
     if (dateCompare !== 0) return dateCompare;
-    const pA = getPeriodFromTime(a.start_time);
-    const pB = getPeriodFromTime(b.start_time);
+    const pA = getSessionPeriod(a, exams);
+    const pB = getSessionPeriod(b, exams);
     if (pA !== pB) return pA - pB;
     return a.subject_name.localeCompare(b.subject_name);
   });
@@ -1916,7 +1920,7 @@ export function generateOralExamsHTML(exams: ExamSessionWithRelations[], weekLab
     if (i > 0) {
       const prev = arr[i-1];
       if (prev.exam_date !== exam.exam_date) sep = ' class="day-separator"';
-      else if (getPeriodFromTime(prev.start_time) !== getPeriodFromTime(exam.start_time)) sep = ' class="period-separator"';
+      else if (getSessionPeriod(prev, exams) !== getSessionPeriod(exam, exams)) sep = ' class="period-separator"';
     }
     
     // Group all supervisors for this oral exam
@@ -1924,7 +1928,7 @@ export function generateOralExamsHTML(exams: ExamSessionWithRelations[], weekLab
 
     return `<tr${sep}>
       <td>${format(new Date(`${exam.exam_date}T12:00:00Z`), 'EEE, MMM d, yyyy')}</td>
-      <td>Period ${getPeriodFromTime(exam.start_time)}<br><small>${exam.start_time}</small></td>
+      <td>Period ${getSessionPeriod(exam, exams)}<br><small>${exam.start_time}</small></td>
       <td><strong>${exam.subject_name}</strong></td>
       <td>${exam.program || '-'}</td>
       <td>${exam.room?.room_name || '-'}</td>
@@ -1976,8 +1980,8 @@ export function generateOralExamsExcel(exams: ExamSessionWithRelations[], weekLa
   const sortedExams = oralExams.sort((a, b) => {
     const dateCompare = a.exam_date.localeCompare(b.exam_date);
     if (dateCompare !== 0) return dateCompare;
-    const pA = getPeriodFromTime(a.start_time);
-    const pB = getPeriodFromTime(b.start_time);
+    const pA = getSessionPeriod(a, exams);
+    const pB = getSessionPeriod(b, exams);
     if (pA !== pB) return pA - pB;
     return a.subject_name.localeCompare(b.subject_name);
   });
@@ -1989,7 +1993,7 @@ export function generateOralExamsExcel(exams: ExamSessionWithRelations[], weekLa
 
     return [
       format(new Date(`${exam.exam_date}T12:00:00Z`), 'yyyy-MM-dd'),
-      `Period ${getPeriodFromTime(exam.start_time)}`,
+      `Period ${getSessionPeriod(exam, exams)}`,
       exam.start_time,
       exam.subject_name,
       exam.program || '-',

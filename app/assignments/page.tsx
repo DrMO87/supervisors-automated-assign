@@ -200,63 +200,51 @@ export default function AutoAssignPage() {
 
         setIsProcessing(true);
         try {
-            // 1. Get existing assignments to avoid conflicts
-            const { data: existingAssignments } = await supabase.from('assignments').select('*').limit(10000);
-            const assignedExamIds = new Set((existingAssignments || []).map(a => a.exam_session_id));
+            const weeksToRun = selectedWeek === 'all_unassigned'
+                ? availableWeeks
+                : [selectedWeek];
 
-            // Filter exams based on week selection and unassigned status
-            let examsToAssign = exams.filter(e => !assignedExamIds.has(e.id));
-            
-            if (selectedWeek !== 'all_unassigned') {
-                examsToAssign = examsToAssign.filter(e => getWeekStart(e.exam_date) === selectedWeek);
-            }
-
-            if (examsToAssign.length === 0) {
-                alert('No unassigned exams found for the selected criteria.');
+            if (weeksToRun.length === 0) {
+                alert('No weeks found with exams to assign.');
                 setIsProcessing(false);
                 return;
             }
 
-            // 2. Run Algorithm locally
-            const ratios = settings?.staffing_ratios?.ranges ? settings.staffing_ratios : { ranges: [] };
-            const constraints = settings?.scheduling_constraints || {
-                allow_consecutive_shifts: false,
-                max_hours_per_week_ft: 18,
-                max_hours_per_week_pt: 10
-            };
+            let totalAssigned = 0;
+            let totalViolations = 0;
+            const collectedViolations: any[] = [];
 
-            const { assignments, violations } = batchAssign(
-                examsToAssign,
-                staff,
-                existingAssignments || [],
-                { ratios, constraints },
-                rooms
-            );
+            for (const week of weeksToRun) {
+                const response = await fetch('/api/assignments/auto-assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        weekStart: `${week}T00:00:00.000Z`,
+                        assignmentScope: 'all',
+                    }),
+                });
 
-            // 3. Save to DB
-            if (assignments.length > 0) {
-                // Chunk inserts to avoid request limits
-                const chunkSize = 100;
-                for (let i = 0; i < assignments.length; i += chunkSize) {
-                    const chunk = assignments.slice(i, i + chunkSize);
-                    const { error } = await supabase.from('assignments').insert(chunk);
-                    if (error) throw error;
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Assignment generation failed');
                 }
 
-                // Scores are automatically updated by the database triggers on insert.
+                totalAssigned += data.assignmentsCreated || 0;
+                if (data.violations && Array.isArray(data.violations)) {
+                    totalViolations += data.violations.length;
+                    collectedViolations.push(...data.violations);
+                }
             }
 
-            // ── Allocate and save reserve staff ───────────────────────────
-            // Removed as per user request: reserve assignments are now handled separately.
-
             setResult({
-                assigned: assignments.length,
-                violations: violations.length,
-                assignments: assignments,
-                violationsList: violations
+                assigned: totalAssigned,
+                violations: totalViolations,
+                assignments: [],
+                violationsList: collectedViolations
             });
 
             // Reload counts
+            await loadData();
             loadData();
 
         } catch (error: any) {

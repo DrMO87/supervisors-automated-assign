@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { DraggableStaffItem } from './draggable-staff-item';
 import { Search } from 'lucide-react';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import type { Staff, ExamSessionWithRelations } from '@/types/database.types';
 import { BulkReplaceModal } from './bulk-replace-modal';
 
@@ -86,41 +86,42 @@ export function StaffSidebar() {
   });
 
   // Calculate assignments/periods per staff for the current week (currently loaded sessions)
-  const weeklyCounts = new Map<string, number>();
-  
-  // Track unique periods/slots assigned to each staff member to count them correctly
-  const staffPeriods = new Map<string, Set<string>>();
-  const staffAssignmentsCount = new Map<string, number>();
+  const weeklyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    const staffPeriods = new Map<string, Set<string>>();
+    const staffAssignmentsCount = new Map<string, number>();
 
-  examSessions.forEach((session: ExamSessionWithRelations) => {
-    session.assignments?.forEach((assignment: any) => {
-      const staffId = assignment.staff_id;
-      
-      // Look up staff supervision role
-      const staffMember = staff.find((s: Staff) => s.id === staffId);
-      const isCommSupervisor = staffMember?.supervision_role === 'Committees Supervisor';
+    examSessions.forEach((session: ExamSessionWithRelations) => {
+      session.assignments?.forEach((assignment: any) => {
+        const staffId = assignment.staff_id;
+        
+        // Look up staff supervision role
+        const staffMember = staff.find((s: Staff) => s.id === staffId);
+        const isCommSupervisor = staffMember?.supervision_role === 'Committees Supervisor';
 
-      if (isCommSupervisor) {
-        if (!staffPeriods.has(staffId)) {
-          staffPeriods.set(staffId, new Set());
+        if (isCommSupervisor) {
+          if (!staffPeriods.has(staffId)) {
+            staffPeriods.set(staffId, new Set());
+          }
+          const period = getSessionPeriod(session, examSessions);
+          staffPeriods.get(staffId)!.add(`${session.exam_date}_${period}`);
+        } else {
+          const currentCount = staffAssignmentsCount.get(staffId) || 0;
+          staffAssignmentsCount.set(staffId, currentCount + 1);
         }
-        const period = getPeriodFromTime(session.start_time);
-        staffPeriods.get(staffId)!.add(`${session.exam_date}_${period}`);
+      });
+    });
+
+    staff.forEach(s => {
+      if (s.supervision_role === 'Committees Supervisor') {
+        counts.set(s.id, staffPeriods.get(s.id)?.size || 0);
       } else {
-        const currentCount = staffAssignmentsCount.get(staffId) || 0;
-        staffAssignmentsCount.set(staffId, currentCount + 1);
+        counts.set(s.id, staffAssignmentsCount.get(s.id) || 0);
       }
     });
-  });
 
-  // Populate weeklyCounts map
-  staff.forEach(s => {
-    if (s.supervision_role === 'Committees Supervisor') {
-      weeklyCounts.set(s.id, staffPeriods.get(s.id)?.size || 0);
-    } else {
-      weeklyCounts.set(s.id, staffAssignmentsCount.get(s.id) || 0);
-    }
-  });
+    return counts;
+  }, [examSessions, staff]);
 
   return (
     <div className="w-72 bg-gray-50 border-l border-gray-200 p-4 h-full flex flex-col flex-shrink-0" style={{ zIndex: 40 }}>

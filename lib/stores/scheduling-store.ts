@@ -9,7 +9,7 @@ import type {
   StaffingRatioRange,
   PeriodFreeStaff
 } from '@/types/database.types';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod, getDayUniquePeriods } from '@/types/database.types';
 import { detectAllConflicts, Conflict } from '@/lib/utils/conflict-detection';
 
 interface SchedulingState {
@@ -37,6 +37,14 @@ interface SchedulingState {
   showConflictsOnly: boolean;
 
   // Actions
+  setInitialScheduleData: (data: {
+    examSessions?: ExamSessionWithRelations[];
+    staff?: Staff[];
+    rooms?: Room[];
+    systemSettings?: SystemSettings[];
+    periodFreeStaff?: PeriodFreeStaff[];
+    staffingRatios?: StaffingRatioRange[];
+  }) => void;
   setExamSessions: (sessions: ExamSessionWithRelations[]) => void;
   setStaff: (staff: Staff[]) => void;
   setRooms: (rooms: Room[]) => void;
@@ -98,6 +106,18 @@ export const useSchedulingStore = create<SchedulingState>()(
   devtools(
     (set, get) => ({
       ...initialState,
+
+      setInitialScheduleData: (data) => {
+        set((state) => ({
+          examSessions: data.examSessions ?? state.examSessions,
+          staff: data.staff ?? state.staff,
+          rooms: data.rooms ?? state.rooms,
+          systemSettings: data.systemSettings ?? state.systemSettings,
+          periodFreeStaff: data.periodFreeStaff ?? state.periodFreeStaff,
+          staffingRatios: data.staffingRatios ?? state.staffingRatios,
+        }));
+        get().refreshConflicts();
+      },
 
       setExamSessions: (sessions) => {
         set({ examSessions: sessions });
@@ -182,8 +202,9 @@ export const useSchedulingStore = create<SchedulingState>()(
 
       getAvailableStaff: (date, period) => {
         const { staff, examSessions } = get();
+        const dayMap = getDayUniquePeriods(examSessions);
         const sessionsAtSlot = examSessions.filter(
-          s => s.exam_date === date && getPeriodFromTime(s.start_time) === period
+          s => s.exam_date === date && getSessionPeriod(s, examSessions, dayMap) === period
         );
         const assignedStaffIds = new Set<string>();
         sessionsAtSlot.forEach(s => {

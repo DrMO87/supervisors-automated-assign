@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { format, addDays } from 'date-fns';
-import { ExamSessionWithRelations, Staff, getPeriodFromTime } from '@/types/database.types';
+import { ExamSessionWithRelations, Staff, getPeriodFromTime, getSessionPeriod, getDayUniquePeriods, normalizeTimeString } from '@/types/database.types';
 import { SessionDetailModal } from './session-detail-modal';
 import { PeriodReservesModal } from './period-reserves-modal';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
@@ -64,8 +64,9 @@ interface WeeklyScheduleGridProps {
 
 const PERIOD_LABELS: Record<number, { label: string; time: string; color: string; bg: string; border: string }> = {
   1: { label: 'Period 1', time: '09:00 – 11:00', color: 'text-blue-700',   bg: 'bg-blue-50',   border: 'border-blue-300' },
-  2: { label: 'Period 2', time: '13:00 – 15:00', color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-300' },
-  3: { label: 'Period 3', time: '15:45 – 17:45', color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-300' },
+  2: { label: 'Period 2', time: '11:30 – 13:30', color: 'text-violet-700', bg: 'bg-violet-50', border: 'border-violet-300' },
+  3: { label: 'Period 3', time: '14:00 – 16:00', color: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-300' },
+  4: { label: 'Period 4', time: '16:30 – 18:30', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-300' },
 };
 
 export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
@@ -82,6 +83,8 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
 
   const {
     examSessions,
+    staff,
+    setInitialScheduleData,
     setExamSessions,
     setStaff,
     setRooms,
@@ -96,6 +99,8 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
     setPeriodFreeStaff,
   } = useSchedulingStore();
 
+  const globalDayPeriodsMap = useMemo(() => getDayUniquePeriods(examSessions), [examSessions]);
+
   const activeSession = useMemo(() => {
     if (!selectedSession) return null;
     return examSessions.find(s => s.id === selectedSession.id) || selectedSession;
@@ -103,8 +108,8 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
 
   const availableStaff = useMemo(() => {
     if (!activeSession) return [];
-    return getAvailableStaff(activeSession.exam_date, getPeriodFromTime(activeSession.start_time));
-  }, [activeSession, getAvailableStaff]);
+    return getAvailableStaff(activeSession.exam_date, getSessionPeriod(activeSession, examSessions, globalDayPeriodsMap));
+  }, [activeSession, getAvailableStaff, examSessions, globalDayPeriodsMap]);
 
   const configStatus = getSupabaseConfigStatus();
 
@@ -136,22 +141,23 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
       if (roomsRes.error) throw roomsRes.error;
       if (freeStaffRes.error) throw freeStaffRes.error;
 
-      setSystemSettings(settingsRes.data || []);
-      setExamSessions(sessionsRes.data || []);
-      setStaff(staffRes.data || []);
-      setRooms(roomsRes.data || []);
-      setPeriodFreeStaff(freeStaffRes.data || []);
-      
       const staffingRatiosSetting = settingsRes.data?.find(s => s.setting_key === 'staffing_ratios');
-      if (staffingRatiosSetting?.setting_value?.ranges) {
-        setStaffingRatios(staffingRatiosSetting.setting_value.ranges);
-      }
+      const ratios = staffingRatiosSetting?.setting_value?.ranges;
+
+      setInitialScheduleData({
+        systemSettings: settingsRes.data || [],
+        examSessions: sessionsRes.data || [],
+        staff: staffRes.data || [],
+        rooms: roomsRes.data || [],
+        periodFreeStaff: freeStaffRes.data || [],
+        staffingRatios: ratios,
+      });
     } catch (err: any) {
       setError(err.message || 'Failed to load data');
     } finally {
       setIsLoading(false);
     }
-  }, [weekStart, setExamSessions, setStaff, setRooms, setSystemSettings, setStaffingRatios, setPeriodFreeStaff]);
+  }, [weekStart, setInitialScheduleData]);
 
   useEffect(() => {
     if (isSupabaseConfigured()) loadData();
@@ -208,16 +214,40 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   // ── Group by date → period → sessions ────────────────────────────────────
   const groupedByDate = useMemo(() => {
     const days = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i));
+    const dayPeriodsMap = getDayUniquePeriods(filteredSessions);
     return days.map(day => {
       const dateStr = format(day, 'yyyy-MM-dd');
       const daySessions = filteredSessions.filter(s => s.exam_date === dateStr);
-      const periods = [1, 2, 3].map(p => ({
-        period: p,
-        sessions: daySessions.filter(s => getPeriodFromTime(s.start_time) === p),
+      // Dynamically detect the exact unique periods for this day from start_time and end_time
+      const uniqueDayPeriods = dayPeriodsMap.get(dateStr) || [];
+      const periods = uniqueDayPeriods.map(dp => ({
+        period: dp.period,
+        startTime: dp.start_time,
+        endTime: dp.end_time,
+        timeRange: dp.time_range,
+        sessions: daySessions.filter(s => getSessionPeriod(s, daySessions, dayPeriodsMap) === dp.period),
       })).filter(g => g.sessions.length > 0);
       return { day, dateStr, periods, totalSessions: daySessions.length };
     }).filter(d => d.totalSessions > 0);
   }, [filteredSessions, weekStart]);
+
+  // Fast O(1) set of staff assigned to a slot: "YYYY-MM-DD__period__staffId"
+  const assignedStaffSlotSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of examSessions) {
+      if (!s.exam_date) continue;
+      const dateStr = s.exam_date.slice(0, 10);
+      const period = getSessionPeriod(s, examSessions, globalDayPeriodsMap);
+      if (s.assignments) {
+        for (const a of s.assignments) {
+          if (a.staff_id) {
+            set.add(`${dateStr}__${period}__${a.staff_id}`);
+          }
+        }
+      }
+    }
+    return set;
+  }, [examSessions, globalDayPeriodsMap]);
 
   const toggleDay = (dateStr: string) => {
     setCollapsedDays(prev => {
@@ -371,11 +401,15 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
             {/* Period Groups */}
             {!isDayCollapsed && (
               <div className="divide-y divide-gray-100">
-                {periods.map(({ period, sessions }) => {
+                {periods.map(({ period, startTime, endTime, timeRange, sessions }) => {
                   const periodInfo = PERIOD_LABELS[period] || { label: `Period ${period}`, time: '', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' };
                   const periodKey = `${dateStr}-${period}`;
                   const isPeriodCollapsed = collapsedPeriods.has(periodKey);
-                  const pFreeStaff = periodFreeStaff.filter(fs => fs.exam_date === dateStr && fs.period === period);
+                  const pFreeStaff = periodFreeStaff.filter(fs => {
+                    const fsDate = fs.exam_date?.slice(0, 10);
+                    if (fsDate !== dateStr) return false;
+                    return fs.period === period || (startTime && normalizeTimeString(fs.start_time) === normalizeTimeString(startTime));
+                  });
 
                   return (
                     <div key={periodKey}>
@@ -389,7 +423,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                           <Clock className={`w-3.5 h-3.5 ${periodInfo.color}`} />
                           <span className={`text-sm font-semibold ${periodInfo.color}`}>{periodInfo.label}</span>
                           <span className="text-xs text-gray-500">
-                            {(() => {
+                            {timeRange || (() => {
                               if (sessions.length === 0) return periodInfo.time;
                               const minStart = sessions.reduce((min, s) => s.start_time < min ? s.start_time : min, '23:59:59').slice(0, 5);
                               const maxEnd = sessions.reduce((max, s) => {
@@ -406,9 +440,8 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const firstSession = sessions.length > 0 ? sessions[0] : null;
-                              const startTime = firstSession ? firstSession.start_time : (period === 1 ? '09:00:00' : period === 2 ? '13:00:00' : '15:45:00');
-                              setSelectedPeriodForReserves({ dateStr, period, startTime });
+                              const reserveStartTime = startTime || (sessions.length > 0 ? sessions[0].start_time : '09:00:00');
+                              setSelectedPeriodForReserves({ dateStr, period, startTime: reserveStartTime });
                             }}
                             className="flex items-center gap-1 text-[10px] uppercase font-bold text-gray-500 hover:text-primary-600 transition-colors bg-white border border-gray-200 px-2 py-0.5 rounded shadow-sm"
                           >
@@ -418,11 +451,9 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                             <>
                               <span className="text-[10px] uppercase font-bold text-gray-400">Reserves:</span>
                               {pFreeStaff.map((pfs) => {
-                                const isConflict = examSessions.some(s => 
-                                  s.exam_date === dateStr && 
-                                  getPeriodFromTime(s.start_time) === period && 
-                                  s.assignments?.some(a => a.staff_id === pfs.staff_id)
-                                );
+                                const isConflict = assignedStaffSlotSet.has(`${dateStr}__${period}__${pfs.staff_id}`);
+                                const staffMember = pfs.staff || staff.find(s => s.id === pfs.staff_id);
+                                const staffName = staffMember?.name || 'Unknown';
                                 return (
                                   <span
                                     key={pfs.id}
@@ -433,9 +464,9 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                                           ? 'bg-indigo-100 text-indigo-700 border border-indigo-200'
                                           : 'bg-blue-100 text-blue-700 border border-blue-200'
                                     }`}
-                                    title={isConflict ? "Conflict: Already assigned in this period" : `${pfs.staff?.name || 'Unknown'} (${pfs.role === 'Exam_Supervisor' ? 'Supervisor' : 'Invigilator'})`}
+                                    title={isConflict ? "Conflict: Already assigned in this period" : `${staffName} (${pfs.role === 'Exam_Supervisor' ? 'Supervisor' : 'Invigilator'})`}
                                   >
-                                    {pfs.staff?.name?.split(' ')[0]} {pfs.role === 'Exam_Supervisor' ? '(Sprv)' : ''}
+                                    {staffName.split(' ')[0]} {pfs.role === 'Exam_Supervisor' ? '(Sprv)' : ''}
                                   </span>
                                 );
                               })}

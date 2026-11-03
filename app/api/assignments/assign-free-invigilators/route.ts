@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, isSupabaseConfigured } from '@/lib/supabase/client';
 
 export const dynamic = 'force-dynamic';
-import { allocateReserveStaff } from '@/lib/algorithms/auto-assignment';
+import { allocateReserveStaff, AutoAssignConfig } from '@/lib/algorithms/auto-assignment';
 import { createSnapshot } from '@/lib/utils/snapshot-helpers';
 import type {
   Staff,
@@ -50,6 +50,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       assignmentsResult,
       ratiosSettingResult,
       constraintsSettingResult,
+      activePeriodResult,
     ] = await Promise.all([
       supabaseAdmin.from('staff').select('*').limit(10000),
       supabaseAdmin.from('exam_sessions')
@@ -64,6 +65,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         .limit(10000),
       supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'staffing_ratios').single(),
       supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'scheduling_constraints').single(),
+      supabaseAdmin.from('exam_periods').select('*').eq('is_active', true).maybeSingle(),
     ]);
 
     if (staffResult.error) throw staffResult.error;
@@ -73,6 +75,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     const staff: Staff[] = staffResult.data || [];
     const sessions: ExamSession[] = sessionsResult.data || [];
     const existingAssignments: Assignment[] = assignmentsResult.data || [];
+    const activePeriod = activePeriodResult?.data || null;
+    const isMidterm = activePeriod?.semester_type === 'Midterm' || activePeriod?.period_type === 'midterm';
 
     // Load settings from DB (fall back to safe defaults)
     const staffingRatios: StaffingRatiosConfig = ratiosSettingResult.data?.setting_value || {
@@ -98,9 +102,10 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       custom_days_per_week:     savedConstraints.custom_days_per_week ?? 3,
     };
 
-    const config = {
+    const config: AutoAssignConfig = {
       ratios: staffingRatios,
       constraints,
+      isMidterm,
     };
 
     if (sessions.length === 0) {

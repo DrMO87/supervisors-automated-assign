@@ -51,10 +51,44 @@ export async function GET() {
           ? globalConstraints.custom_days_per_week
           : 3;
 
+      const availabilityPolicy =
+        p.availability_policy ||
+        rule?.availability_policy ||
+        (ignoreDays
+          ? 'cap_days_per_week'
+          : p.is_active && globalConstraints.availability_policy
+          ? globalConstraints.availability_policy
+          : 'respect_all_off_days');
+
+      const oralMode =
+        p.oral_exam_assignment_mode ||
+        rule?.oral_exam_assignment_mode ||
+        (p.is_active && globalConstraints.oral_exam_assignment_mode
+          ? globalConstraints.oral_exam_assignment_mode
+          : 'combined');
+
+      const reserveSupervisors =
+        p.reserve_supervisors_target ??
+        rule?.reserve_supervisors_target ??
+        (p.is_active && globalConstraints.reserve_supervisors_target !== undefined
+          ? globalConstraints.reserve_supervisors_target
+          : 3);
+
+      const reserveAssistants =
+        p.reserve_assistants_target ??
+        rule?.reserve_assistants_target ??
+        (p.is_active && globalConstraints.reserve_assistants_target !== undefined
+          ? globalConstraints.reserve_assistants_target
+          : 3);
+
       return {
         ...p,
         ignore_staff_working_days: ignoreDays,
         custom_days_per_week: customDays,
+        availability_policy: availabilityPolicy,
+        oral_exam_assignment_mode: oralMode,
+        reserve_supervisors_target: reserveSupervisors,
+        reserve_assistants_target: reserveAssistants,
       };
     });
 
@@ -77,9 +111,18 @@ export async function POST(req: NextRequest) {
       score_mode,
       notes,
       set_as_active = true,
+      availability_policy,
+      oral_exam_assignment_mode = 'combined',
+      reserve_supervisors_target = 3,
+      reserve_assistants_target = 3,
       ignore_staff_working_days = false,
-      custom_days_per_week = 3,
+      custom_days_per_week = 5,
     } = body;
+
+    const resolvedPolicy =
+      availability_policy ||
+      (ignore_staff_working_days ? 'cap_days_per_week' : 'respect_all_off_days');
+    const effectiveIgnoreStaffDays = resolvedPolicy === 'cap_days_per_week';
 
     if (!name || !semester_type || !start_date || !end_date) {
       return NextResponse.json(
@@ -121,8 +164,8 @@ export async function POST(req: NextRequest) {
       score_mode: score_mode || 'fresh',
       score_snapshot: scoreSnapshot,
       notes,
-      ignore_staff_working_days: !!ignore_staff_working_days,
-      custom_days_per_week: Number(custom_days_per_week) || 3,
+      ignore_staff_working_days: effectiveIgnoreStaffDays,
+      custom_days_per_week: Number(custom_days_per_week) || 5,
     };
 
     let newPeriod: any = null;
@@ -158,8 +201,8 @@ export async function POST(req: NextRequest) {
 
       newPeriod = {
         ...retryNew,
-        ignore_staff_working_days: !!ignore_staff_working_days,
-        custom_days_per_week: Number(custom_days_per_week) || 3,
+        ignore_staff_working_days: effectiveIgnoreStaffDays,
+        custom_days_per_week: Number(custom_days_per_week) || 5,
       };
     } else {
       console.error('Error creating exam period:', firstTryErr);
@@ -179,8 +222,12 @@ export async function POST(req: NextRequest) {
       setting_value: {
         ...existingRules,
         [newPeriod.id]: {
-          ignore_staff_working_days: !!ignore_staff_working_days,
-          custom_days_per_week: Number(custom_days_per_week) || 3,
+          availability_policy: resolvedPolicy,
+          oral_exam_assignment_mode,
+          reserve_supervisors_target: Number(reserve_supervisors_target) || 3,
+          reserve_assistants_target: Number(reserve_assistants_target) || 3,
+          ignore_staff_working_days: effectiveIgnoreStaffDays,
+          custom_days_per_week: Number(custom_days_per_week) || 5,
         },
       },
       description: 'Working days rules and constraints per exam period',
@@ -198,8 +245,12 @@ export async function POST(req: NextRequest) {
           end_date: newPeriod.end_date,
           academic_year: newPeriod.academic_year,
           score_mode: newPeriod.score_mode,
-          ignore_staff_working_days: !!ignore_staff_working_days,
-          custom_days_per_week: Number(custom_days_per_week) || 3,
+          availability_policy: resolvedPolicy,
+          oral_exam_assignment_mode,
+          reserve_supervisors_target: Number(reserve_supervisors_target) || 3,
+          reserve_assistants_target: Number(reserve_assistants_target) || 3,
+          ignore_staff_working_days: effectiveIgnoreStaffDays,
+          custom_days_per_week: Number(custom_days_per_week) || 5,
         },
         description: 'Current active exam cycle and rules',
       }, { onConflict: 'setting_key' });
@@ -213,8 +264,12 @@ export async function POST(req: NextRequest) {
 
       const updatedConstraints = {
         ...(curConstraints?.setting_value || {}),
-        ignore_staff_working_days: !!ignore_staff_working_days,
-        custom_days_per_week: Number(custom_days_per_week) || 3,
+        availability_policy: resolvedPolicy,
+        oral_exam_assignment_mode,
+        reserve_supervisors_target: Number(reserve_supervisors_target) || 3,
+        reserve_assistants_target: Number(reserve_assistants_target) || 3,
+        ignore_staff_working_days: effectiveIgnoreStaffDays,
+        custom_days_per_week: Number(custom_days_per_week) || 5,
       };
 
       await supabaseAdmin.from('system_settings').upsert({
@@ -278,6 +333,10 @@ export async function PATCH(req: NextRequest) {
       academic_year,
       start_date,
       end_date,
+      availability_policy,
+      oral_exam_assignment_mode,
+      reserve_supervisors_target,
+      reserve_assistants_target,
       ignore_staff_working_days,
       custom_days_per_week,
     } = body;
@@ -295,9 +354,15 @@ export async function PATCH(req: NextRequest) {
     if (academic_year !== undefined) updateData.academic_year = academic_year.trim();
     if (start_date) updateData.start_date = start_date;
     if (end_date) updateData.end_date = end_date;
-    if (typeof ignore_staff_working_days === 'boolean') {
+
+    const resolvedPatchPolicy = availability_policy || (typeof ignore_staff_working_days === 'boolean' ? (ignore_staff_working_days ? 'cap_days_per_week' : 'respect_all_off_days') : undefined);
+
+    if (resolvedPatchPolicy) {
+      updateData.ignore_staff_working_days = resolvedPatchPolicy === 'cap_days_per_week';
+    } else if (typeof ignore_staff_working_days === 'boolean') {
       updateData.ignore_staff_working_days = ignore_staff_working_days;
     }
+
     if (typeof custom_days_per_week === 'number') {
       updateData.custom_days_per_week = Math.max(1, Math.min(6, Math.floor(custom_days_per_week)));
     }
@@ -339,7 +404,7 @@ export async function PATCH(req: NextRequest) {
       updatedPeriod = {
         ...retryPeriod,
         ignore_staff_working_days: typeof ignore_staff_working_days === 'boolean' ? ignore_staff_working_days : false,
-        custom_days_per_week: typeof custom_days_per_week === 'number' ? custom_days_per_week : 3,
+        custom_days_per_week: typeof custom_days_per_week === 'number' ? custom_days_per_week : 5,
       };
     } else {
       console.error('Error updating exam period:', firstTryErr);
@@ -347,7 +412,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     // 2. Persist period rules in system_settings
-    if (typeof ignore_staff_working_days === 'boolean' || typeof custom_days_per_week === 'number') {
+    if (resolvedPatchPolicy || typeof ignore_staff_working_days === 'boolean' || typeof custom_days_per_week === 'number') {
       const { data: curRulesSetting } = await supabaseAdmin
         .from('system_settings')
         .select('setting_value')
@@ -359,7 +424,11 @@ export async function PATCH(req: NextRequest) {
         ...existingRules,
         [id]: {
           ...(existingRules[id] || {}),
-          ...(typeof ignore_staff_working_days === 'boolean' ? { ignore_staff_working_days } : {}),
+          ...(resolvedPatchPolicy ? { availability_policy: resolvedPatchPolicy } : {}),
+          ...(oral_exam_assignment_mode ? { oral_exam_assignment_mode } : {}),
+          ...(typeof reserve_supervisors_target === 'number' ? { reserve_supervisors_target } : {}),
+          ...(typeof reserve_assistants_target === 'number' ? { reserve_assistants_target } : {}),
+          ...(typeof updateData.ignore_staff_working_days === 'boolean' ? { ignore_staff_working_days: updateData.ignore_staff_working_days } : {}),
           ...(typeof custom_days_per_week === 'number' ? { custom_days_per_week: updateData.custom_days_per_week } : {}),
         },
       };
@@ -389,6 +458,10 @@ export async function PATCH(req: NextRequest) {
             start_date: updatedPeriod.start_date,
             end_date: updatedPeriod.end_date,
             academic_year: updatedPeriod.academic_year,
+            availability_policy: resolvedPatchPolicy || updatedPeriod.availability_policy || 'respect_all_off_days',
+            oral_exam_assignment_mode: oral_exam_assignment_mode || activeSetting.setting_value.oral_exam_assignment_mode || 'combined',
+            reserve_supervisors_target: typeof reserve_supervisors_target === 'number' ? reserve_supervisors_target : activeSetting.setting_value.reserve_supervisors_target ?? 3,
+            reserve_assistants_target: typeof reserve_assistants_target === 'number' ? reserve_assistants_target : activeSetting.setting_value.reserve_assistants_target ?? 3,
             ignore_staff_working_days: updatedPeriod.ignore_staff_working_days,
             custom_days_per_week: updatedPeriod.custom_days_per_week,
           },
@@ -397,7 +470,7 @@ export async function PATCH(req: NextRequest) {
       }
 
       // Sync scheduling constraints
-      if (typeof ignore_staff_working_days === 'boolean' || typeof custom_days_per_week === 'number') {
+      if (resolvedPatchPolicy || typeof ignore_staff_working_days === 'boolean' || typeof custom_days_per_week === 'number' || oral_exam_assignment_mode || typeof reserve_supervisors_target === 'number') {
         const { data: curConstraints } = await supabaseAdmin
           .from('system_settings')
           .select('setting_value')
@@ -406,7 +479,11 @@ export async function PATCH(req: NextRequest) {
 
         const updatedConstraints = {
           ...(curConstraints?.setting_value || {}),
-          ...(typeof ignore_staff_working_days === 'boolean' ? { ignore_staff_working_days } : {}),
+          ...(resolvedPatchPolicy ? { availability_policy: resolvedPatchPolicy } : {}),
+          ...(oral_exam_assignment_mode ? { oral_exam_assignment_mode } : {}),
+          ...(typeof reserve_supervisors_target === 'number' ? { reserve_supervisors_target } : {}),
+          ...(typeof reserve_assistants_target === 'number' ? { reserve_assistants_target } : {}),
+          ...(typeof updateData.ignore_staff_working_days === 'boolean' ? { ignore_staff_working_days: updateData.ignore_staff_working_days } : {}),
           ...(typeof custom_days_per_week === 'number' ? { custom_days_per_week: updateData.custom_days_per_week } : {}),
         };
 

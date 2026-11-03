@@ -23,15 +23,23 @@ const DEFAULT_STAFFING_RATIOS: StaffingRatioRange[] = [
 
 const DEFAULT_CONSTRAINTS: SchedulingConstraintsConfig = {
   allow_consecutive_shifts: false,
+  consecutive_shifts_policy: 'avoid',
   max_hours_per_week_ft: 16,
   max_hours_per_week_pt: 8,
   max_hours_per_week_chemist: 20,
   enforce_strict_roles: true,
   max_rooms_per_lecturer: 3,
-  ignore_working_days_if_specific_dates: true,
+  max_floors_per_supervisor: 2,
+  require_committees_supervisors: true,
+  reserve_supervisors_target: 3,
+  reserve_assistants_target: 3,
+  reserve_deprioritize_chemists_p2: true,
+  oral_exam_assignment_mode: 'combined',
+  availability_policy: 'respect_all_off_days',
+  ignore_working_days_if_specific_dates: false,
   max_score_delta_from_average: 3,
   ignore_staff_working_days: false,
-  custom_days_per_week: 3,
+  custom_days_per_week: 5,
 };
 
 export default function SettingsPage() {

@@ -6,7 +6,7 @@ import { logActivity } from '@/lib/utils/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
-import { batchAssign, AutoAssignConfig } from '@/lib/algorithms/auto-assignment';
+import { batchAssign, allocateReserveStaff, AutoAssignConfig, ReserveAssignment } from '@/lib/algorithms/auto-assignment';
 import { createSnapshot } from '@/lib/utils/snapshot-helpers';
 import type {
   Staff,
@@ -16,6 +16,7 @@ import type {
   StaffingRatiosConfig,
   SchedulingConstraintsConfig,
   PeriodFreeStaff,
+  StaffAvailabilityPolicy,
 } from '@/types/database.types';
 import { getPeriodFromTime } from '@/types/database.types';
 
@@ -112,17 +113,55 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
 
     const effectiveMaxDaysPerWeek = body.maxDaysPerWeek !== undefined
       ? Number(body.maxDaysPerWeek)
-      : (activePeriod?.custom_days_per_week ?? savedConstraints.custom_days_per_week ?? 3);
+      : (activePeriod?.custom_days_per_week ?? savedConstraints.custom_days_per_week ?? 5);
+
+    const effectiveAvailabilityPolicy: StaffAvailabilityPolicy =
+      body.availabilityPolicy ||
+      activePeriod?.availability_policy ||
+      (shouldIgnoreStaffDays ? 'cap_days_per_week' : (savedConstraints.availability_policy || 'respect_all_off_days'));
+
+    const effectiveEnforceStrictRoles = body.enforceStrictRoles !== undefined
+      ? Boolean(body.enforceStrictRoles)
+      : (savedConstraints.enforce_strict_roles ?? true);
+
+    const effectiveOralMode = body.oralExamAssignmentMode ||
+      activePeriod?.oral_exam_assignment_mode ||
+      savedConstraints.oral_exam_assignment_mode ||
+      'combined';
 
     const constraints: SchedulingConstraintsConfig = {
       allow_consecutive_shifts: savedConstraints.allow_consecutive_shifts ?? false,
+      consecutive_shifts_policy: body.consecutiveShiftsPolicy ||
+        savedConstraints.consecutive_shifts_policy ||
+        (savedConstraints.allow_consecutive_shifts ? 'allow' : 'avoid'),
       max_hours_per_week_ft:    savedConstraints.max_hours_per_week_ft    ?? 16,
       max_hours_per_week_pt:    savedConstraints.max_hours_per_week_pt    ?? 8,
       max_hours_per_week_chemist: savedConstraints.max_hours_per_week_chemist ?? 20,
-      enforce_strict_roles:     savedConstraints.enforce_strict_roles     ?? false, // default OFF for best coverage
+      enforce_strict_roles:     effectiveEnforceStrictRoles,
       max_rooms_per_lecturer:   savedConstraints.max_rooms_per_lecturer   ?? 3,
+      max_floors_per_supervisor: body.maxFloorsPerSupervisor !== undefined
+        ? Number(body.maxFloorsPerSupervisor)
+        : (savedConstraints.max_floors_per_supervisor ?? 2),
+      require_committees_supervisors: body.requireCommitteesSupervisors !== undefined
+        ? Boolean(body.requireCommitteesSupervisors)
+        : (savedConstraints.require_committees_supervisors !== false),
+      reserve_supervisors_target: body.reserveSupervisorsTarget !== undefined
+        ? Number(body.reserveSupervisorsTarget)
+        : (activePeriod?.reserve_supervisors_target ?? savedConstraints.reserve_supervisors_target ?? 3),
+      reserve_assistants_target: body.reserveAssistantsTarget !== undefined
+        ? Number(body.reserveAssistantsTarget)
+        : (activePeriod?.reserve_assistants_target ?? savedConstraints.reserve_assistants_target ?? 3),
+      reserve_deprioritize_chemists_p2: body.reserveDeprioritizeChemistsP2 !== undefined
+        ? Boolean(body.reserveDeprioritizeChemistsP2)
+        : (savedConstraints.reserve_deprioritize_chemists_p2 !== false),
+      oral_exam_assignment_mode: effectiveOralMode,
+      max_score_delta_from_average: body.maxScoreDelta !== undefined
+        ? Number(body.maxScoreDelta)
+        : (savedConstraints.max_score_delta_from_average ?? 3),
+      ignore_working_days_if_specific_dates: savedConstraints.ignore_working_days_if_specific_dates ?? true,
+      availability_policy:      effectiveAvailabilityPolicy,
       ignore_staff_working_days: shouldIgnoreStaffDays,
-      custom_days_per_week: effectiveMaxDaysPerWeek,
+      custom_days_per_week:     effectiveMaxDaysPerWeek,
     };
 
     if (sessions.length === 0) {
@@ -149,8 +188,10 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       ratios: staffingRatios,
       constraints,
       calendarRules,
+      availabilityPolicy: effectiveAvailabilityPolicy,
       ignoreStaffAvailableDays: shouldIgnoreStaffDays,
       maxDaysPerWeek: effectiveMaxDaysPerWeek,
+      isMidterm: isMidtermOnly,
     };
 
     // Take snapshot before major assignment
@@ -242,11 +283,87 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       });
     }
 
+    // ── Allocate & Persist Reserve Staff (Period Free Staff) ───────────
+    let reserveAssignments: ReserveAssignment[] = [];
+    if (!isOralOnly) {
+      const currentCombinedAssignments: Assignment[] = [
+        ...filteredExistingAssignments,
+        ...allNewAssignments,
+      ];
 
+      const sessionsForReserves = isMidtermOnly
+        ? sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral'))
+        : sessions;
+
+      if (sessionsForReserves.length > 0) {
+        reserveAssignments = allocateReserveStaff(
+          sessionsForReserves,
+          staff,
+          currentCombinedAssignments,
+          config
+        );
+
+        if (reserveAssignments.length > 0) {
+          const { error: reserveInsertError } = await supabaseAdmin
+            .from('period_free_staff')
+            .insert(
+              reserveAssignments.map(r => ({
+                exam_date: r.exam_date,
+                period: r.period,
+                start_time: r.start_time,
+                staff_id: r.staff_id,
+                role: r.role,
+              }))
+            );
+
+          if (reserveInsertError) {
+            console.error('Failed to insert reserve staff:', reserveInsertError);
+          } else {
+            // Update free_staff_score in staff table
+            const staffIdsToUpdate = new Set(reserveAssignments.map(r => r.staff_id));
+            if (staffIdsToUpdate.size > 0) {
+              const { data: allReserves } = await supabaseAdmin
+                .from('period_free_staff')
+                .select('staff_id')
+                .limit(10000);
+
+              const scoreMap = new Map<string, number>();
+              if (allReserves) {
+                allReserves.forEach(r => {
+                  scoreMap.set(r.staff_id, (scoreMap.get(r.staff_id) || 0) + 1);
+                });
+              }
+
+              const updatePromises = Array.from(staffIdsToUpdate).map(staffId => {
+                const newScore = scoreMap.get(staffId) || 0;
+                return supabaseAdmin
+                  .from('staff')
+                  .update({ free_staff_score: newScore })
+                  .eq('id', staffId);
+              });
+
+              await Promise.all(updatePromises);
+            }
+
+            await logActivity(supabaseAdmin, {
+              action: 'AUTO_ASSIGN',
+              tableName: 'period_free_staff',
+              recordId: reserveAssignments[0]?.id || 'auto-assign-reserves',
+              summary: `Auto-assigned ${reserveAssignments.length} reserve staff for week starting ${weekStart}`,
+              userEmail: email,
+              userRole: 'Super Admin',
+            });
+          }
+        }
+      }
+    }
+
+    const reserveMsg = reserveAssignments.length > 0 ? ` and ${reserveAssignments.length} reserve staff` : '';
     return NextResponse.json({
       success: true,
-      message: `Auto-assignment complete. Created ${allNewAssignments.length} assignments with ${allViolations.length} soft violation(s).`,
+      message: `Auto-assignment complete. Created ${allNewAssignments.length} room assignments${reserveMsg} with ${allViolations.length} soft violation(s).`,
       assignmentsCreated: allNewAssignments.length,
+      reservesCreated: reserveAssignments.length,
       violations: allViolations,
     });
 

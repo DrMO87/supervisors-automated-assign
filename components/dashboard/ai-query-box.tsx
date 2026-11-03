@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
-import { getPeriodFromTime } from '@/types/database.types';
+import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
 import { Bot, Loader2, Send, ExternalLink, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
@@ -42,7 +42,7 @@ export function AiQueryBox({
         return {
           exam: s.subject_name,
           date: s.exam_date,
-          period: `Period ${getPeriodFromTime(s.start_time)}`,
+          period: `Period ${getSessionPeriod(s, examSessions)}`,
           room: roomStr,
           students: s.student_count,
           conflicts: getSessionConflicts(s.id).map(c => c.message),

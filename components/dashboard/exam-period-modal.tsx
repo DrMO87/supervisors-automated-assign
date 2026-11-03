@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, RefreshCw, Play, RotateCcw, AlertTriangle, Layers, Sun, CheckCircle2, Package, Pencil, Check } from 'lucide-react';
-import { SemesterType, ScoreMode } from '@/types/database.types';
+import { SemesterType, ScoreMode, StaffAvailabilityPolicy, OralAssignmentMode } from '@/types/database.types';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 import { useToast } from '@/components/ui/toast';
 
@@ -21,6 +21,10 @@ interface EditPeriodForm {
   academic_year: string;
   start_date: string;
   end_date: string;
+  availability_policy: StaffAvailabilityPolicy;
+  oral_exam_assignment_mode: OralAssignmentMode;
+  reserve_supervisors_target: number;
+  reserve_assistants_target: number;
   ignore_staff_working_days: boolean;
   custom_days_per_week: number;
 }
@@ -56,6 +60,10 @@ export function ExamPeriodModal({
   const [endDate, setEndDate] = useState('');
   const [scoreMode, setScoreMode] = useState<ScoreMode>('fresh');
   const [notes, setNotes] = useState('');
+  const [availabilityPolicy, setAvailabilityPolicy] = useState<StaffAvailabilityPolicy>('respect_all_off_days');
+  const [oralExamAssignmentMode, setOralExamAssignmentMode] = useState<OralAssignmentMode>('combined');
+  const [reserveSupervisorsTarget, setReserveSupervisorsTarget] = useState(3);
+  const [reserveAssistantsTarget, setReserveAssistantsTarget] = useState(3);
   const [ignoreStaffWorkingDays, setIgnoreStaffWorkingDays] = useState(false);
   const [customDaysPerWeek, setCustomDaysPerWeek] = useState(3);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,6 +76,10 @@ export function ExamPeriodModal({
   const [summerScoreMode, setSummerScoreMode] = useState<ScoreMode>('fresh');
 
   const startEditing = (period: any) => {
+    const policy: StaffAvailabilityPolicy =
+      period.availability_policy ||
+      (period.ignore_staff_working_days ? 'cap_days_per_week' : 'respect_all_off_days');
+
     setEditingPeriodId(period.id);
     setEditForm({
       id: period.id,
@@ -76,8 +88,12 @@ export function ExamPeriodModal({
       academic_year: period.academic_year || '2025-2026',
       start_date: period.start_date || '',
       end_date: period.end_date || '',
-      ignore_staff_working_days: !!period.ignore_staff_working_days,
-      custom_days_per_week: Number(period.custom_days_per_week) || 3,
+      availability_policy: policy,
+      oral_exam_assignment_mode: period.oral_exam_assignment_mode || 'combined',
+      reserve_supervisors_target: period.reserve_supervisors_target ?? 3,
+      reserve_assistants_target: period.reserve_assistants_target ?? 3,
+      ignore_staff_working_days: policy === 'cap_days_per_week',
+      custom_days_per_week: Number(period.custom_days_per_week) || 5,
     });
   };
 
@@ -140,7 +156,11 @@ export function ExamPeriodModal({
           academic_year: editForm.academic_year?.trim() || null,
           start_date: editForm.start_date,
           end_date: editForm.end_date,
-          ignore_staff_working_days: editForm.ignore_staff_working_days,
+          availability_policy: editForm.availability_policy,
+          oral_exam_assignment_mode: editForm.oral_exam_assignment_mode,
+          reserve_supervisors_target: editForm.reserve_supervisors_target,
+          reserve_assistants_target: editForm.reserve_assistants_target,
+          ignore_staff_working_days: editForm.availability_policy === 'cap_days_per_week',
           custom_days_per_week: editForm.custom_days_per_week,
         }),
       });
@@ -150,9 +170,11 @@ export function ExamPeriodModal({
 
       toast.success(
         `Updated "${editForm.name.trim()}"`,
-        editForm.ignore_staff_working_days
-          ? `Bypassing off-days (Max ${editForm.custom_days_per_week} days/week)`
-          : 'Considering staff off-days'
+        editForm.availability_policy === 'cap_days_per_week'
+          ? `Flexible mode (Max ${editForm.custom_days_per_week} days/week)`
+          : editForm.availability_policy === 'smart_dates_priority'
+          ? 'Smart dates priority'
+          : 'Strict off-days'
       );
       setEditingPeriodId(null);
       setEditForm(null);
@@ -195,7 +217,11 @@ export function ExamPeriodModal({
           score_mode: scoreMode,
           notes: notes.trim() || null,
           set_active: true,
-          ignore_staff_working_days: ignoreStaffWorkingDays,
+          availability_policy: availabilityPolicy,
+          oral_exam_assignment_mode: oralExamAssignmentMode,
+          reserve_supervisors_target: reserveSupervisorsTarget,
+          reserve_assistants_target: reserveAssistantsTarget,
+          ignore_staff_working_days: availabilityPolicy === 'cap_days_per_week',
           custom_days_per_week: customDaysPerWeek,
         }),
       });
@@ -479,27 +505,72 @@ export function ExamPeriodModal({
 
                           {/* Row 3: Staff Working Days Policy */}
                           <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                            <div className="flex items-start gap-3">
-                              <input
-                                type="checkbox"
-                                id={`edit_ignore_days_${period.id}`}
-                                checked={editForm.ignore_staff_working_days}
-                                onChange={(e) => setEditForm({ ...editForm, ignore_staff_working_days: e.target.checked })}
-                                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-gold-600 focus:ring-gold-500 cursor-pointer"
-                              />
-                              <label htmlFor={`edit_ignore_days_${period.id}`} className="cursor-pointer select-none">
-                                <span className="text-xs font-bold text-slate-800 block">
-                                  Do not use available staff days (Bypass official off-days)
-                                </span>
-                                <span className="text-[11px] text-slate-500 block mt-0.5 leading-relaxed">
-                                  {editForm.ignore_staff_working_days
-                                    ? '⚡ Bypassing off-days: Staff can be scheduled on any day of the week, capped by the weekly limit below.'
-                                    : '🛡️ Considering staff off-days: Staff will ONLY be scheduled on their registered available working days.'}
-                                </span>
-                              </label>
+                            <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                              Staff Availability Policy for this Period
+                            </label>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({
+                                  ...editForm,
+                                  availability_policy: 'respect_all_off_days',
+                                  ignore_staff_working_days: false,
+                                })}
+                                className={`p-2.5 rounded-lg border text-left text-xs transition-colors ${
+                                  editForm.availability_policy === 'respect_all_off_days'
+                                    ? 'border-emerald-600 bg-emerald-50 text-emerald-900 font-semibold'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="font-bold flex items-center justify-between">
+                                  <span>Strict Off-Days</span>
+                                  {editForm.availability_policy === 'respect_all_off_days' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">Adhere to weekly off-days</div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({
+                                  ...editForm,
+                                  availability_policy: 'cap_days_per_week',
+                                  ignore_staff_working_days: true,
+                                })}
+                                className={`p-2.5 rounded-lg border text-left text-xs transition-colors ${
+                                  editForm.availability_policy === 'cap_days_per_week'
+                                    ? 'border-amber-600 bg-amber-50 text-amber-900 font-semibold'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="font-bold flex items-center justify-between">
+                                  <span>Flexible (Cap Days/Wk)</span>
+                                  {editForm.availability_policy === 'cap_days_per_week' && <Check className="w-3.5 h-3.5 text-amber-600" />}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">Bypass weekly off-days</div>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setEditForm({
+                                  ...editForm,
+                                  availability_policy: 'smart_dates_priority',
+                                  ignore_staff_working_days: false,
+                                })}
+                                className={`p-2.5 rounded-lg border text-left text-xs transition-colors ${
+                                  editForm.availability_policy === 'smart_dates_priority'
+                                    ? 'border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold'
+                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="font-bold flex items-center justify-between">
+                                  <span>Leave Dates Priority</span>
+                                  {editForm.availability_policy === 'smart_dates_priority' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-0.5">Specific leaves override</div>
+                              </button>
                             </div>
 
-                            {editForm.ignore_staff_working_days && (
+                            {editForm.availability_policy === 'cap_days_per_week' && (
                               <div className="pt-2.5 border-t border-slate-200 flex items-center justify-between">
                                 <div>
                                   <label className="text-xs font-bold text-slate-700 block">
@@ -522,6 +593,53 @@ export function ExamPeriodModal({
                                 </select>
                               </div>
                             )}
+                          </div>
+
+                          {/* Row 4: Oral Exams & Standby Reserves */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                            <div>
+                              <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                                Oral Exams Integration
+                              </label>
+                              <select
+                                value={editForm.oral_exam_assignment_mode || 'combined'}
+                                onChange={(e) => setEditForm({ ...editForm, oral_exam_assignment_mode: e.target.value as OralAssignmentMode })}
+                                className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                              >
+                                <option value="combined">Combined with written exams</option>
+                                <option value="separate">Dedicated oral runs only</option>
+                                <option value="skip">Skip oral auto-assignment</option>
+                              </select>
+                            </div>
+
+                            <div className="flex gap-2">
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                                  Standby Supervisors
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={10}
+                                  value={editForm.reserve_supervisors_target ?? 3}
+                                  onChange={(e) => setEditForm({ ...editForm, reserve_supervisors_target: parseInt(e.target.value, 10) || 0 })}
+                                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                                  Standby Assistants
+                                </label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={10}
+                                  value={editForm.reserve_assistants_target ?? 3}
+                                  onChange={(e) => setEditForm({ ...editForm, reserve_assistants_target: parseInt(e.target.value, 10) || 0 })}
+                                  className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                                />
+                              </div>
+                            </div>
                           </div>
 
                           {/* Footer Actions */}
@@ -581,13 +699,17 @@ export function ExamPeriodModal({
                               <span className="font-mono text-slate-600 ml-1">
                                 📅 {period.start_date} → {period.end_date}
                               </span>
-                              {period.ignore_staff_working_days ? (
+                              {period.availability_policy === 'cap_days_per_week' || period.ignore_staff_working_days ? (
                                 <span className="text-[10px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 font-semibold flex items-center gap-1">
-                                  ⚡ Bypass Off-Days (Max {period.custom_days_per_week || 3}d/wk)
+                                  ⚡ Flexible (Max {period.custom_days_per_week || 5}d/wk)
+                                </span>
+                              ) : period.availability_policy === 'smart_dates_priority' ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 font-semibold flex items-center gap-1">
+                                  ✨ Leave Dates Priority
                                 </span>
                               ) : (
                                 <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold flex items-center gap-1">
-                                  🛡️ Respects Staff Off-Days
+                                  🛡️ Strict Off-Days
                                 </span>
                               )}
                             </div>
@@ -875,25 +997,69 @@ export function ExamPeriodModal({
 
             {/* Staff Working Days Rule */}
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-              <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  id="modal_ignore_staff_working_days"
-                  checked={ignoreStaffWorkingDays}
-                  onChange={e => setIgnoreStaffWorkingDays(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-slate-300 text-gold-600 focus:ring-gold-500"
-                />
-                <label htmlFor="modal_ignore_staff_working_days" className="cursor-pointer">
-                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
-                    Do not use available staff days (Bypass official off-days)
-                  </span>
-                  <span className="text-xs text-slate-500 block mt-0.5">
-                    Allow staff to be assigned on any day of the week regardless of their standard recurring non-working days.
-                  </span>
-                </label>
+              <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                Staff Availability Policy for this Period
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvailabilityPolicy('respect_all_off_days');
+                    setIgnoreStaffWorkingDays(false);
+                  }}
+                  className={`p-3 rounded-lg border text-left text-xs transition-colors ${
+                    availabilityPolicy === 'respect_all_off_days'
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-bold flex items-center justify-between">
+                    <span>1. Strict Off-Days</span>
+                    {availabilityPolicy === 'respect_all_off_days' && <Check className="w-3.5 h-3.5 text-emerald-600" />}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Full adherence to weekly off-days</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvailabilityPolicy('cap_days_per_week');
+                    setIgnoreStaffWorkingDays(true);
+                  }}
+                  className={`p-3 rounded-lg border text-left text-xs transition-colors ${
+                    availabilityPolicy === 'cap_days_per_week'
+                      ? 'border-amber-600 bg-amber-50 text-amber-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-bold flex items-center justify-between">
+                    <span>2. Flexible (Cap Days/Wk)</span>
+                    {availabilityPolicy === 'cap_days_per_week' && <Check className="w-3.5 h-3.5 text-amber-600" />}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Bypass weekly off-days, cap days/wk</div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAvailabilityPolicy('smart_dates_priority');
+                    setIgnoreStaffWorkingDays(false);
+                  }}
+                  className={`p-3 rounded-lg border text-left text-xs transition-colors ${
+                    availabilityPolicy === 'smart_dates_priority'
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold'
+                      : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="font-bold flex items-center justify-between">
+                    <span>3. Leave Dates Priority</span>
+                    {availabilityPolicy === 'smart_dates_priority' && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-1">Specific leave dates override</div>
+                </button>
               </div>
 
-              {ignoreStaffWorkingDays && (
+              {availabilityPolicy === 'cap_days_per_week' && (
                 <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
                   <div>
                     <label className="text-xs font-bold text-slate-700 block">
@@ -916,6 +1082,53 @@ export function ExamPeriodModal({
                   </select>
                 </div>
               )}
+            </div>
+
+            {/* Oral Exams & Standby Reserves Rule */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <div>
+                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                  Oral Exams Integration
+                </label>
+                <select
+                  value={oralExamAssignmentMode}
+                  onChange={(e) => setOralExamAssignmentMode(e.target.value as OralAssignmentMode)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                >
+                  <option value="combined">Combined with written exams</option>
+                  <option value="separate">Dedicated oral runs only</option>
+                  <option value="skip">Skip oral auto-assignment</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                    Standby Supervisors
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={reserveSupervisorsTarget}
+                    onChange={(e) => setReserveSupervisorsTarget(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1">
+                    Standby Assistants
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    value={reserveAssistantsTarget}
+                    onChange={(e) => setReserveAssistantsTarget(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Score Management Strategy */}

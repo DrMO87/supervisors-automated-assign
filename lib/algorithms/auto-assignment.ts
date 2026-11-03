@@ -11,8 +11,9 @@ import type {
   RoomSessionGroup,
   PeriodFreeStaff,
   CalendarRule,
+  StaffAvailabilityPolicy,
 } from '@/types/database.types';
-import { parseRoomCode, getPeriodFromTime, getDurationInMinutes, timesOverlap } from '@/types/database.types';
+import { parseRoomCode, getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, getDayUniquePeriods, getDurationInMinutes, timesOverlap } from '@/types/database.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -24,8 +25,60 @@ export interface AutoAssignConfig {
   ratios: StaffingRatiosConfig;
   constraints: SchedulingConstraintsConfig;
   calendarRules?: CalendarRule[];
+  availabilityPolicy?: StaffAvailabilityPolicy;
   ignoreStaffAvailableDays?: boolean;
   maxDaysPerWeek?: number;
+  isMidterm?: boolean;
+}
+
+/**
+/**
+ * Academic week key starting on Saturday.
+ * Returns the YYYY-MM-DD of the Saturday commencing the academic week containing dateStr.
+ */
+export function getAcademicWeekKey(dateStr: string): string {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const day = d.getUTCDay(); // 0 is Sunday, 6 is Saturday
+  const daysSinceSaturday = (day + 1) % 7;
+  const sat = new Date(d);
+  sat.setUTCDate(d.getUTCDate() - daysSinceSaturday);
+  return sat.toISOString().split('T')[0];
+}
+
+/**
+ * Resolves the effective 3-mode availability policy from constraints,
+ * providing 100% backward compatibility with legacy flags.
+ * Defaults to 5 days per week (standard full-time working days).
+ */
+export function resolveAvailabilityPolicy(constraints?: Partial<SchedulingConstraintsConfig> | null): {
+  policy: StaffAvailabilityPolicy;
+  custom_days_per_week: number;
+} {
+  if (!constraints) {
+    return { policy: 'respect_all_off_days', custom_days_per_week: 5 };
+  }
+  if (constraints.availability_policy) {
+    return {
+      policy: constraints.availability_policy,
+      custom_days_per_week: constraints.custom_days_per_week || 5,
+    };
+  }
+  if (constraints.ignore_staff_working_days) {
+    return {
+      policy: 'cap_days_per_week',
+      custom_days_per_week: constraints.custom_days_per_week || 5,
+    };
+  }
+  if (constraints.ignore_working_days_if_specific_dates) {
+    return {
+      policy: 'smart_dates_priority',
+      custom_days_per_week: constraints.custom_days_per_week || 5,
+    };
+  }
+  return {
+    policy: 'respect_all_off_days',
+    custom_days_per_week: constraints.custom_days_per_week || 5,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +251,9 @@ export function isStaffAvailable(
   periodFreeStaff: PeriodFreeStaff[] = [],
   calendarRules: CalendarRule[] = [],
   averageScore?: number,
-  strictOffDays: boolean = false
+  strictOffDays: boolean = false,
+  allowWorkloadCapRelax: boolean = false,
+  allowDayCapRelax: boolean = false
 ): {
   available: boolean;
   hardViolations: AssignmentConstraintViolation[];
@@ -218,94 +273,109 @@ export function isStaffAvailable(
   }
 
   // 2. Off-day check (Hard)
-  //
-  // Smart classification: if a weekday appears in specific_off_dates for EVERY
-  // occurrence of that weekday across the entire exam period, treat it as a
-  // permanent non-working day (same as working_days pattern).
-  // Otherwise, only the explicitly listed dates are blocked.
   const examDateISO = examSession.exam_date; // already stored as YYYY-MM-DD
   const hasSpecificOffDates = staff.specific_off_dates && staff.specific_off_dates.length > 0;
 
-  const { recurringOffDays, specificOffDates: classifiedSpecificOff } = hasSpecificOffDates
-    ? classifyOffDays(staff.specific_off_dates, allExamDates)
-    : { recurringOffDays: [], specificOffDates: [] };
-  const isUniversalWorkingDayRaw = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
-  const isUniversalWorkingDay = !strictOffDays && isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
+  // 2a. Strict Specific Off-Dates (Red X / approved leaves)
+  // CRITICAL SAFETY RULE: Approved individual leaves (medical, emergency, vacation) are ALWAYS respected,
+  // regardless of which availability mode is active!
+  if (staff.specific_off_dates?.includes(examDateISO)) {
+    hardViolations.push({
+      type: 'unavailable',
+      message: `${staff.name} has an approved specific day-off on ${examDateISO}`,
+      staff_id: staff.id,
+      exam_session_id: examSession.id,
+    });
+  } else {
+    // Resolve availability policy (respect_all_off_days | cap_days_per_week | smart_dates_priority)
+    const { policy, custom_days_per_week: maxDaysPerWeek } = resolveAvailabilityPolicy(constraints);
 
-  const ignoreStaffDays = constraints.ignore_staff_working_days;
-  const maxDaysPerWeek = constraints.custom_days_per_week;
+    if (policy === 'cap_days_per_week') {
+      // Mode 2: Flexible Availability (Bypass weekly off-days, cap days per academic week)
+      const sessionWeekKey = getAcademicWeekKey(examSession.exam_date);
+      const effectiveCapDays = staff.employment_status === 'Part-time'
+        ? Math.min(maxDaysPerWeek || 5, staff.working_days?.length || 3)
+        : (maxDaysPerWeek || 5);
 
-  if (ignoreStaffDays) {
-    // When ignoring staff available days, bypass official off-days, but enforce maxDaysPerWeek if configured
-    if (maxDaysPerWeek && maxDaysPerWeek > 0) {
-      const assignedDates = new Set<string>();
-      for (const a of existingAssignments) {
-        if (a.staff_id === staff.id) {
-          const sDate = (a as any).exam_date || (a as any).exam_sessions?.exam_date || (a as any).exam_session?.exam_date;
-          if (sDate) {
-            assignedDates.add(sDate.split('T')[0]);
+      if (effectiveCapDays && effectiveCapDays > 0) {
+        const assignedDatesThisWeek = new Set<string>();
+        for (const a of existingAssignments) {
+          if (a.staff_id === staff.id) {
+            const s = allExamSessions.find(x => x.id === a.exam_session_id);
+            const sDate = (a as any).exam_date || (a as any).exam_sessions?.exam_date || (a as any).exam_session?.exam_date || s?.exam_date;
+            if (sDate) {
+              const cleanDate = sDate.split('T')[0];
+              if (getAcademicWeekKey(cleanDate) === sessionWeekKey) {
+                assignedDatesThisWeek.add(cleanDate);
+              }
+            }
+          }
+        }
+        for (const r of periodFreeStaff) {
+          if (r.staff_id === staff.id && r.exam_date) {
+            const cleanDate = r.exam_date.split('T')[0];
+            if (getAcademicWeekKey(cleanDate) === sessionWeekKey) {
+              assignedDatesThisWeek.add(cleanDate);
+            }
+          }
+        }
+        if (!assignedDatesThisWeek.has(examSession.exam_date) && assignedDatesThisWeek.size >= effectiveCapDays) {
+          if (allowDayCapRelax) {
+            softViolations.push({
+              type: 'capacity',
+              message: `${staff.name} assigned extra day this week to prevent room deficiency`,
+              staff_id: staff.id,
+              exam_session_id: examSession.id,
+            });
+          } else {
+            hardViolations.push({
+              type: 'unavailable',
+              message: `${staff.name} has reached the maximum of ${effectiveCapDays} assigned days this week`,
+              staff_id: staff.id,
+              exam_session_id: examSession.id,
+            });
           }
         }
       }
-      if (!assignedDates.has(examSession.exam_date) && assignedDates.size >= maxDaysPerWeek) {
-        hardViolations.push({
-          type: 'unavailable',
-          message: `${staff.name} has reached the maximum of ${maxDaysPerWeek} assigned days this week`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      }
-    }
-  } else {
-    // 2a. Strict Specific Off-Dates (Red X)
-    if (staff.specific_off_dates?.includes(examDateISO)) {
-      // If it's a specific requested leave day, we respect it EVEN IF it's a universal working day.
-      hardViolations.push({
-        type: 'unavailable',
-        message: `${staff.name} has a specific day-off on ${examDateISO}`,
-        staff_id: staff.id,
-        exam_session_id: examSession.id,
-      });
-    } else if (!isUniversalWorkingDay) {
-      // 2b. Standard specific off-dates (can be overridden by universal working days)
-      if (staff.specific_standard_off_dates?.includes(examDateISO)) {
-        hardViolations.push({
-          type: 'unavailable',
-          message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      } else {
-        // 2c. Weekday pattern check: (Only if NOT a universal working day)
-        //   - Start with the staff's manually configured working_days
-        //   - Add any weekdays classified as recurring off-days from specific_off_dates
-        //   - If ignore_working_days_if_specific_dates is ON and staff has specific off-dates,
-        //     skip the manual working_days check (only recurringOffDays from classification apply)
-        const date = new Date(`${examSession.exam_date}T12:00:00Z`);
-        const dayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+    } else {
+      // Mode 1 (Standard) or Mode 3 (Smart Dates Priority)
+      const isUniversalWorkingDayRaw = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
+      const isUniversalWorkingDay = !strictOffDays && isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
 
-        // Check recurring off-days derived from specific_off_dates analysis
-        if (recurringOffDays.includes(dayName)) {
+      if (!isUniversalWorkingDay) {
+        if (staff.specific_standard_off_dates?.includes(examDateISO)) {
           hardViolations.push({
             type: 'unavailable',
-            message: `${staff.name} does not work on ${dayName}s (recurring off throughout exam period)`,
+            message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
             staff_id: staff.id,
             exam_session_id: examSession.id,
           });
         } else {
-          // Check the manual working_days pattern — but only if:
-          // - Staff has NO specific off-dates, OR
-          // - The "ignore working days if specific dates" setting is disabled
-          const ignoreWorkingDays =
-            constraints.ignore_working_days_if_specific_dates !== false && hasSpecificOffDates;
+          const date = new Date(`${examSession.exam_date}T12:00:00Z`);
+          const dayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 
-          if (!ignoreWorkingDays && staff.working_days && !staff.working_days.includes(dayName)) {
+          const { recurringOffDays } = hasSpecificOffDates
+            ? classifyOffDays(staff.specific_off_dates, allExamDates)
+            : { recurringOffDays: [] as string[] };
+
+          if (recurringOffDays.includes(dayName)) {
             hardViolations.push({
               type: 'unavailable',
-              message: `${staff.name} does not work on ${dayName}s`,
+              message: `${staff.name} does not work on ${dayName}s (recurring off throughout exam period)`,
               staff_id: staff.id,
               exam_session_id: examSession.id,
             });
+          } else {
+            // Mode 3: Smart dates priority - if staff has specific off-dates, ignore weekly working days pattern
+            const shouldBypassWeeklyPattern = policy === 'smart_dates_priority' && hasSpecificOffDates;
+            if (!shouldBypassWeeklyPattern && staff.working_days && !staff.working_days.includes(dayName)) {
+              hardViolations.push({
+                type: 'unavailable',
+                message: `${staff.name} does not work on ${dayName}s`,
+                staff_id: staff.id,
+                exam_session_id: examSession.id,
+              });
+            }
           }
         }
       }
@@ -313,8 +383,13 @@ export function isStaffAvailable(
   }
 
   // 2d. Check if staff is already assigned as a Reserve for this period (Hard)
+  const sessionPeriod = getSessionPeriod(examSession, allExamSessions);
   const isReserve = periodFreeStaff.some(
-    r => r.staff_id === staff.id && r.exam_date === examSession.exam_date && r.period === getPeriodFromTime(examSession.start_time)
+    r => r.staff_id === staff.id && r.exam_date === examSession.exam_date && (
+      r.period === sessionPeriod ||
+      r.start_time === examSession.start_time ||
+      timesOverlap(r.start_time, undefined, examSession.start_time, examSession.end_time)
+    )
   );
   if (isReserve) {
     hardViolations.push({
@@ -360,13 +435,21 @@ export function isStaffAvailable(
 
   const conflicting = existingAssignments.filter((a) => {
     const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && timesOverlap(s.start_time, s.end_time, examSession.start_time, examSession.end_time);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && areSessionsInSamePeriod(s, examSession, allExamSessions);
   });
   
   if (conflicting.length > 0) {
     const inDifferentRoom = conflicting.some(a => {
       const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-      return s && s.room_id !== examSession.room_id;
+      if (!s) return false;
+      const isSameRoom = Boolean(
+        (s.room_id && examSession.room_id && s.room_id === examSession.room_id) ||
+        ((s as any).room?.room_name && (examSession as any).room?.room_name &&
+         (s as any).room.room_name.trim().toLowerCase() === (examSession as any).room.room_name.trim().toLowerCase()) ||
+        ((s as any).room_name && (examSession as any).room_name &&
+         (s as any).room_name.trim().toLowerCase() === (examSession as any).room_name.trim().toLowerCase())
+      );
+      return !isSameRoom;
     });
 
     if (inDifferentRoom) {
@@ -384,60 +467,78 @@ export function isStaffAvailable(
     }
   }
 
-  // 4. Consecutive Shifts (Soft)
+  // 4. Consecutive Shifts
   const sameDayOther = existingAssignments.filter((a) => {
     const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && !timesOverlap(s.start_time, s.end_time, examSession.start_time, examSession.end_time);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && !areSessionsInSamePeriod(s, examSession, allExamSessions);
   });
   if (sameDayOther.length > 0) {
     const isConsecutive = sameDayOther.some((a) => {
       const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-      // We consider consecutive if they don't overlap, but are within the same day,
-      // and their periods are adjacent.
-      return s && Math.abs(getPeriodFromTime(s.start_time) - getPeriodFromTime(examSession.start_time)) === 1;
+      if (!s) return false;
+      const otherPeriod = getSessionPeriod(s, allExamSessions);
+      return Math.abs(otherPeriod - sessionPeriod) === 1;
     });
-    if (isConsecutive && !constraints.allow_consecutive_shifts) {
-      softViolations.push({
-        type: 'consecutive_shifts',
-        message: `${staff.name} has a consecutive shift on ${examSession.exam_date}`,
-        staff_id: staff.id,
-        exam_session_id: examSession.id,
-      });
+    if (isConsecutive) {
+      const shiftPolicy = constraints.consecutive_shifts_policy || (!constraints.allow_consecutive_shifts ? 'avoid' : 'allow');
+      if (shiftPolicy === 'strictly_prevent') {
+        hardViolations.push({
+          type: 'consecutive_shifts',
+          message: `${staff.name} is already assigned to an adjacent shift on ${examSession.exam_date} (strictly prohibited)`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      } else if (shiftPolicy === 'avoid') {
+        softViolations.push({
+          type: 'consecutive_shifts',
+          message: `${staff.name} has a consecutive shift on ${examSession.exam_date}`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
     }
   }
 
-  // 4b. Max Working Days per week (Hard constraint)
-  // W = total distinct exam days in the scheduling period
-  const totalExamDays = allExamDates.length;
-  
-  let maxAllowedDays = 1;
-  if (staff.job_title === 'Chemist') {
-    maxAllowedDays = Math.max(1, totalExamDays - 1);
-  } else if (staff.employment_status === 'Full-time') {
-    maxAllowedDays = Math.max(1, totalExamDays - 2);
-  } else {
-    // Part-time
-    maxAllowedDays = totalExamDays >= 6 ? 2 : 1;
-  }
-
-  // Count distinct dates staff is already assigned to
-  const assignedDates = new Set<string>();
+  // 4b. Max Working Days per week (Scoped to this academic week!)
+  const sessionWeekKey = getAcademicWeekKey(examSession.exam_date);
+  const datesAssignedInWeek = new Set<string>();
   existingAssignments.forEach(a => {
     if (a.staff_id === staff.id) {
       const s = allExamSessions.find(x => x.id === a.exam_session_id);
-      if (s) assignedDates.add(s.exam_date);
+      if (s && getAcademicWeekKey(s.exam_date) === sessionWeekKey) {
+        datesAssignedInWeek.add(s.exam_date);
+      }
     }
   });
 
-  // If this examSession is on a NEW date, check if they are already at their limit
-  if (!assignedDates.has(examSession.exam_date)) {
-    if (assignedDates.size >= maxAllowedDays) {
-      hardViolations.push({
-        type: 'unavailable',
-        message: `${staff.name} has reached their maximum allowed working days (${maxAllowedDays} days for ${totalExamDays}-day week)`,
-        staff_id: staff.id,
-        exam_session_id: examSession.id,
-      });
+  const { custom_days_per_week: configuredMaxDays } = resolveAvailabilityPolicy(constraints);
+  const targetDaysCap = configuredMaxDays || 5;
+
+  let maxAllowedDaysInWeek = targetDaysCap;
+  if (staff.employment_status === 'Part-time') {
+    maxAllowedDaysInWeek = Math.min(targetDaysCap, staff.working_days?.length || 3);
+  } else {
+    maxAllowedDaysInWeek = targetDaysCap; // Full-time staff up to 5 days
+  }
+
+  // If this examSession is on a NEW date, check if they are already at their weekly limit
+  if (!datesAssignedInWeek.has(examSession.exam_date)) {
+    if (datesAssignedInWeek.size >= maxAllowedDaysInWeek) {
+      if (allowDayCapRelax) {
+        softViolations.push({
+          type: 'capacity',
+          message: `${staff.name} assigned extra day this week to prevent room deficiency`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      } else {
+        hardViolations.push({
+          type: 'unavailable',
+          message: `${staff.name} has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week)`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
     }
   }
 
@@ -452,7 +553,7 @@ export function isStaffAvailable(
     if (a.staff_id !== staff.id) return;
     const s = allExamSessions.find((x) => x.id === a.exam_session_id);
     if (!s) return;
-    const key = `${s.exam_date}_${getPeriodFromTime(s.start_time)}`;
+    const key = `${s.exam_date}_${getSessionPeriod(s, allExamSessions)}`;
     const dur = getDurationInMinutes(s.start_time, s.end_time);
     if (!distinctSlots.has(key) || distinctSlots.get(key)! < dur) {
       distinctSlots.set(key, dur);
@@ -500,15 +601,24 @@ export function isStaffAvailable(
   // 7. Health issue -> prefer M/P rooms (Soft warning removed to prevent score decrease)
   // Health issue staff will simply be prioritized in sorting when the room is near pharmacy.
 
-  // 8. Hard Workload Cap
+  // 8. Workload Cap
   if (constraints.max_score_delta_from_average !== undefined && averageScore !== undefined) {
     if (staff.current_score > averageScore + constraints.max_score_delta_from_average) {
-      hardViolations.push({
-        type: 'workload_cap',
-        message: `${staff.name} has reached the hard workload cap (${staff.current_score} assignments vs average ${averageScore.toFixed(1)}). Locked out until others catch up.`,
-        staff_id: staff.id,
-        exam_session_id: examSession.id,
-      });
+      if (allowWorkloadCapRelax) {
+        softViolations.push({
+          type: 'workload_cap',
+          message: `${staff.name} is above average workload (${staff.current_score} vs ${averageScore.toFixed(1)}) but assigned to prevent room deficiency`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      } else {
+        hardViolations.push({
+          type: 'workload_cap',
+          message: `${staff.name} has reached the hard workload cap (${staff.current_score} assignments vs average ${averageScore.toFixed(1)}). Locked out until others catch up.`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
     }
   }
 
@@ -593,7 +703,8 @@ export function groupSessionsByRoom(sessions: ExamSession[]): RoomSessionGroup[]
   const map = new Map<string, RoomSessionGroup>();
 
   for (const session of sessions) {
-    const slotKey = `${session.room_id}__${session.exam_date}__${getPeriodFromTime(session.start_time)}`;
+    const period = getSessionPeriod(session, sessions);
+    const slotKey = `${session.room_id}__${session.exam_date}__${period}`;
     if (!map.has(slotKey)) {
       map.set(slotKey, {
         room_id: session.room_id,
@@ -706,6 +817,68 @@ export function assignStaffToSession(
       }
     }
     if (headSupervisors.length < required.headSupervisors) {
+      // Tier 2 Fallback: Relax workload cap to prevent room deficiency
+      const fallbackStaffWithStatus = allStaff.map((staff) => {
+        return {
+          staff,
+          ...isStaffAvailable(
+            staff, examSession, existingAssignments, allExamSessions, config.constraints,
+            Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
+            config.calendarRules, averageScore, false, true, false
+          )
+        };
+      });
+      const fallbackHeadPool = fallbackStaffWithStatus.filter(
+        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
+      );
+      while (headSupervisors.length < required.headSupervisors) {
+        const candidate = pickBest(fallbackHeadPool, headSupervisors, 'Lecturer', 'Exam Supervisor');
+        if (!candidate) break;
+        headSupervisors.push(candidate);
+        newAssignments.push({
+          id: crypto.randomUUID(),
+          exam_session_id: examSession.id,
+          staff_id: candidate.id,
+          role: 'Exam_Supervisor',
+          assigned_at: new Date().toISOString(),
+          assigned_by: null,
+          is_manual_override: false,
+        });
+      }
+    }
+
+    if (headSupervisors.length < required.headSupervisors) {
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
+      const emergencyStaffWithStatus = allStaff.map((staff) => {
+        return {
+          staff,
+          ...isStaffAvailable(
+            staff, examSession, existingAssignments, allExamSessions, config.constraints,
+            Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
+            config.calendarRules, averageScore, false, true, true
+          )
+        };
+      });
+      const emergencyHeadPool = emergencyStaffWithStatus.filter(
+        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
+      );
+      while (headSupervisors.length < required.headSupervisors) {
+        const candidate = pickBest(emergencyHeadPool, headSupervisors, 'Lecturer', 'Exam Supervisor');
+        if (!candidate) break;
+        headSupervisors.push(candidate);
+        newAssignments.push({
+          id: crypto.randomUUID(),
+          exam_session_id: examSession.id,
+          staff_id: candidate.id,
+          role: 'Exam_Supervisor',
+          assigned_at: new Date().toISOString(),
+          assigned_by: null,
+          is_manual_override: false,
+        });
+      }
+    }
+
+    if (headSupervisors.length < required.headSupervisors) {
       violations.push({
         type: 'capacity',
         message: `Not enough Exam Supervisors for ${examSession.subject_name}. Required: ${required.headSupervisors}, Found: ${headSupervisors.length}`,
@@ -727,9 +900,11 @@ export function assignStaffToSession(
       .filter((s) => s.softViolations.length > 0)
       .map((s) => s.staff);
 
-    // Sort both pools by priority (workload score, overload factor, job title) to ensure fairness
-    const sortedIdeal = sortStaffByPriority(idealAssistants, undefined, nearPharmacy);
-    const sortedFallback = sortStaffByPriority(fallbackAssistants, undefined, nearPharmacy);
+    // Sort both pools by priority (workload score, overload factor, job title) to ensure fairness.
+    // Prioritize pure 'Invigilator' staff (Chemists & pure-invigilator Demonstrators) over dual-role staff
+    // so dual-role staff are preserved for Exam Supervisor duties where pure invigilators cannot serve.
+    const sortedIdeal = sortStaffByPriority(idealAssistants, undefined, nearPharmacy, 'Invigilator');
+    const sortedFallback = sortStaffByPriority(fallbackAssistants, undefined, nearPharmacy, 'Invigilator');
     const allSortedAssistants = [...sortedIdeal, ...sortedFallback];
 
     const excludedFromAssistants = [...headSupervisors];
@@ -752,7 +927,80 @@ export function assignStaffToSession(
       if (status?.softViolations.length) violations.push(...status.softViolations);
     }
 
-    const assignedAssistants = newAssignments.filter((a) => a.role === 'Assistant').length;
+    let assignedAssistants = newAssignments.filter((a) => a.role === 'Assistant').length;
+
+    if (assignedAssistants < required.assistants) {
+      // Tier 2 Fallback: Relax workload cap to prevent assistant deficiency
+      const fallbackStaffWithStatus = allStaff.map((staff) => {
+        return {
+          staff,
+          ...isStaffAvailable(
+            staff, examSession, existingAssignments, allExamSessions, config.constraints,
+            Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
+            config.calendarRules, averageScore, false, true, false
+          )
+        };
+      });
+      const fallbackPool = strictRoles
+        ? fallbackStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
+        : fallbackStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
+      
+      const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
+      const eligible = sortStaffByPriority(fallbackPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator')
+        .filter(s => !excludedStaff.some(e => e.id === s.id));
+
+      for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
+        const candidate = eligible[i];
+        newAssignments.push({
+          id: crypto.randomUUID(),
+          exam_session_id: examSession.id,
+          staff_id: candidate.id,
+          role: 'Assistant',
+          assigned_at: new Date().toISOString(),
+          assigned_by: null,
+          is_manual_override: false,
+        });
+        assignedAssistants++;
+        excludedStaff.push(candidate);
+      }
+    }
+
+    if (assignedAssistants < required.assistants) {
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
+      const emergencyStaffWithStatus = allStaff.map((staff) => {
+        return {
+          staff,
+          ...isStaffAvailable(
+            staff, examSession, existingAssignments, allExamSessions, config.constraints,
+            Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
+            config.calendarRules, averageScore, false, true, true
+          )
+        };
+      });
+      const emergencyPool = strictRoles
+        ? emergencyStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
+        : emergencyStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
+      
+      const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
+      const eligible = sortStaffByPriority(emergencyPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator')
+        .filter(s => !excludedStaff.some(e => e.id === s.id));
+
+      for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
+        const candidate = eligible[i];
+        newAssignments.push({
+          id: crypto.randomUUID(),
+          exam_session_id: examSession.id,
+          staff_id: candidate.id,
+          role: 'Assistant',
+          assigned_at: new Date().toISOString(),
+          assigned_by: null,
+          is_manual_override: false,
+        });
+        assignedAssistants++;
+        excludedStaff.push(candidate);
+      }
+    }
+
     if (assignedAssistants < required.assistants) {
       violations.push({
         type: 'capacity',
@@ -785,7 +1033,10 @@ export function batchAssign(
   onlyMidterm?: boolean
 ): { assignments: Assignment[]; violations: AssignmentConstraintViolation[] } {
   let effectiveSessions = sessions;
-  if (onlyMidterm) {
+  const oralMode = config.constraints?.oral_exam_assignment_mode || 'combined';
+  if (onlyMidterm || oralMode === 'skip') {
+    effectiveSessions = sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral'));
+  } else if (oralMode === 'separate' && !onlyOral) {
     effectiveSessions = sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral'));
   }
 
@@ -825,8 +1076,9 @@ export function batchAssign(
   const allExamDates = Array.from(new Set(effectiveSessions.map(s => s.exam_date)));
 
   // --- PRE-PASS: UNIVERSAL WORKING DAY COMPENSATORY OFF-DAYS ---
-  // (Skipped if ignoring staff working days)
-  if (!config.constraints?.ignore_staff_working_days && !config.ignoreStaffAvailableDays) {
+  // (Skipped if ignoring staff working days or under flexible cap_days_per_week)
+  const resolvedPrepassPolicy = resolveAvailabilityPolicy(config.constraints).policy;
+  if (resolvedPrepassPolicy !== 'cap_days_per_week' && !config.ignoreStaffAvailableDays) {
     const dailyLoads = new Map<string, number>();
     for (const date of allExamDates) {
       dailyLoads.set(date, effectiveSessions.filter(s => s.exam_date === date).length);
@@ -888,21 +1140,68 @@ export function batchAssign(
   }
 
   // --- PRE-PASS: COMMITTEES SUPERVISOR ASSIGNMENTS ---
-  // Group sessions by date + period
+  const requireCommitteesSupervisors = config.constraints?.require_committees_supervisors !== false;
+  const configuredMaxRooms = config.constraints?.max_rooms_per_lecturer || 3;
+  const configuredMaxFloors = config.constraints?.max_floors_per_supervisor || 2;
+
+  if (requireCommitteesSupervisors) {
+  // Group sessions by date + unique period of that day
   const datePeriodGroups = new Map<string, ExamSession[]>();
   for (const session of sortedSessions) {
-    const key = `${session.exam_date}_${getPeriodFromTime(session.start_time)}`;
+    const period = getSessionPeriod(session, sessions);
+    const key = `${session.exam_date}_${period}`;
     if (!datePeriodGroups.has(key)) datePeriodGroups.set(key, []);
     datePeriodGroups.get(key)!.push(session);
   }
 
-  const configuredMaxRooms = config.constraints.max_rooms_per_lecturer || 5;
+  // Sort slot keys chronologically (date ascending, then period ascending)
+  // This guarantees duties progress naturally day-by-day and period-by-period
+  const sortedSlotKeys = Array.from(datePeriodGroups.keys()).sort((a, b) => {
+    const [dateA, periodA] = a.split('_');
+    const [dateB, periodB] = b.split('_');
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+    return Number(periodA) - Number(periodB);
+  });
 
-  for (const dpSessions of datePeriodGroups.values()) {
+  // Track Committees Supervisor assignment frequency to achieve strict workload equalization in the same week
+  const csAssignedPeriods = new Map<string, Set<string>>(); // staffId -> Set of slotKeys ('YYYY-MM-DD_Period')
+  const csDailyDutyCounts = new Map<string, Map<string, number>>(); // staffId -> Map of date -> count
+  const csPeriodDutyCounts = new Map<string, number>(); // staffId -> count of period duties in this run/week
+
+  for (const s of currentStaff) {
+    if (s.supervision_role === 'Committees Supervisor') {
+      csAssignedPeriods.set(s.id, new Set());
+      csDailyDutyCounts.set(s.id, new Map());
+      csPeriodDutyCounts.set(s.id, 0);
+    }
+  }
+
+  // Populate from any existing assignments in currentAssignments (counted once per slotKey)
+  for (const a of currentAssignments) {
+    if (a.role === 'Committees_Supervisor' || a.role === 'Head_Supervisor') {
+      const sess = sessions.find((x) => x.id === a.exam_session_id);
+      if (sess && csAssignedPeriods.has(a.staff_id)) {
+        const p = getSessionPeriod(sess, sessions);
+        const slotKey = `${sess.exam_date}_${p}`;
+        if (!csAssignedPeriods.get(a.staff_id)!.has(slotKey)) {
+          csAssignedPeriods.get(a.staff_id)!.add(slotKey);
+
+          const dMap = csDailyDutyCounts.get(a.staff_id)!;
+          dMap.set(sess.exam_date, (dMap.get(sess.exam_date) || 0) + 1);
+          csPeriodDutyCounts.set(a.staff_id, (csPeriodDutyCounts.get(a.staff_id) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  for (const slotKey of sortedSlotKeys) {
+    const dpSessions = datePeriodGroups.get(slotKey)!;
+    const [examDate] = slotKey.split('_');
+
     // Group by building
     const buildingGroups = new Map<string, ExamSession[]>();
     for (const session of dpSessions) {
-      const room = rooms?.find(r => r.id === session.room_id);
+      const room = rooms?.find((r) => r.id === session.room_id);
       const building = room?.building_code || room?.building || 'UNKNOWN';
       if (!buildingGroups.has(building)) buildingGroups.set(building, []);
       buildingGroups.get(building)!.push(session);
@@ -935,7 +1234,7 @@ export function batchAssign(
          return fa - fb;
       });
 
-      // Break into chunks of rooms respecting: configuredMaxRooms (max 5) AND max 2 floors
+      // Break into chunks of rooms respecting: configuredMaxRooms AND configuredMaxFloors
       const chunks: typeof bRoomGroups[] = [];
       let currentChunk: typeof bRoomGroups = [];
       let currentChunkFloors = new Set<number>();
@@ -947,7 +1246,7 @@ export function batchAssign(
         const floor = rooms?.find(r => r.id === roomGroup.room_id)?.floor || 0;
         
         const willExceedRooms = currentChunk.length >= chunkMaxRooms;
-        const willExceedFloors = !currentChunkFloors.has(floor) && currentChunkFloors.size >= 2;
+        const willExceedFloors = !currentChunkFloors.has(floor) && currentChunkFloors.size >= configuredMaxFloors;
 
         if (willExceedRooms || willExceedFloors) {
           chunks.push(currentChunk);
@@ -963,41 +1262,94 @@ export function batchAssign(
       }
 
       for (const chunk of chunks) {
-        
-        // Find available Committees Supervisor (Strict rule: Committees Supervisor can supervise many rooms)
-        const committeeCandidates = currentStaff.filter(s => s.supervision_role === 'Committees Supervisor');
-        
-        // Calculate average score for workload cap
-        const availableCount = currentStaff.filter(s => s.availability_status === 'Available').length;
-        const averageScore = availableCount > 0 ? currentStaff.reduce((sum, s) => s.availability_status === 'Available' ? sum + s.current_score : sum, 0) / availableCount : undefined;
+        // Find available Committees Supervisor candidates
+        const committeeCandidates = currentStaff.filter(
+          (s) => s.supervision_role === 'Committees Supervisor' && s.availability_status === 'Available'
+        );
 
-        const candidateStatus = committeeCandidates.map(s => {
-          let isAvail = true;
-          const allSoftViolations: any[] = [];
-          
-          // Verify availability against ALL rooms in this chunk (e.g., to respect floor-level health constraints)
-          for (const roomGroup of chunk) {
-            const rSession = bSessions.find(sess => sess.id === roomGroup.session_ids[0]);
-            if (!rSession) continue;
+        // Strict concurrency prohibition: A Committees Supervisor can only supervise ONE chunk in this period
+        const availableInPeriodCandidates = committeeCandidates.filter((s) => {
+          return !csAssignedPeriods.get(s.id)?.has(slotKey);
+        });
+
+        // Calculate average score for workload cap among Committees Supervisors
+        const csStaff = currentStaff.filter(s => s.supervision_role === 'Committees Supervisor' && s.availability_status === 'Available');
+        const averageScore = csStaff.length > 0 ? csStaff.reduce((sum, s) => sum + s.current_score, 0) / csStaff.length : undefined;
+
+        const getCSCandidates = (relaxWorkload: boolean, relaxDayCap: boolean) => {
+          return availableInPeriodCandidates.map(s => {
+            let isAvail = true;
+            const allSoftViolations: AssignmentConstraintViolation[] = [];
             
-            const status = isStaffAvailable(s, rSession, currentAssignments, sessions, config.constraints, allExamDates, rooms?.find(r => r.id === roomGroup.room_id), periodFreeStaff, config.calendarRules, averageScore);
-            
-            if (!status.available) {
-              isAvail = false;
-              break;
+            // Verify availability against ALL rooms in this chunk (e.g., to respect floor-level health constraints)
+            for (const roomGroup of chunk) {
+              const rSession = bSessions.find(sess => sess.id === roomGroup.session_ids[0]);
+              if (!rSession) continue;
+              
+              const status = isStaffAvailable(
+                s, rSession, currentAssignments, sessions, config.constraints, allExamDates,
+                rooms?.find(r => r.id === roomGroup.room_id), periodFreeStaff, config.calendarRules, averageScore,
+                false, relaxWorkload, relaxDayCap
+              );
+              
+              if (!status.available) {
+                isAvail = false;
+                break;
+              }
+              allSoftViolations.push(...status.softViolations);
             }
-            allSoftViolations.push(...status.softViolations);
-          }
-          
-          return { staff: s, available: isAvail, softViolations: allSoftViolations };
-        }).filter(cs => cs.available);
+            
+            return { staff: s, available: isAvail, softViolations: allSoftViolations };
+          }).filter(cs => cs.available);
+        };
+
+        let candidateStatus = getCSCandidates(false, false);
+        if (candidateStatus.length === 0) {
+          candidateStatus = getCSCandidates(true, false);
+        }
+        if (candidateStatus.length === 0) {
+          candidateStatus = getCSCandidates(true, true);
+        }
 
         if (candidateStatus.length > 0) {
+          // Sort candidates for strict equalization in the same week:
+          // 1. Equalize Daily duties (0 duties today first, then 1 duty today, never stacking multiple on the same day)
+          // 2. Equalize Weekly / Cycle duties (fewest duties in this exam period/week first)
+          // 3. Lowest baseline/cumulative score (breaks ties among candidates with equal duties)
+          // 4. Soft violations count
+          // 5. Deterministic tie-breaker by name
           candidateStatus.sort((a, b) => {
-             if (a.softViolations.length !== b.softViolations.length) return a.softViolations.length - b.softViolations.length;
-             const aScore = getEffectiveScore(a.staff);
-             const bScore = getEffectiveScore(b.staff);
-             return aScore - bScore;
+            const staffA = a.staff;
+            const staffB = b.staff;
+
+            // 1. Daily Equalization: Staff with 0 duties today come before staff with 1 duty today
+            const dayDutiesA = csDailyDutyCounts.get(staffA.id)?.get(examDate) ?? 0;
+            const dayDutiesB = csDailyDutyCounts.get(staffB.id)?.get(examDate) ?? 0;
+            if (dayDutiesA !== dayDutiesB) {
+              return dayDutiesA - dayDutiesB;
+            }
+
+            // 2. Weekly / Cycle Equalization: Fewest duties in this exam run/week first
+            const periodDutiesA = csPeriodDutyCounts.get(staffA.id) ?? 0;
+            const periodDutiesB = csPeriodDutyCounts.get(staffB.id) ?? 0;
+            if (periodDutiesA !== periodDutiesB) {
+              return periodDutiesA - periodDutiesB;
+            }
+
+            // 3. Effective score tie-breaker: prioritize staff with lower baseline score
+            const aScore = getEffectiveScore(staffA);
+            const bScore = getEffectiveScore(staffB);
+            if (aScore !== bScore) {
+              return aScore - bScore;
+            }
+
+            // 4. Soft violations as secondary factor
+            if (a.softViolations.length !== b.softViolations.length) {
+              return a.softViolations.length - b.softViolations.length;
+            }
+
+            // 5. Deterministic tie-breaker by name
+            return staffA.name.localeCompare(staffB.name);
           });
           
           const chosen = candidateStatus[0].staff;
@@ -1018,7 +1370,18 @@ export function batchAssign(
               currentAssignments.push(assignment);
             }
           }
+
+          // Update stats to guarantee subsequent chunks and days stay equalized
+          if (!csAssignedPeriods.has(chosen.id)) csAssignedPeriods.set(chosen.id, new Set());
+          csAssignedPeriods.get(chosen.id)!.add(slotKey);
+
+          if (!csDailyDutyCounts.has(chosen.id)) csDailyDutyCounts.set(chosen.id, new Map());
+          const dayMap = csDailyDutyCounts.get(chosen.id)!;
+          dayMap.set(examDate, (dayMap.get(examDate) || 0) + 1);
+
+          csPeriodDutyCounts.set(chosen.id, (csPeriodDutyCounts.get(chosen.id) || 0) + 1);
           chosen.current_score += 1; // Score for taking on the supervisor role
+
           if (candidateStatus[0].softViolations.length) {
             allViolations.push(...candidateStatus[0].softViolations);
           }
@@ -1033,12 +1396,27 @@ export function batchAssign(
       }
     }
   }
+  }
 
   // Track Committees Supervisors already assigned per room-slot key
   const committeesSupervisorBySlot = new Map<string, string>();
 
-  // Sort room groups by total students to assign the biggest rooms first
-  const sortedRoomGroups = [...roomGroups].sort((a, b) => b.total_students - a.total_students);
+  // Sort room groups chronologically: date ascending, period ascending, total_students descending.
+  // This ensures assignments progress naturally day-by-day and period-by-period, concentrating shifts
+  // on campus days, respecting calendar weeks, and eliminating artificial day-limit exhaustion.
+  const sortedRoomGroups = [...roomGroups].sort((a, b) => {
+    if (a.exam_date !== b.exam_date) {
+      return a.exam_date.localeCompare(b.exam_date);
+    }
+    const sampleA = sortedSessions.find(s => s.id === a.session_ids[0]);
+    const sampleB = sortedSessions.find(s => s.id === b.session_ids[0]);
+    const pA = sampleA ? getSessionPeriod(sampleA, sessions) : 0;
+    const pB = sampleB ? getSessionPeriod(sampleB, sessions) : 0;
+    if (pA !== pB) {
+      return pA - pB;
+    }
+    return b.total_students - a.total_students;
+  });
 
   // Two-phase assignment to ensure Exam Supervisors are fully filled across ALL rooms
   // before ANY Assistants are assigned. This prevents dual-role staff from being
@@ -1046,10 +1424,11 @@ export function batchAssign(
 
   // Phase 1: Assign Head Supervisors
   for (const group of sortedRoomGroups) {
-    const slotKey = `${group.room_id}__${group.exam_date}__${getPeriodFromTime(group.start_time)}`;
-
     const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
     if (!sampleSession) continue;
+
+    const period = getSessionPeriod(sampleSession, sessions);
+    const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
 
     const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
     const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
@@ -1085,10 +1464,11 @@ export function batchAssign(
 
   // Phase 2: Assign Assistants
   for (const group of sortedRoomGroups) {
-    const slotKey = `${group.room_id}__${group.exam_date}__${getPeriodFromTime(group.start_time)}`;
-
     const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
     if (!sampleSession) continue;
+
+    const period = getSessionPeriod(sampleSession, sessions);
+    const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
 
     const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
     const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
@@ -1159,10 +1539,10 @@ export function allocateReserveStaff(
 ): ReserveAssignment[] {
   const reserveAssignments: ReserveAssignment[] = [];
   
-  // Group sessions by date and period
+  // Group sessions by date and exact unique day period
   const datePeriodGroups = new Map<string, { exam_date: string; period: number; start_time: string; session_ids: string[]; has_final: boolean }>();
   for (const session of sessions) {
-    const period = getPeriodFromTime(session.start_time);
+    const period = getSessionPeriod(session, sessions);
     const key = `${session.exam_date}_${period}`;
     if (!datePeriodGroups.has(key)) {
       datePeriodGroups.set(key, {
@@ -1188,28 +1568,64 @@ export function allocateReserveStaff(
     if (!group.has_final) {
       continue;
     }
+
+    // DEFICIENCY-FIRST INVARIANT:
+    // If any session in this date-period slot is deficient (fewer Head Supervisors or Assistants than required),
+    // NEVER allocate staff to standby reserves for this slot! Room duties always take absolute priority.
+    let slotHasDeficiency = false;
+    for (const sid of group.session_ids) {
+      const sess = sessions.find(s => s.id === sid);
+      if (!sess) continue;
+      const isOral = !!sess.exam_type?.toLowerCase().includes('oral');
+      const req = calculateRequiredStaff(sess.student_count, config.ratios, isOral, sess.exam_date, config.calendarRules);
+      const assigned = currentAssignments.filter(a => a.exam_session_id === sid);
+      const headsCount = assigned.filter(a => a.role === 'Exam_Supervisor').length;
+      const asstsCount = assigned.filter(a => a.role === 'Assistant').length;
+      if (headsCount < req.headSupervisors || asstsCount < req.assistants) {
+        slotHasDeficiency = true;
+        break;
+      }
+    }
+    if (slotHasDeficiency) {
+      continue;
+    }
+
     // 1. Find staff already assigned to standard duties in this period
     const assignedStaffIds = new Set(
       currentAssignments
-        .filter(a => group.session_ids.includes(a.exam_session_id))
+        .filter(a => {
+          if (group.session_ids.includes(a.exam_session_id)) return true;
+          const s = sessions.find(x => x.id === a.exam_session_id);
+          if (!s || s.exam_date !== group.exam_date) return false;
+          return getSessionPeriod(s, sessions) === group.period || timesOverlap(s.start_time, s.end_time, group.start_time, undefined);
+        })
         .map(a => a.staff_id)
     );
+
+    // Also exclude staff already allocated as reserves in this exact period or overlapping slot
+    for (const r of reserveAssignments) {
+      if (r.exam_date === group.exam_date && (r.period === group.period || r.start_time === group.start_time)) {
+        assignedStaffIds.add(r.staff_id);
+      }
+    }
 
     if (group.period === 1 && group.exam_date.includes('07')) {
       console.log(`[DEBUG] Period 1 on ${group.exam_date}: found ${assignedStaffIds.size} assigned staff out of ${currentAssignments.length} total assignments.`);
     }
 
-    // Create a dummy exam session to check availability for this slot
+    const sampleSession = sessions.find(s => group.session_ids.includes(s.id));
+
+    // Create a representative exam session to check availability for this slot
     const representativeSession: ExamSession = {
       id: crypto.randomUUID(),
       subject_name: 'Reserve Slot Check',
       exam_date: group.exam_date,
       start_time: group.start_time,
+      end_time: sampleSession?.end_time || null,
       student_count: 0,
       room_id: crypto.randomUUID(),
       exam_type: 'Reserve',
       program: null,
-      end_time: null,
       student_start: null,
       student_end: null,
       is_locked: false,
@@ -1231,10 +1647,10 @@ export function allocateReserveStaff(
         config.constraints,
         Array.from(new Set(sessions.map(s => s.exam_date))),
         undefined,
-        [],
+        reserveAssignments as any,
         config.calendarRules,
         undefined,
-        true // strictOffDays: True, do not break off-days for reserves
+        !config.constraints.ignore_staff_working_days // Do not force strict off-days if ignoring working days (e.g. Midterm)
       );
       return available;
     });
@@ -1250,14 +1666,19 @@ export function allocateReserveStaff(
     );
 
     // Sort both pools using our custom sort (lowest score first)
-    const sortedSupervisors = sortStaffByPriority(supervisorPool);
-    const sortedAssistants = sortStaffByPriority(assistantPool);
+    // Prioritize pure 'Exam Supervisor' for supervisor reserves, and pure 'Invigilator' for assistant reserves
+    const sortedSupervisors = sortStaffByPriority(supervisorPool, undefined, false, 'Exam Supervisor');
+    const sortedAssistants = sortStaffByPriority(assistantPool, undefined, false, 'Invigilator');
 
     // Health-issue staff are no longer deprioritized for reserves
     // so they can maintain a fair overall workload score.
 
     // If it is Period 2, try to avoid selecting Chemists by pushing them to the end of the queue
-    if (group.period === 2) {
+    // ONLY during Final/Oral exam periods (where Chemists are reserved for Period 2 oral exams).
+    // In Midterms or when no oral exams exist in this schedule, Chemists can be assigned across all periods equally.
+    const isMidtermSchedule = config.isMidterm || (!sessions.some(s => s.exam_type?.toLowerCase().includes('oral')) && !currentAssignments.some(a => (a as any).exam_session?.exam_type?.toLowerCase().includes('oral')));
+    const shouldDeprioritizeChemist = (config.constraints?.reserve_deprioritize_chemists_p2 !== false) && !isMidtermSchedule;
+    if (group.period === 2 && shouldDeprioritizeChemist) {
       const deprioritizeChemist = (a: Staff, b: Staff) => {
         if (a.job_title === 'Chemist' && b.job_title !== 'Chemist') return 1;
         if (b.job_title === 'Chemist' && a.job_title !== 'Chemist') return -1;
@@ -1270,8 +1691,9 @@ export function allocateReserveStaff(
     const selected: { staff: Staff; role: 'Exam_Supervisor' | 'Assistant' }[] = [];
     const selectedIds = new Set<string>();
 
-    // Target 3-5 for Exam Supervisors
-    const targetSupervisorCount = Math.min(5, Math.max(3, sortedSupervisors.length));
+    // Target configured count for Exam Supervisors (default 3, range 0-10)
+    const configuredTargetSupervisors = config.constraints?.reserve_supervisors_target ?? 3;
+    const targetSupervisorCount = Math.min(configuredTargetSupervisors, sortedSupervisors.length);
     let addedSupervisors = 0;
     for (const supervisor of sortedSupervisors) {
       if (addedSupervisors >= targetSupervisorCount) break;
@@ -1282,8 +1704,9 @@ export function allocateReserveStaff(
       }
     }
 
-    // Target 3-5 for Invigilators (Assistants)
-    const targetAssistantCount = Math.min(5, Math.max(3, sortedAssistants.length));
+    // Target configured count for Invigilators (Assistants) (default 3, range 0-10)
+    const configuredTargetAssistants = config.constraints?.reserve_assistants_target ?? 3;
+    const targetAssistantCount = Math.min(configuredTargetAssistants, sortedAssistants.length);
     let addedAssistants = 0;
     for (const assistant of sortedAssistants) {
       if (addedAssistants >= targetAssistantCount) break;
@@ -1304,6 +1727,7 @@ export function allocateReserveStaff(
         staff_id: item.staff.id,
         role: item.role
       });
+      assignedStaffIds.add(item.staff.id);
       // Increment free_staff_score locally so subsequent periods in the same auto-assign batch see the updated score!
       const s = allStaff.find(x => x.id === item.staff.id);
       if (s) {

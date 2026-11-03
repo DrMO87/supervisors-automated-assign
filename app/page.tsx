@@ -372,7 +372,7 @@ export default function HomePage() {
                         title="Click to edit working days policy"
                       >
                         {activePeriod.ignore_staff_working_days
-                          ? `Bypass Off-Days (Max ${activePeriod.custom_days_per_week || 3}d/wk)`
+                          ? `Bypass Off-Days (Max ${activePeriod.custom_days_per_week || 5}d/wk)`
                           : 'Respects Staff Off-Days'}
                         <Pencil className="w-3 h-3 text-gold-300 shrink-0" />
                       </button>
