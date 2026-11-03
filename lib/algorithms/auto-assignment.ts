@@ -542,6 +542,43 @@ export function isStaffAvailable(
     }
   }
 
+  // 4c. Max Daily Shifts & Shift Spreading (Equalize daily shifts across all staff on duty)
+  const sameDayDistinctPeriods = new Set<number>();
+  existingAssignments.forEach((a) => {
+    if (a.staff_id === staff.id) {
+      const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+      if (s && s.exam_date === examSession.exam_date) {
+        sameDayDistinctPeriods.add(getSessionPeriod(s, allExamSessions));
+      }
+    }
+  });
+
+  const isNewPeriodForStaffToday = !sameDayDistinctPeriods.has(sessionPeriod);
+  const currentDailyPeriodsCount = sameDayDistinctPeriods.size;
+  const configuredMaxDailyShifts = constraints.max_daily_shifts ?? 2;
+
+  if (isNewPeriodForStaffToday) {
+    if (currentDailyPeriodsCount >= configuredMaxDailyShifts) {
+      if (currentDailyPeriodsCount >= configuredMaxDailyShifts + 1 && !allowWorkloadCapRelax) {
+        // Hard limit at 3+ shifts unless relaxing to prevent deficiency
+        hardViolations.push({
+          type: 'capacity',
+          message: `${staff.name} has reached maximum daily shifts cap (${currentDailyPeriodsCount} shifts on ${examSession.exam_date})`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      } else {
+        // Soft violation at 2 shifts: deprioritizes candidate so colleagues with 0 or 1 shift are assigned first!
+        softViolations.push({
+          type: 'capacity',
+          message: `${staff.name} already has ${currentDailyPeriodsCount} shift(s) on ${examSession.exam_date} (daily cap: ${configuredMaxDailyShifts})`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
+    }
+  }
+
   // 5. Max weekly hours (Soft)
   const MAX_MIN_FT = (constraints.max_hours_per_week_ft || 16) * 60;
   const MAX_MIN_PT = (constraints.max_hours_per_week_pt || 8) * 60;
@@ -660,17 +697,18 @@ export function sortStaffByPriority(
       if (!a.has_health_issue && b.has_health_issue) return 1;
     }
 
-    // Prefer specific supervision role (e.g. prioritize exact "Exam Supervisor" over "Invigilator / Exam Supervisor")
+    // Lowest effective score first (PRIMARY SORT: Strict Fairness & Parity across colleagues)
+    const aScore = getEffectiveScore(a);
+    const bScore = getEffectiveScore(b);
+    if (Math.abs(aScore - bScore) > 0.01) return aScore - bScore;
+
+    // Prefer specific supervision role ONLY as a tie-breaker when scores are equal
+    // (e.g. prioritize exact "Exam Supervisor" over "Invigilator / Exam Supervisor")
     if (preferredSupervisionRole) {
       const aR = a.supervision_role === preferredSupervisionRole ? 1 : 0;
       const bR = b.supervision_role === preferredSupervisionRole ? 1 : 0;
       if (aR !== bR) return bR - aR;
     }
-
-    // Lowest effective score first (fairness & overloaded reduction)
-    const aScore = getEffectiveScore(a);
-    const bScore = getEffectiveScore(b);
-    if (aScore !== bScore) return aScore - bScore;
 
     // Prefer specific job title
     if (preferredJobTitle) {
@@ -766,14 +804,16 @@ export function assignStaffToSession(
   // Separate health-issue staff: prefer them for near-pharmacy rooms
   const availableAll = staffWithStatus.filter((s) => s.available);
 
-  // Health-issue staff who SHOULD get near-pharmacy rooms, de-prioritise them for non-pharmacy rooms
+  // Health Status Balancing:
+  // For pharmacy rooms (P and M buildings): health-issue staff are prioritized first so they get convenient rooms.
+  // For other rooms: keep all available staff in a unified pool so they are ranked fairly by their workload score (aScore - bScore).
+  // This guarantees staff with health issues (like Engy Atta) maintain an equal total workload with their peers.
   const healthStaff = availableAll.filter((s) => s.staff.has_health_issue);
   const normalStaff = availableAll.filter((s) => !s.staff.has_health_issue);
 
-  // For pharmacy rooms: health staff first; for other rooms: health staff last
   const orderedPool = nearPharmacy
     ? [...healthStaff, ...normalStaff]
-    : [...normalStaff, ...healthStaff];
+    : availableAll;
 
   const pickBest = (
     candidates: typeof availableAll,
@@ -1665,10 +1705,39 @@ export function allocateReserveStaff(
       s => s.supervision_role === 'Invigilator' || s.supervision_role === 'Invigilator / Exam Supervisor'
     );
 
+    // Track weekly reserve count per staff to enforce reserve duty cap (default: max 2 reserves per week)
+    const sessionWeekKey = getAcademicWeekKey(group.exam_date);
+    const maxWeeklyReserves = config.constraints?.max_weekly_reserves ?? 2;
+
+    const getWeekReserveCount = (staffId: string): number => {
+      let count = 0;
+      for (const r of reserveAssignments) {
+        if (r.staff_id === staffId && getAcademicWeekKey(r.exam_date) === sessionWeekKey) {
+          count++;
+        }
+      }
+      return count;
+    };
+
     // Sort both pools using our custom sort (lowest score first)
     // Prioritize pure 'Exam Supervisor' for supervisor reserves, and pure 'Invigilator' for assistant reserves
     const sortedSupervisors = sortStaffByPriority(supervisorPool, undefined, false, 'Exam Supervisor');
     const sortedAssistants = sortStaffByPriority(assistantPool, undefined, false, 'Invigilator');
+
+    // Equitably distribute reserves: staff with fewer reserves this week come first
+    sortedSupervisors.sort((a, b) => {
+      const aW = getWeekReserveCount(a.id);
+      const bW = getWeekReserveCount(b.id);
+      if (aW !== bW) return aW - bW;
+      return 0;
+    });
+
+    sortedAssistants.sort((a, b) => {
+      const aW = getWeekReserveCount(a.id);
+      const bW = getWeekReserveCount(b.id);
+      if (aW !== bW) return aW - bW;
+      return 0;
+    });
 
     // Health-issue staff are no longer deprioritized for reserves
     // so they can maintain a fair overall workload score.
@@ -1698,6 +1767,13 @@ export function allocateReserveStaff(
     for (const supervisor of sortedSupervisors) {
       if (addedSupervisors >= targetSupervisorCount) break;
       if (!selectedIds.has(supervisor.id)) {
+        // Enforce reserve cap: avoid giving 3rd reserve if other colleagues have < maxWeeklyReserves
+        if (
+          getWeekReserveCount(supervisor.id) >= maxWeeklyReserves &&
+          sortedSupervisors.some(s => !selectedIds.has(s.id) && getWeekReserveCount(s.id) < maxWeeklyReserves)
+        ) {
+          continue;
+        }
         selected.push({ staff: supervisor, role: 'Exam_Supervisor' });
         selectedIds.add(supervisor.id);
         addedSupervisors++;
@@ -1711,6 +1787,13 @@ export function allocateReserveStaff(
     for (const assistant of sortedAssistants) {
       if (addedAssistants >= targetAssistantCount) break;
       if (!selectedIds.has(assistant.id)) {
+        // Enforce reserve cap: avoid giving 3rd reserve if other colleagues have < maxWeeklyReserves
+        if (
+          getWeekReserveCount(assistant.id) >= maxWeeklyReserves &&
+          sortedAssistants.some(s => !selectedIds.has(s.id) && getWeekReserveCount(s.id) < maxWeeklyReserves)
+        ) {
+          continue;
+        }
         selected.push({ staff: assistant, role: 'Assistant' });
         selectedIds.add(assistant.id);
         addedAssistants++;

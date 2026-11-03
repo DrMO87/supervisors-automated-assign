@@ -322,6 +322,8 @@ export interface SchedulingConstraintsConfig {
   max_score_delta_from_average?: number; // Default 3 (fairness delta)
   ignore_staff_working_days?: boolean; // Legacy fallback flag
   custom_days_per_week?: number; // Max days per week per staff member (1-6)
+  max_daily_shifts?: number; // Max daily room shifts / periods per staff member (Default 2)
+  max_weekly_reserves?: number; // Max standby reserve duties per week per staff member (Default 2)
 }
 
 // Form types

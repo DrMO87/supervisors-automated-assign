@@ -285,6 +285,30 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
             <span className="text-[11px] font-semibold text-gray-500 mt-2">Unrestricted</span>
           </button>
         </div>
+
+        {/* Max Daily Shifts per staff member */}
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+          <div>
+            <label className="block text-sm font-semibold text-gray-900">
+              Max Daily Shifts per Staff Member
+            </label>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Limits room invigilation shifts on the same day (default 2). Prevents assigning a 3rd shift to someone while other colleagues have 0 or 1 shift today.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              value={config.max_daily_shifts ?? 2}
+              onChange={(e) => updateConstraint('max_daily_shifts', parseInt(e.target.value, 10) || 1)}
+              className="input w-24 bg-white text-center font-bold"
+              min={1}
+              max={5}
+              disabled={disabled}
+            />
+            <span className="text-xs text-gray-500 font-medium whitespace-nowrap">shifts / day</span>
+          </div>
+        </div>
       </div>
 
       {/* ── 3. Standby Reserve Staff (Period Free Staff) Configuration ── */}
@@ -304,7 +328,7 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
             <label className="block text-sm font-semibold text-gray-900 mb-1">
               Target Standby Exam Supervisors (per slot)
@@ -336,6 +360,24 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
               onChange={(e) => updateConstraint('reserve_assistants_target', parseInt(e.target.value, 10) || 0)}
               className="input w-full bg-white"
               min={0}
+              max={10}
+              disabled={disabled}
+            />
+          </div>
+
+          <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg">
+            <label className="block text-sm font-semibold text-gray-900 mb-1">
+              Max Weekly Reserve Duties (per staff)
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              Maximum standby reserve duties allowed per staff member per week (default: 2). Guarantees equitable rotation.
+            </p>
+            <input
+              type="number"
+              value={config.max_weekly_reserves ?? 2}
+              onChange={(e) => updateConstraint('max_weekly_reserves', parseInt(e.target.value, 10) || 1)}
+              className="input w-full bg-white"
+              min={1}
               max={10}
               disabled={disabled}
             />
