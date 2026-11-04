@@ -13,7 +13,7 @@ import type {
   CalendarRule,
   StaffAvailabilityPolicy,
 } from '@/types/database.types';
-import { parseRoomCode, getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, getDayUniquePeriods, getDurationInMinutes, timesOverlap } from '@/types/database.types';
+import { parseRoomCode, getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, getDayUniquePeriods, getDurationInMinutes, timesOverlap, DayPeriodInfo } from '@/types/database.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -262,6 +262,11 @@ export function isStaffAvailable(
   const hardViolations: AssignmentConstraintViolation[] = [];
   const softViolations: AssignmentConstraintViolation[] = [];
 
+  const sessionLookup: Map<string, ExamSession> =
+    (allExamSessions as any)._sessionMap ||= new Map<string, ExamSession>(allExamSessions.map((s) => [s.id, s]));
+  const dayPeriodsMap: Map<string, DayPeriodInfo[]> =
+    (allExamSessions as any)._dayPeriodsMap ||= getDayUniquePeriods(allExamSessions);
+
   // 1. Availability Status (Hard)
   if (staff.availability_status !== 'Available') {
     hardViolations.push({
@@ -301,7 +306,7 @@ export function isStaffAvailable(
         const assignedDatesThisWeek = new Set<string>();
         for (const a of existingAssignments) {
           if (a.staff_id === staff.id) {
-            const s = allExamSessions.find(x => x.id === a.exam_session_id);
+            const s = sessionLookup.get(a.exam_session_id);
             const sDate = (a as any).exam_date || (a as any).exam_sessions?.exam_date || (a as any).exam_session?.exam_date || s?.exam_date;
             if (sDate) {
               const cleanDate = sDate.split('T')[0];
@@ -383,7 +388,7 @@ export function isStaffAvailable(
   }
 
   // 2d. Check if staff is already assigned as a Reserve for this period (Hard)
-  const sessionPeriod = getSessionPeriod(examSession, allExamSessions);
+  const sessionPeriod = getSessionPeriod(examSession, allExamSessions, dayPeriodsMap);
   const isReserve = periodFreeStaff.some(
     r => r.staff_id === staff.id && r.exam_date === examSession.exam_date && (
       r.period === sessionPeriod ||
@@ -434,13 +439,13 @@ export function isStaffAvailable(
   }
 
   const conflicting = existingAssignments.filter((a) => {
-    const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && areSessionsInSamePeriod(s, examSession, allExamSessions);
+    const s = sessionLookup.get(a.exam_session_id);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && areSessionsInSamePeriod(s, examSession, allExamSessions, dayPeriodsMap);
   });
   
   if (conflicting.length > 0) {
     const inDifferentRoom = conflicting.some(a => {
-      const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+      const s = sessionLookup.get(a.exam_session_id);
       if (!s) return false;
       const isSameRoom = Boolean(
         (s.room_id && examSession.room_id && s.room_id === examSession.room_id) ||
@@ -469,14 +474,14 @@ export function isStaffAvailable(
 
   // 4. Consecutive Shifts
   const sameDayOther = existingAssignments.filter((a) => {
-    const s = allExamSessions.find((x) => x.id === a.exam_session_id);
-    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && !areSessionsInSamePeriod(s, examSession, allExamSessions);
+    const s = sessionLookup.get(a.exam_session_id);
+    return s && a.staff_id === staff.id && s.exam_date === examSession.exam_date && !areSessionsInSamePeriod(s, examSession, allExamSessions, dayPeriodsMap);
   });
   if (sameDayOther.length > 0) {
     const isConsecutive = sameDayOther.some((a) => {
-      const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+      const s = sessionLookup.get(a.exam_session_id);
       if (!s) return false;
-      const otherPeriod = getSessionPeriod(s, allExamSessions);
+      const otherPeriod = getSessionPeriod(s, allExamSessions, dayPeriodsMap);
       return Math.abs(otherPeriod - sessionPeriod) === 1;
     });
     if (isConsecutive) {
@@ -504,7 +509,7 @@ export function isStaffAvailable(
   const datesAssignedInWeek = new Set<string>();
   existingAssignments.forEach(a => {
     if (a.staff_id === staff.id) {
-      const s = allExamSessions.find(x => x.id === a.exam_session_id);
+      const s = sessionLookup.get(a.exam_session_id);
       if (s && getAcademicWeekKey(s.exam_date) === sessionWeekKey) {
         datesAssignedInWeek.add(s.exam_date);
       }
@@ -546,9 +551,9 @@ export function isStaffAvailable(
   const sameDayDistinctPeriods = new Set<number>();
   existingAssignments.forEach((a) => {
     if (a.staff_id === staff.id) {
-      const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+      const s = sessionLookup.get(a.exam_session_id);
       if (s && s.exam_date === examSession.exam_date) {
-        sameDayDistinctPeriods.add(getSessionPeriod(s, allExamSessions));
+        sameDayDistinctPeriods.add(getSessionPeriod(s, allExamSessions, dayPeriodsMap));
       }
     }
   });
@@ -588,9 +593,9 @@ export function isStaffAvailable(
   const distinctSlots = new Map<string, number>();
   existingAssignments.forEach((a) => {
     if (a.staff_id !== staff.id) return;
-    const s = allExamSessions.find((x) => x.id === a.exam_session_id);
+    const s = sessionLookup.get(a.exam_session_id);
     if (!s) return;
-    const key = `${s.exam_date}_${getSessionPeriod(s, allExamSessions)}`;
+    const key = `${s.exam_date}_${getSessionPeriod(s, allExamSessions, dayPeriodsMap)}`;
     const dur = getDurationInMinutes(s.start_time, s.end_time);
     if (!distinctSlots.has(key) || distinctSlots.get(key)! < dur) {
       distinctSlots.set(key, dur);
@@ -621,7 +626,7 @@ export function isStaffAvailable(
     const assignedDays = new Set(
       existingAssignments
         .filter((a) => a.staff_id === staff.id)
-        .map((a) => allExamSessions.find((x) => x.id === a.exam_session_id)?.exam_date)
+        .map((a) => sessionLookup.get(a.exam_session_id)?.exam_date)
         .filter(Boolean)
     );
     const dayAllowance = Math.max(maxDays2h, maxDays1h); // worst case: allow up to maxDays1h distinct days
@@ -1986,8 +1991,9 @@ export function allocateReserveStaff(
       if (!selectedIds.has(supervisor.id)) {
         // Enforce peer spread cap: avoid giving reserve to staff who already exceeded or reached the peer cap
         const pGroup = supervisor.job_title || supervisor.supervision_role || 'General';
-        const pMin = peerMinScores.get(pGroup);
-        if (pMin !== undefined && getEffectiveScore(supervisor) + 0.25 > pMin + maxSpread) {
+        const cohortStaff = allStaff.filter(s => (s.job_title || s.supervision_role || 'General') === pGroup && s.availability_status === 'Available' && (s.working_days?.length || 0) > 0);
+        const pMin = cohortStaff.length > 0 ? Math.min(...cohortStaff.map(s => getEffectiveScore(s))) : 0;
+        if (getEffectiveScore(supervisor) + 0.25 > pMin + maxSpread) {
           const hasLowerAlternative = sortedSupervisors.some(s => !selectedIds.has(s.id) && getEffectiveScore(s) + 0.25 <= pMin + maxSpread);
           if (hasLowerAlternative) continue;
         }
@@ -2014,8 +2020,9 @@ export function allocateReserveStaff(
       if (!selectedIds.has(assistant.id)) {
         // Enforce peer spread cap: avoid giving reserve to staff who already exceeded or reached the peer cap
         const pGroup = assistant.job_title || assistant.supervision_role || 'General';
-        const pMin = peerMinScores.get(pGroup);
-        if (pMin !== undefined && getEffectiveScore(assistant) + 0.25 > pMin + maxSpread) {
+        const cohortStaff = allStaff.filter(s => (s.job_title || s.supervision_role || 'General') === pGroup && s.availability_status === 'Available' && (s.working_days?.length || 0) > 0);
+        const pMin = cohortStaff.length > 0 ? Math.min(...cohortStaff.map(s => getEffectiveScore(s))) : 0;
+        if (getEffectiveScore(assistant) + 0.25 > pMin + maxSpread) {
           const hasLowerAlternative = sortedAssistants.some(s => !selectedIds.has(s.id) && getEffectiveScore(s) + 0.25 <= pMin + maxSpread);
           if (hasLowerAlternative) continue;
         }
