@@ -69,13 +69,15 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
 
       {/* ── 2. Staffing Ratios Configuration Table ── */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-5 sm:p-6 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h4 className="font-semibold text-slate-900 text-sm flex items-center gap-2">
-              <Users className="w-4 h-4 text-primary-600" />
+            <h4 className="font-display font-extrabold text-slate-900 text-lg flex items-center gap-2.5">
+              <span className="p-2 rounded-xl bg-primary-100 text-primary-800 shadow-2xs">
+                <Users className="w-5 h-5 text-primary-700" />
+              </span>
               Room Capacity Tier Brackets
             </h4>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-sm text-slate-600 mt-1 font-medium">
               Define the exact head supervisor and invigilator headcount required for each student enrollment bracket.
             </p>
           </div>
@@ -83,16 +85,16 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
             type="button"
             onClick={applyPreset}
             disabled={disabled}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs self-start sm:self-auto"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl border border-slate-300 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs self-start sm:self-auto"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+            <RotateCcw className="w-4 h-4 text-slate-500" />
             Reset to HUE Preset
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-5 space-y-3.5">
           {/* Header Row */}
-          <div className="hidden md:grid md:grid-cols-12 gap-3 text-xs font-bold text-slate-600 uppercase tracking-wider pb-2 border-b border-slate-200 px-2">
+          <div className="hidden md:grid md:grid-cols-12 gap-4 text-xs font-extrabold text-slate-700 uppercase tracking-wider pb-3 border-b border-slate-200 px-3">
             <div className="col-span-3">Student Bracket</div>
             <div className="col-span-3">Min &amp; Max Students</div>
             <div className="col-span-2 text-center">Head Supervisors</div>
@@ -109,45 +111,45 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
             return (
               <div
                 key={index}
-                className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center p-3 rounded-xl border border-slate-200 hover:border-slate-300 bg-white transition-all shadow-xs"
+                className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center p-4 sm:p-5 rounded-2xl border border-slate-200 hover:border-primary-400 bg-white hover:shadow-md transition-all"
               >
                 {/* Visual Label Column */}
-                <div className="md:col-span-3 flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-primary-100 text-primary-800 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                <div className="md:col-span-3 flex items-center gap-3">
+                  <span className="w-9 h-9 rounded-xl bg-primary-100 text-primary-900 font-extrabold text-base flex items-center justify-center flex-shrink-0 shadow-2xs">
                     {index + 1}
                   </span>
                   <div>
-                    <div className="text-xs font-bold text-slate-900">
+                    <div className="text-base font-extrabold text-slate-900">
                       Tier {index + 1}: {formatRange(range.min, range.max)}
                     </div>
-                    <div className="text-[10px] text-slate-500">
+                    <div className="text-xs text-slate-500 font-medium mt-0.5">
                       {isInfinite ? 'Large Exam Halls & Auditoriums' : range.min <= 10 ? 'Small Seminar Rooms' : 'Standard Examination Hall'}
                     </div>
                   </div>
                 </div>
 
                 {/* Min & Max Inputs */}
-                <div className="md:col-span-3 flex items-center gap-2">
+                <div className="md:col-span-3 flex items-center gap-2.5">
                   <div className="flex-1">
-                    <label className="text-[10px] font-semibold text-slate-500 block mb-0.5 md:hidden">Min Students</label>
+                    <label className="text-xs font-bold text-slate-600 block mb-1 md:hidden">Min Students</label>
                     <input
                       type="number"
                       value={range.min}
                       onChange={(e) => updateRange(index, 'min', Math.max(0, parseInt(e.target.value, 10) || 0))}
-                      className="input w-full text-center text-xs font-bold"
+                      className="input w-full h-11 text-center text-sm font-extrabold rounded-xl border-slate-300 focus:border-primary-500 focus:ring-primary-500 shadow-2xs"
                       min={0}
                       disabled={disabled}
                       placeholder="Min"
                     />
                   </div>
-                  <span className="text-slate-400 font-bold text-xs">–</span>
+                  <span className="text-slate-400 font-extrabold text-base">–</span>
                   <div className="flex-1">
-                    <label className="text-[10px] font-semibold text-slate-500 block mb-0.5 md:hidden">Max Students</label>
+                    <label className="text-xs font-bold text-slate-600 block mb-1 md:hidden">Max Students</label>
                     <input
                       type="number"
                       value={isInfinite ? '' : range.max}
                       onChange={(e) => updateRange(index, 'max', parseInt(e.target.value, 10) || 9999)}
-                      className="input w-full text-center text-xs font-bold"
+                      className="input w-full h-11 text-center text-sm font-extrabold rounded-xl border-slate-300 focus:border-primary-500 focus:ring-primary-500 shadow-2xs"
                       min={range.min}
                       placeholder="∞ (Unlimited)"
                       disabled={disabled}
@@ -157,14 +159,14 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
 
                 {/* Head Supervisors Input */}
                 <div className="md:col-span-2">
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-0.5 md:hidden">Exam Supervisors</label>
-                  <div className="flex items-center gap-1.5 justify-center bg-primary-50/60 border border-primary-200/80 rounded-lg p-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-primary-700 flex-shrink-0" />
+                  <label className="text-xs font-bold text-slate-600 block mb-1 md:hidden">Exam Supervisors</label>
+                  <div className="flex items-center gap-2 justify-center bg-primary-50/80 border border-primary-200 rounded-xl p-2 shadow-2xs">
+                    <ShieldCheck className="w-4 h-4 text-primary-700 flex-shrink-0" />
                     <input
                       type="number"
                       value={range.head_supervisors}
                       onChange={(e) => updateRange(index, 'head_supervisors', Math.max(0, parseInt(e.target.value, 10) || 0))}
-                      className="input w-16 text-center text-xs font-bold bg-white h-7 py-0"
+                      className="input w-20 h-10 text-center text-base font-extrabold bg-white rounded-lg border-primary-200 focus:border-primary-500"
                       min={0}
                       max={10}
                       disabled={disabled}
@@ -174,14 +176,14 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
 
                 {/* Invigilators / Assistants Input */}
                 <div className="md:col-span-2">
-                  <label className="text-[10px] font-semibold text-slate-500 block mb-0.5 md:hidden">Invigilators</label>
-                  <div className="flex items-center gap-1.5 justify-center bg-amber-50/60 border border-amber-200/80 rounded-lg p-1">
-                    <UserCheck className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
+                  <label className="text-xs font-bold text-slate-600 block mb-1 md:hidden">Invigilators</label>
+                  <div className="flex items-center gap-2 justify-center bg-amber-50/80 border border-amber-200 rounded-xl p-2 shadow-2xs">
+                    <UserCheck className="w-4 h-4 text-amber-700 flex-shrink-0" />
                     <input
                       type="number"
                       value={range.assistants}
                       onChange={(e) => updateRange(index, 'assistants', Math.max(0, parseInt(e.target.value, 10) || 0))}
-                      className="input w-16 text-center text-xs font-bold bg-white h-7 py-0"
+                      className="input w-20 h-10 text-center text-base font-extrabold bg-white rounded-lg border-amber-200 focus:border-amber-500"
                       min={0}
                       max={20}
                       disabled={disabled}
@@ -191,7 +193,7 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
 
                 {/* Total Staff Pill */}
                 <div className="md:col-span-1 text-center">
-                  <span className="inline-flex items-center justify-center px-2 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                  <span className="inline-flex items-center justify-center px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-extrabold bg-slate-100 text-slate-800 border border-slate-200 shadow-2xs">
                     {totalStaff} staff
                   </span>
                 </div>
@@ -201,11 +203,11 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
                   <button
                     type="button"
                     onClick={() => removeRange(index)}
-                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     disabled={disabled || ranges.length <= 1}
                     title={ranges.length <= 1 ? 'At least one tier bracket must exist' : 'Delete this tier'}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               </div>
@@ -214,19 +216,19 @@ export function StaffingRatiosEditor({ ranges, onChange, disabled }: StaffingRat
         </div>
 
         {/* Footer with Add Button & Status */}
-        <div className="p-4 bg-slate-50/80 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-5 sm:p-6 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
           <button
             type="button"
             onClick={addRange}
             disabled={disabled}
-            className="btn btn-secondary text-xs flex items-center gap-2 border-dashed border-primary-300 text-primary-700 hover:bg-primary-50/50 w-full sm:w-auto"
+            className="btn btn-secondary h-11 px-5 text-sm font-bold flex items-center justify-center gap-2 border-dashed border-2 border-primary-300 text-primary-700 hover:bg-primary-50 w-full sm:w-auto rounded-xl"
           >
             <Plus className="w-4 h-4" />
             Add New Bracket Tier
           </button>
 
-          <span className="text-xs text-slate-500">
-            Current configuration spans <strong>{ranges.length} capacity tiers</strong>.
+          <span className="text-sm font-semibold text-slate-600">
+            Current configuration spans <strong className="text-slate-900 font-extrabold">{ranges.length} capacity tiers</strong>.
           </span>
         </div>
       </div>

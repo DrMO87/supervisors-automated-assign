@@ -322,6 +322,7 @@ export interface SchedulingConstraintsConfig {
   max_score_delta_from_average?: number; // Default 3 (fairness delta / max score gap between highest and lowest peer in cohort)
   ignore_staff_working_days?: boolean; // Legacy fallback flag
   custom_days_per_week?: number; // Max days per week per staff member (1-6)
+  max_days_per_week_pt?: number; // Max days per week for Part-time staff (Default 3, allowed 1-3)
   max_daily_shifts?: number; // Max daily room shifts / periods per staff member (Default 2)
   max_weekly_reserves?: number; // Max standby reserve duties per week per staff member (Default 2)
 }

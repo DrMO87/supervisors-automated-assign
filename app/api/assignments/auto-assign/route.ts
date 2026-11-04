@@ -164,6 +164,9 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       availability_policy:      effectiveAvailabilityPolicy,
       ignore_staff_working_days: shouldIgnoreStaffDays,
       custom_days_per_week:     effectiveMaxDaysPerWeek,
+      max_days_per_week_pt:     body.maxDaysPerWeekPT !== undefined
+        ? Number(body.maxDaysPerWeekPT)
+        : (savedConstraints.max_days_per_week_pt ?? 3),
       max_daily_shifts:         body.maxDailyShifts !== undefined ? Number(body.maxDailyShifts) : (savedConstraints.max_daily_shifts ?? 2),
       max_weekly_reserves:      body.maxWeeklyReserves !== undefined ? Number(body.maxWeeklyReserves) : (savedConstraints.max_weekly_reserves ?? 2),
     };

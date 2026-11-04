@@ -103,19 +103,19 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                 className="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-sm hover:border-indigo-300 transition-all"
               >
                 {/* Rule Header */}
-                <div className="bg-gradient-to-r from-indigo-50/80 via-white to-slate-50 px-5 py-3.5 border-b border-indigo-100/80 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs">
-                      <Calendar className="w-4 h-4" />
+                <div className="bg-gradient-to-r from-indigo-50/90 via-white to-slate-50 px-6 py-4 border-b border-indigo-100 flex items-center justify-between">
+                  <div className="flex items-center gap-3.5">
+                    <span className="p-2.5 rounded-xl bg-indigo-600 text-white shadow-xs flex-shrink-0">
+                      <Calendar className="w-5 h-5" />
                     </span>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-semibold text-slate-900 text-sm">{rule.description}</h4>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                      <div className="flex items-center gap-2.5">
+                        <h4 className="font-display font-extrabold text-slate-900 text-base">{rule.description}</h4>
+                        <span className="text-xs font-extrabold px-3 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
                           {calculateDays(rule.start_date, rule.end_date)}
                         </span>
                       </div>
-                      <div className="text-xs text-indigo-800 font-medium mt-0.5">
+                      <div className="text-sm text-indigo-900 font-semibold mt-0.5">
                         {formatDateRange(rule.start_date, rule.end_date)}
                       </div>
                     </div>
@@ -125,27 +125,27 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                     <button
                       type="button"
                       onClick={() => removeRule(rule.id)}
-                      className="text-red-500 hover:text-red-700 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                      className="text-slate-400 hover:text-red-600 p-2.5 rounded-xl hover:bg-red-50 transition-colors"
                       disabled={disabled}
                       title="Remove rule"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
 
                 {/* Rule Body */}
-                <div className="p-5 space-y-4">
+                <div className="p-6 space-y-5">
                   {/* Visual Option Toggles */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Universal Working Day Toggle */}
                     <button
                       type="button"
                       disabled={disabled}
                       onClick={() => updateRule(rule.id, { is_universal_working_day: !rule.is_universal_working_day })}
-                      className={`p-3.5 rounded-xl border-2 transition-all text-left flex items-start gap-3 ${
+                      className={`p-4 sm:p-5 rounded-2xl border-2 transition-all text-left flex items-start gap-3.5 ${
                         rule.is_universal_working_day
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-xs'
+                          ? 'border-indigo-600 bg-indigo-50/70 shadow-xs'
                           : 'border-slate-200 hover:border-slate-300 bg-white'
                       }`}
                     >
@@ -157,15 +157,15 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                         )}
                       </div>
                       <div>
-                        <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
+                        <div className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                           <span>Universal Working Day</span>
                           {rule.is_universal_working_day && (
-                            <span className="text-[10px] font-bold bg-indigo-600 text-white px-1.5 py-0.2 rounded">
+                            <span className="text-xs font-extrabold bg-indigo-600 text-white px-2 py-0.5 rounded">
                               Active
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        <p className="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed font-normal">
                           Overrides and suspends normal weekly days off during this window. Staff become available for full exam roster allocation.
                         </p>
                       </div>
@@ -176,9 +176,9 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                       type="button"
                       disabled={disabled}
                       onClick={() => updateRule(rule.id, { apply_staffing_ratios: !rule.apply_staffing_ratios })}
-                      className={`p-3.5 rounded-xl border-2 transition-all text-left flex items-start gap-3 ${
+                      className={`p-4 sm:p-5 rounded-2xl border-2 transition-all text-left flex items-start gap-3.5 ${
                         rule.apply_staffing_ratios
-                          ? 'border-indigo-600 bg-indigo-50/60 shadow-xs'
+                          ? 'border-indigo-600 bg-indigo-50/70 shadow-xs'
                           : 'border-slate-200 hover:border-slate-300 bg-white'
                       }`}
                     >
@@ -190,15 +190,15 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                         )}
                       </div>
                       <div>
-                        <div className="font-semibold text-xs text-slate-900 flex items-center gap-1.5">
+                        <div className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
                           <span>Custom Staffing Ratios Override</span>
                           {rule.apply_staffing_ratios && (
-                            <span className="text-[10px] font-bold bg-indigo-600 text-white px-1.5 py-0.2 rounded">
+                            <span className="text-xs font-extrabold bg-indigo-600 text-white px-2 py-0.5 rounded">
                               Active
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">
+                        <p className="text-xs sm:text-sm text-slate-600 mt-1.5 leading-relaxed font-normal">
                           Replaces standard university staffing ratios with custom ratios specific to this date range (e.g. Higher supervision for final exams).
                         </p>
                       </div>
@@ -215,10 +215,10 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
 
                   {/* Nested Custom Ratio Editor if enabled */}
                   {rule.apply_staffing_ratios && (
-                    <div className="pt-4 border-t border-slate-100">
-                      <div className="flex items-center gap-2 mb-3">
-                        <Settings2 className="w-4 h-4 text-indigo-600" />
-                        <h5 className="font-semibold text-xs text-slate-900">
+                    <div className="pt-5 border-t border-slate-100">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Settings2 className="w-5 h-5 text-indigo-600" />
+                        <h5 className="font-extrabold text-sm text-slate-900">
                           Custom Staffing Ratios for &ldquo;{rule.description}&rdquo;
                         </h5>
                       </div>
@@ -237,19 +237,19 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
       </div>
 
       {/* ── Create New Rule Panel ── */}
-      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 shadow-xs">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
-            <Plus className="w-4 h-4" />
+      <div className="bg-slate-50 border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-xs">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="p-2 rounded-xl bg-indigo-100 text-indigo-700 shadow-2xs">
+            <Plus className="w-5 h-5" />
           </span>
-          <h4 className="font-semibold text-sm text-slate-900">
+          <h4 className="font-display font-extrabold text-base text-slate-900">
             Define New Calendar Rule / Exception
           </h4>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
           <div className="sm:col-span-5">
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5">
               Rule Title / Label
             </label>
             <input
@@ -257,33 +257,33 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
               placeholder="e.g. Fall 2026 Finals Week, High Stakes Exam Period"
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
-              className="input w-full bg-white text-xs"
+              className="input w-full h-11 bg-white text-sm font-semibold rounded-xl border-slate-300"
               disabled={disabled}
             />
           </div>
 
           <div className="sm:col-span-3">
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5">
               Start Date
             </label>
             <input
               type="date"
               value={newStartDate}
               onChange={(e) => setNewStartDate(e.target.value)}
-              className="input w-full bg-white text-xs"
+              className="input w-full h-11 bg-white text-sm font-semibold rounded-xl border-slate-300"
               disabled={disabled}
             />
           </div>
 
           <div className="sm:col-span-3">
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
+            <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-1.5">
               End Date (Inclusive)
             </label>
             <input
               type="date"
               value={newEndDate}
               onChange={(e) => setNewEndDate(e.target.value)}
-              className="input w-full bg-white text-xs"
+              className="input w-full h-11 bg-white text-sm font-semibold rounded-xl border-slate-300"
               disabled={disabled}
               min={newStartDate}
             />
@@ -294,7 +294,7 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
               type="button"
               onClick={addRule}
               disabled={disabled || !newStartDate}
-              className="btn btn-primary text-xs w-full py-2.5 flex items-center justify-center gap-1 shadow-sm"
+              className="btn btn-primary h-11 w-full text-sm font-extrabold rounded-xl flex items-center justify-center gap-1.5 shadow-sm"
               title="Add Calendar Rule"
             >
               <Plus className="w-4 h-4" />
@@ -303,8 +303,8 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
           </div>
         </div>
 
-        <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
-          <Info className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+        <div className="mt-3.5 flex items-center gap-2 text-xs text-slate-500 font-medium">
+          <Info className="w-4 h-4 text-indigo-500 flex-shrink-0" />
           <span>If End Date is left blank, the rule applies to the single selected Start Date.</span>
         </div>
       </div>

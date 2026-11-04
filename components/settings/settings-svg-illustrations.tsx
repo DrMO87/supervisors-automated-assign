@@ -65,23 +65,23 @@ export function ClassroomBlueprintSvg({
         </text>
 
         {/* ── PODIUM & HEAD SUPERVISOR ── */}
-        <g transform="translate(195, 68)">
+        <g transform="translate(195, 66)">
           {/* Main Stage / Podium */}
-          <rect x="0" y="0" width="370" height="48" rx="10" fill="url(#podiumGrad)" stroke="#3b82f6" strokeWidth="2" />
+          <rect x="0" y="0" width="370" height="56" rx="12" fill="url(#podiumGrad)" stroke="#3b82f6" strokeWidth="2" />
           {/* Lectern */}
-          <rect x="155" y="8" width="60" height="32" rx="5" fill="#0f172a" stroke="#60a5fa" strokeWidth="1.2" />
-          <line x1="167" y1="16" x2="203" y2="16" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
-          <line x1="172" y1="23" x2="198" y2="23" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
+          <rect x="155" y="10" width="60" height="34" rx="6" fill="#0f172a" stroke="#60a5fa" strokeWidth="1.2" />
+          <line x1="167" y1="18" x2="203" y2="18" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
+          <line x1="172" y1="26" x2="198" y2="26" stroke="#93c5fd" strokeWidth="2" strokeLinecap="round" />
 
           {/* Head Supervisor Avatar */}
-          <circle cx="185" cy="-8" r="15" fill="url(#goldGlow)" filter="url(#neonGlow)" />
+          <circle cx="185" cy="-9" r="15" fill="url(#goldGlow)" filter="url(#neonGlow)" />
           {/* Head Icon / Shield */}
-          <path d="M180 -11 L185 -16 L190 -11 L190 -4 C190 1 185 4 185 4 C185 4 180 1 180 -4 Z" fill="#002147" />
+          <path d="M180 -12 L185 -17 L190 -12 L190 -5 C190 0 185 3 185 3 C185 3 180 0 180 -5 Z" fill="#002147" />
 
-          <text x="185" y="34" fill="#ffffff" fontSize="13" fontWeight="800" textAnchor="middle" letterSpacing="0.8">
+          <text x="185" y="32" fill="#ffffff" fontSize="13.5" fontWeight="900" textAnchor="middle" letterSpacing="0.8">
             HEAD EXAM SUPERVISOR ({headSupervisors})
           </text>
-          <text x="185" y="44" fill="#cbd5e1" fontSize="10" fontWeight="600" textAnchor="middle">
+          <text x="185" y="48" fill="#cbd5e1" fontSize="11" fontWeight="700" textAnchor="middle">
             (Teaching Assistant / Senior Faculty)
           </text>
         </g>
@@ -108,12 +108,12 @@ export function ClassroomBlueprintSvg({
             <g key={i} transform={`translate(${pos.x}, ${pos.y})`}>
               {/* Surveillance cone / sightline */}
               <path
-                d="M 0 0 L -32 44 L 32 44 Z"
+                d="M 0 0 L -34 46 L 34 46 Z"
                 fill="#f59e0b"
                 fillOpacity="0.15"
                 stroke="#f59e0b"
-                strokeWidth="1"
-                strokeOpacity="0.4"
+                strokeWidth="1.2"
+                strokeOpacity="0.45"
               />
               {/* Badge halo */}
               <circle cx="0" cy="0" r="16" fill="#78350f" stroke="#f59e0b" strokeWidth="2" />
@@ -122,8 +122,8 @@ export function ClassroomBlueprintSvg({
               <circle cx="0" cy="-3.5" r="3.5" fill="#451a03" />
               <path d="M -6 6 C -6 1.5, 6 1.5, 6 6 Z" fill="#451a03" />
               {/* Label Tag Box */}
-              <rect x="-48" y="18" width="96" height="24" rx="5" fill="#0f172a" stroke="#f59e0b" strokeWidth="1.2" />
-              <text x="0" y="34" fill="#fef08a" fontSize="11" fontWeight="800" textAnchor="middle">
+              <rect x="-52" y="18" width="104" height="26" rx="6" fill="#0f172a" stroke="#f59e0b" strokeWidth="1.5" />
+              <text x="0" y="35" fill="#fef08a" fontSize="11.5" fontWeight="900" textAnchor="middle">
                 INVIGILATOR #{i + 1}
               </text>
             </g>
@@ -159,8 +159,8 @@ export function ClassroomBlueprintSvg({
                 <line x1="10" y1="14" x2="18" y2="14" stroke="#64748b" strokeWidth="1.2" />
 
                 {/* Desk Number Badge */}
-                <circle cx="39" cy="13" r="6" fill="#0f172a" stroke="#3b82f6" strokeWidth="1" />
-                <text x="39" y="16" fill="#bfdbfe" fontSize="8" fontWeight="800" textAnchor="middle">
+                <circle cx="39" cy="13" r="7" fill="#0f172a" stroke="#3b82f6" strokeWidth="1.2" />
+                <text x="39" y="16.5" fill="#bfdbfe" fontSize="9" fontWeight="900" textAnchor="middle">
                   {idx + 1}
                 </text>
 
@@ -172,10 +172,10 @@ export function ClassroomBlueprintSvg({
         </g>
 
         {/* ── RATIO TIER STATUS FOOTER PILL ── */}
-        <g transform="translate(170, 345)">
-          <rect x="0" y="0" width="420" height="32" rx="16" fill="#0f172a" stroke="#3b82f6" strokeWidth="1.5" />
-          <circle cx="18" cy="16" r="5" fill="#10b981" />
-          <text x="34" y="21" fill="#ffffff" fontSize="12" fontWeight="700">
+        <g transform="translate(155, 342)">
+          <rect x="0" y="0" width="450" height="36" rx="18" fill="#0f172a" stroke="#3b82f6" strokeWidth="1.8" />
+          <circle cx="20" cy="18" r="6" fill="#10b981" />
+          <text x="38" y="23" fill="#ffffff" fontSize="12.5" fontWeight="800">
             Active Tier Allocation: {headSupervisors} Head Supervisor + {invigilators} Invigilators
           </text>
         </g>
@@ -813,60 +813,60 @@ export function OralPipelineSvg({ mode }: { mode: 'combined' | 'separate' | 'ski
 // ============================================================================
 export function RoleMatchingGateSvg({ enabled }: { enabled: boolean }) {
   return (
-    <div className="w-full relative overflow-hidden rounded-xl bg-slate-900 p-4 text-white border border-slate-700 shadow-md">
-      <svg className="w-full h-28 select-none" viewBox="0 0 540 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <text x="20" y="18" fill="#cbd5e1" fontSize="11" fontWeight="800" letterSpacing="0.8">
+    <div className="w-full relative overflow-hidden rounded-2xl bg-slate-900 p-5 text-white border border-slate-700 shadow-md">
+      <svg className="w-full h-28 select-none" viewBox="0 0 560 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <text x="20" y="18" fill="#cbd5e1" fontSize="11.5" fontWeight="800" letterSpacing="0.8">
           FACULTY ROLE-BASED INTAKE FILTER
         </text>
 
         {/* Lane 1: Teaching Assistants -> Exam Supervisors */}
         <g transform="translate(20, 32)">
-          <rect x="0" y="0" width="155" height="28" rx="5" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1.2" />
-          <text x="77" y="18" fill="#ffffff" fontSize="10.5" fontWeight="800" textAnchor="middle">
+          <rect x="0" y="0" width="160" height="28" rx="6" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1.2" />
+          <text x="80" y="18" fill="#ffffff" fontSize="11" fontWeight="800" textAnchor="middle">
             Teaching Assistants (TAs)
           </text>
 
-          <path d="M 160 14 L 210 14" stroke="#60a5fa" strokeWidth="2" strokeDasharray="4 3" />
-          <path d="M 207 10 L 216 14 L 207 18" fill="#60a5fa" />
+          <path d="M 165 14 L 215 14" stroke="#60a5fa" strokeWidth="2" strokeDasharray="4 3" />
+          <path d="M 212 10 L 221 14 L 212 18" fill="#60a5fa" />
 
-          <rect x="220" y="0" width="165" height="28" rx="5" fill="#0f172a" stroke="#93c5fd" strokeWidth="1.2" />
-          <text x="302" y="18" fill="#93c5fd" fontSize="11" fontWeight="900" textAnchor="middle">
+          <rect x="225" y="0" width="170" height="28" rx="6" fill="#0f172a" stroke="#93c5fd" strokeWidth="1.2" />
+          <text x="310" y="18" fill="#93c5fd" fontSize="11.5" fontWeight="900" textAnchor="middle">
             🛡️ Head Exam Supervisor
           </text>
         </g>
 
         {/* Lane 2: Demonstrators/Chemists -> Hall Invigilators */}
         <g transform="translate(20, 66)">
-          <rect x="0" y="0" width="155" height="28" rx="5" fill="#78350f" stroke="#f59e0b" strokeWidth="1.2" />
-          <text x="77" y="18" fill="#ffffff" fontSize="10.5" fontWeight="800" textAnchor="middle">
+          <rect x="0" y="0" width="160" height="28" rx="6" fill="#78350f" stroke="#f59e0b" strokeWidth="1.2" />
+          <text x="80" y="18" fill="#ffffff" fontSize="11" fontWeight="800" textAnchor="middle">
             Demonstrators &amp; Chemists
           </text>
 
-          <path d="M 160 14 L 210 14" stroke="#f59e0b" strokeWidth="2" strokeDasharray="4 3" />
-          <path d="M 207 10 L 216 14 L 207 18" fill="#f59e0b" />
+          <path d="M 165 14 L 215 14" stroke="#f59e0b" strokeWidth="2" strokeDasharray="4 3" />
+          <path d="M 212 10 L 221 14 L 212 18" fill="#f59e0b" />
 
-          <rect x="220" y="0" width="165" height="28" rx="5" fill="#0f172a" stroke="#fde68a" strokeWidth="1.2" />
-          <text x="302" y="18" fill="#fde68a" fontSize="11" fontWeight="900" textAnchor="middle">
+          <rect x="225" y="0" width="170" height="28" rx="6" fill="#0f172a" stroke="#fde68a" strokeWidth="1.2" />
+          <text x="310" y="18" fill="#fde68a" fontSize="11.5" fontWeight="900" textAnchor="middle">
             👥 Hall Invigilator
           </text>
         </g>
 
         {/* Status Tag on right */}
-        <g transform="translate(405, 36)">
+        <g transform="translate(420, 32)">
           <rect
             x="0"
             y="0"
-            width="120"
-            height="50"
-            rx="8"
+            width="125"
+            height="56"
+            rx="10"
             fill={enabled ? '#064e3b' : '#3f3f46'}
             stroke={enabled ? '#10b981' : '#71717a'}
-            strokeWidth={1.5}
+            strokeWidth={1.8}
           />
-          <text x="60" y="22" fill="#ffffff" fontSize="11" fontWeight="900" textAnchor="middle">
+          <text x="62" y="24" fill="#ffffff" fontSize="11.5" fontWeight="900" textAnchor="middle">
             {enabled ? 'STRICT LOCK' : 'FLEXIBLE'}
           </text>
-          <text x="60" y="38" fill={enabled ? '#a7f3d0' : '#d4d4d8'} fontSize="9.5" fontWeight="700" textAnchor="middle">
+          <text x="62" y="42" fill={enabled ? '#a7f3d0' : '#d4d4d8'} fontSize="10" fontWeight="700" textAnchor="middle">
             {enabled ? 'Roles Enforced' : 'Cross-Role Allowed'}
           </text>
         </g>
@@ -892,37 +892,37 @@ export function WeeklyHoursBarComparisonSvg({
   const maxScale = 40;
 
   return (
-    <div className="w-full relative overflow-hidden rounded-xl bg-slate-900 p-4 text-white border border-slate-700 shadow-md">
-      <svg className="w-full h-36 select-none" viewBox="0 0 540 135" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <text x="20" y="20" fill="#cbd5e1" fontSize="11" fontWeight="800" letterSpacing="0.8">
+    <div className="w-full relative overflow-hidden rounded-2xl bg-slate-900 p-5 text-white border border-slate-700 shadow-md">
+      <svg className="w-full h-36 select-none" viewBox="0 0 560 135" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <text x="20" y="20" fill="#cbd5e1" fontSize="11.5" fontWeight="800" letterSpacing="0.8">
           WEEKLY CONTRACT HOURS COMPARISON GAUGE
         </text>
 
         {/* Full-Time Bar */}
         <g transform="translate(20, 36)">
-          <text x="0" y="14" fill="#93c5fd" fontSize="11" fontWeight="800">Full-Time (FT)</text>
-          <rect x="95" y="2" width="310" height="16" rx="8" fill="#1e293b" />
-          <rect x="95" y="2" width={Math.min(310, (ftHours / maxScale) * 310)} height="16" rx="8" fill="#3b82f6" />
-          <text x="420" y="14" fill="#ffffff" fontSize="11" fontWeight="900">{ftHours} hrs/wk</text>
-          <text x="480" y="14" fill="#94a3b8" fontSize="9.5" fontWeight="600">(~{Math.round(ftHours / 2)} slots)</text>
+          <text x="0" y="14" fill="#93c5fd" fontSize="11.5" fontWeight="800">Full-Time (FT)</text>
+          <rect x="100" y="2" width="300" height="16" rx="8" fill="#1e293b" />
+          <rect x="100" y="2" width={Math.min(300, (ftHours / maxScale) * 300)} height="16" rx="8" fill="#3b82f6" />
+          <text x="415" y="14" fill="#ffffff" fontSize="11.5" fontWeight="900">{ftHours} hrs/wk</text>
+          <text x="490" y="14" fill="#94a3b8" fontSize="10" fontWeight="600">(~{Math.round(ftHours / 2)} slots)</text>
         </g>
 
         {/* Part-Time Bar */}
         <g transform="translate(20, 68)">
-          <text x="0" y="14" fill="#fde68a" fontSize="11" fontWeight="800">Part-Time (PT)</text>
-          <rect x="95" y="2" width="310" height="16" rx="8" fill="#1e293b" />
-          <rect x="95" y="2" width={Math.min(310, (ptHours / maxScale) * 310)} height="16" rx="8" fill="#f59e0b" />
-          <text x="420" y="14" fill="#ffffff" fontSize="11" fontWeight="900">{ptHours} hrs/wk</text>
-          <text x="480" y="14" fill="#94a3b8" fontSize="9.5" fontWeight="600">(~{Math.round(ptHours / 2)} slots)</text>
+          <text x="0" y="14" fill="#fde68a" fontSize="11.5" fontWeight="800">Part-Time (PT)</text>
+          <rect x="100" y="2" width="300" height="16" rx="8" fill="#1e293b" />
+          <rect x="100" y="2" width={Math.min(300, (ptHours / maxScale) * 300)} height="16" rx="8" fill="#f59e0b" />
+          <text x="415" y="14" fill="#ffffff" fontSize="11.5" fontWeight="900">{ptHours} hrs/wk</text>
+          <text x="490" y="14" fill="#94a3b8" fontSize="10" fontWeight="600">(~{Math.round(ptHours / 2)} slots)</text>
         </g>
 
         {/* Chemists Bar */}
         <g transform="translate(20, 100)">
-          <text x="0" y="14" fill="#a7f3d0" fontSize="11" fontWeight="800">Chemists (Lab)</text>
-          <rect x="95" y="2" width="310" height="16" rx="8" fill="#1e293b" />
-          <rect x="95" y="2" width={Math.min(310, (chemistHours / maxScale) * 310)} height="16" rx="8" fill="#10b981" />
-          <text x="420" y="14" fill="#ffffff" fontSize="11" fontWeight="900">{chemistHours} hrs/wk</text>
-          <text x="480" y="14" fill="#94a3b8" fontSize="9.5" fontWeight="600">(~{Math.round(chemistHours / 2)} slots)</text>
+          <text x="0" y="14" fill="#a7f3d0" fontSize="11.5" fontWeight="800">Chemists (Lab)</text>
+          <rect x="100" y="2" width="300" height="16" rx="8" fill="#1e293b" />
+          <rect x="100" y="2" width={Math.min(300, (chemistHours / maxScale) * 300)} height="16" rx="8" fill="#10b981" />
+          <text x="415" y="14" fill="#ffffff" fontSize="11.5" fontWeight="900">{chemistHours} hrs/wk</text>
+          <text x="490" y="14" fill="#94a3b8" fontSize="10" fontWeight="600">(~{Math.round(chemistHours / 2)} slots)</text>
         </g>
       </svg>
     </div>
@@ -944,60 +944,60 @@ export function CalendarRuleVisualSvg({
   applyCustomRatios?: boolean;
 }) {
   return (
-    <div className="w-full relative overflow-hidden rounded-xl bg-slate-900 p-4 text-white border border-indigo-900/50 shadow-md">
-      <svg className="w-full h-28 select-none" viewBox="0 0 540 95" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <text x="20" y="18" fill="#a5b4fc" fontSize="11" fontWeight="800" letterSpacing="0.8">
+    <div className="w-full relative overflow-hidden rounded-2xl bg-slate-900 p-5 text-white border border-indigo-900/50 shadow-md">
+      <svg className="w-full h-28 select-none" viewBox="0 0 560 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <text x="20" y="18" fill="#a5b4fc" fontSize="11.5" fontWeight="800" letterSpacing="0.8">
           CALENDAR OVERRIDE TIMELINE ENGINE
         </text>
 
         {/* Date Window Ribbon */}
-        <g transform="translate(20, 32)">
-          <rect x="0" y="0" width="185" height="44" rx="7" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1.2" />
-          <text x="14" y="18" fill="#c7d2fe" fontSize="9.5" fontWeight="700">DATE OVERRIDE WINDOW</text>
-          <text x="14" y="34" fill="#ffffff" fontSize="11.5" fontWeight="900">
+        <g transform="translate(20, 30)">
+          <rect x="0" y="0" width="195" height="48" rx="8" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1.2" />
+          <text x="14" y="20" fill="#c7d2fe" fontSize="10" fontWeight="700">DATE OVERRIDE WINDOW</text>
+          <text x="14" y="38" fill="#ffffff" fontSize="12" fontWeight="900">
             {startDate ? `${startDate} → ${endDate || startDate}` : 'Selected Exam Dates'}
           </text>
         </g>
 
         {/* Transition Arrows */}
-        <path d="M 215 54 L 245 54" stroke="#6366f1" strokeWidth="2.5" strokeDasharray="4 3" />
-        <path d="M 242 49 L 252 54 L 242 59" fill="#6366f1" />
+        <path d="M 225 54 L 255 54" stroke="#6366f1" strokeWidth="2.5" strokeDasharray="4 3" />
+        <path d="M 252 49 L 262 54 L 252 59" fill="#6366f1" />
 
         {/* Effects Tags */}
-        <g transform="translate(260, 32)">
+        <g transform="translate(270, 30)">
           <rect
             x="0"
             y="0"
-            width="125"
-            height="44"
-            rx="7"
+            width="130"
+            height="48"
+            rx="8"
             fill={isUniversalWorkingDay ? '#064e3b' : '#1e293b'}
             stroke={isUniversalWorkingDay ? '#10b981' : '#475569'}
             strokeWidth={1.2}
           />
-          <text x="12" y="18" fill={isUniversalWorkingDay ? '#a7f3d0' : '#cbd5e1'} fontSize="9" fontWeight="700">
+          <text x="12" y="20" fill={isUniversalWorkingDay ? '#a7f3d0' : '#cbd5e1'} fontSize="9.5" fontWeight="700">
             AVAILABILITY EFFECT
           </text>
-          <text x="12" y="34" fill="#ffffff" fontSize="11" fontWeight="900">
+          <text x="12" y="38" fill="#ffffff" fontSize="11.5" fontWeight="900">
             {isUniversalWorkingDay ? '⚡ 100% Mobilized' : 'Normal Staff Days'}
           </text>
         </g>
 
-        <g transform="translate(395, 32)">
+        <g transform="translate(410, 30)">
           <rect
             x="0"
             y="0"
-            width="125"
-            height="44"
-            rx="7"
+            width="130"
+            height="48"
+            rx="8"
             fill={applyCustomRatios ? '#78350f' : '#1e293b'}
             stroke={applyCustomRatios ? '#f59e0b' : '#475569'}
             strokeWidth={1.2}
           />
-          <text x="12" y="18" fill={applyCustomRatios ? '#fde68a' : '#cbd5e1'} fontSize="9" fontWeight="700">
+          <text x="12" y="20" fill={applyCustomRatios ? '#fde68a' : '#cbd5e1'} fontSize="9.5" fontWeight="700">
             RATIO EFFECT
           </text>
-          <text x="12" y="34" fill="#ffffff" fontSize="11" fontWeight="900">
+          <text x="12" y="38" fill="#ffffff" fontSize="11.5" fontWeight="900">
             {applyCustomRatios ? '🛡️ Custom Ratios' : 'Standard Tiers'}
           </text>
         </g>

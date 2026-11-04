@@ -297,24 +297,24 @@ export default function SettingsPage() {
                 <span>{saveMessage.text}</span>
               </div>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={handleReset}
                 disabled={isSaving}
-                className="btn btn-secondary text-xs flex items-center gap-1.5"
+                className="btn btn-secondary h-11 px-4 text-sm font-bold flex items-center gap-2 rounded-xl"
                 title="Reset all settings to defaults"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-4 h-4" />
                 Reset Defaults
               </button>
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving || !hasChanges}
-                className="btn btn-primary text-xs flex items-center gap-1.5 shadow-sm"
+                className="btn btn-primary h-11 px-5 text-sm font-extrabold flex items-center gap-2 rounded-xl shadow-sm"
               >
-                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Changes
               </button>
             </div>
@@ -323,45 +323,45 @@ export default function SettingsPage() {
       />
 
       {/* ── Executive Status HUD Strip ── */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+      <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <h3 className="font-display font-bold text-slate-900 text-base">
+            <div className="flex items-center gap-2.5">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
+              <h3 className="font-display font-extrabold text-slate-900 text-lg">
                 Operational Roster Architecture HUD
               </h3>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary-100 text-primary-800">
+              <span className="text-xs font-extrabold px-3 py-0.5 rounded-full bg-primary-100 text-primary-800">
                 Live State
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-sm text-slate-500 mt-1 font-medium">
               Current operating parameters guiding the automated examination supervisor scheduler.
             </p>
           </div>
 
           {/* Quick Search / Filter Input */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search setting options..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="input pl-8 pr-3 py-1.5 text-xs w-full bg-slate-50 border-slate-200"
+              className="input pl-10 pr-4 h-11 text-sm font-medium w-full bg-slate-50 border-slate-200 rounded-xl"
             />
           </div>
         </div>
 
         {/* Status Metrics Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 mt-5">
           {/* Metric 1 */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mb-1">
-              <Calendar className="w-3.5 h-3.5 text-primary-600" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1.5">
+              <Calendar className="w-4 h-4 text-primary-600" />
               Availability
             </div>
-            <div className="font-bold text-xs text-slate-900 truncate">
+            <div className="font-extrabold text-sm text-slate-900 truncate">
               {activePolicy === 'respect_all_off_days'
                 ? 'Strict Off-Days'
                 : activePolicy === 'cap_days_per_week'
@@ -371,12 +371,12 @@ export default function SettingsPage() {
           </div>
 
           {/* Metric 2 */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mb-1">
-              <Clock className="w-3.5 h-3.5 text-indigo-600" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1.5">
+              <Clock className="w-4 h-4 text-indigo-600" />
               Consecutive
             </div>
-            <div className="font-bold text-xs text-slate-900 truncate">
+            <div className="font-extrabold text-sm text-slate-900 truncate">
               {consecutivePolicy === 'avoid'
                 ? 'Avoided (Soft)'
                 : consecutivePolicy === 'strictly_prevent'
@@ -386,34 +386,34 @@ export default function SettingsPage() {
           </div>
 
           {/* Metric 3 */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mb-1">
-              <Users className="w-3.5 h-3.5 text-emerald-600" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1.5">
+              <Users className="w-4 h-4 text-emerald-600" />
               Backup Reserves
             </div>
-            <div className="font-bold text-xs text-slate-900">
+            <div className="font-extrabold text-sm text-slate-900">
               {constraints.reserve_supervisors_target ?? 3} Sup + {constraints.reserve_assistants_target ?? 3} Inv
             </div>
           </div>
 
           {/* Metric 4 */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mb-1">
-              <Scale className="w-3.5 h-3.5 text-amber-600" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1.5">
+              <Scale className="w-4 h-4 text-amber-600" />
               Fairness Cap
             </div>
-            <div className="font-bold text-xs text-slate-900">
+            <div className="font-extrabold text-sm text-slate-900">
               Avg +{constraints.max_score_delta_from_average ?? 3} pts
             </div>
           </div>
 
           {/* Metric 5 */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 col-span-2 sm:col-span-1">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 mb-1">
-              <Building2 className="w-3.5 h-3.5 text-blue-600" />
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 col-span-2 sm:col-span-1">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 mb-1.5">
+              <Building2 className="w-4 h-4 text-blue-600" />
               Calendar Overrides
             </div>
-            <div className="font-bold text-xs text-slate-900">
+            <div className="font-extrabold text-sm text-slate-900">
               {calendarRules.length} Active Rules
             </div>
           </div>
@@ -424,11 +424,11 @@ export default function SettingsPage() {
       <PresetProfilesSelector onApplyPreset={handleApplyPreset} disabled={isSaving} />
 
       {/* ── Reorganized Category Navigation Tabs ── */}
-      <div className="border-b border-slate-200 flex items-center gap-1 overflow-x-auto pb-px">
+      <div className="border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto pb-px">
         <button
           type="button"
           onClick={() => setActiveTab('all')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'all'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -441,7 +441,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('algorithm')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'algorithm'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -454,7 +454,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('ratios')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'ratios'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -467,7 +467,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('reserves_roaming')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'reserves_roaming'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -480,7 +480,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('fairness')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'fairness'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -493,7 +493,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => setActiveTab('calendar')}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
+          className={`flex items-center gap-2.5 px-5 py-3 rounded-t-2xl text-sm font-extrabold transition-all border-b-2 whitespace-nowrap ${
             activeTab === 'calendar'
               ? 'border-primary-600 text-primary-900 bg-white shadow-2xs'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -502,7 +502,7 @@ export default function SettingsPage() {
           <Calendar className="w-4 h-4 text-indigo-600" />
           <span>Calendar Rules &amp; Overrides</span>
           {calendarRules.length > 0 && (
-            <span className="text-[10px] bg-indigo-100 text-indigo-800 font-bold px-1.5 py-0.2 rounded-full">
+            <span className="text-xs bg-indigo-100 text-indigo-800 font-extrabold px-2 py-0.5 rounded-full">
               {calendarRules.length}
             </span>
           )}
@@ -568,22 +568,22 @@ export default function SettingsPage() {
       {/* ── Sticky Unsaved Changes Action Floating Banner ── */}
       {hasChanges && (
         <div className="fixed bottom-6 inset-x-4 sm:inset-x-auto sm:right-8 z-50 animate-slide-up">
-          <div className="bg-slate-900/95 text-white backdrop-blur-md border border-slate-700/80 rounded-2xl p-4 shadow-2xl flex items-center gap-4 max-w-lg">
-            <div className="p-2 rounded-xl bg-gold-400 text-slate-950 font-bold flex-shrink-0">
-              <Sparkles className="w-5 h-5" />
+          <div className="bg-slate-900/95 text-white backdrop-blur-md border border-slate-700/80 rounded-3xl p-5 shadow-2xl flex items-center gap-4 max-w-xl">
+            <div className="p-2.5 rounded-2xl bg-gold-400 text-slate-950 font-bold flex-shrink-0 shadow-glow-gold">
+              <Sparkles className="w-6 h-6" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-xs text-white">Unsaved Configuration Changes</div>
-              <p className="text-[11px] text-slate-300 truncate">
+              <div className="font-extrabold text-sm text-white">Unsaved Configuration Changes</div>
+              <p className="text-xs text-slate-300 truncate mt-0.5 font-medium">
                 Settings have been modified. Save now to apply to future auto-assignment passes.
               </p>
             </div>
-            <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="flex items-center gap-2.5 flex-shrink-0">
               <button
                 type="button"
                 onClick={loadSettings}
                 disabled={isSaving}
-                className="px-3 py-1.5 rounded-xl border border-white/20 text-xs font-semibold text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                className="px-4 py-2.5 rounded-xl border border-white/20 text-xs font-bold text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
               >
                 Discard
               </button>
@@ -591,9 +591,9 @@ export default function SettingsPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="btn btn-gold text-xs px-4 py-1.5 font-bold shadow-glow-gold flex items-center gap-1.5"
+                className="btn btn-gold text-sm px-5 py-2.5 font-extrabold shadow-glow-gold flex items-center gap-2 rounded-xl"
               >
-                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save Now
               </button>
             </div>

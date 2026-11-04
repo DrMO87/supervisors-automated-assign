@@ -298,8 +298,9 @@ export function isStaffAvailable(
     if (policy === 'cap_days_per_week') {
       // Mode 2: Flexible Availability (Bypass weekly off-days, cap days per academic week)
       const sessionWeekKey = getAcademicWeekKey(examSession.exam_date);
+      const configuredPTDays = Math.min(3, Math.max(1, constraints.max_days_per_week_pt ?? 3));
       const effectiveCapDays = staff.employment_status === 'Part-time'
-        ? Math.min(maxDaysPerWeek || 5, staff.working_days?.length || 3)
+        ? configuredPTDays
         : (maxDaysPerWeek || 5);
 
       if (effectiveCapDays && effectiveCapDays > 0) {
@@ -325,7 +326,8 @@ export function isStaffAvailable(
           }
         }
         if (!assignedDatesThisWeek.has(examSession.exam_date) && assignedDatesThisWeek.size >= effectiveCapDays) {
-          if (allowDayCapRelax) {
+          const canRelax = allowDayCapRelax && staff.employment_status !== 'Part-time' && effectiveCapDays < 5;
+          if (canRelax) {
             softViolations.push({
               type: 'capacity',
               message: `${staff.name} assigned extra day this week to prevent room deficiency`,
@@ -335,7 +337,7 @@ export function isStaffAvailable(
           } else {
             hardViolations.push({
               type: 'unavailable',
-              message: `${staff.name} has reached the maximum of ${effectiveCapDays} assigned days this week`,
+              message: `${staff.name} (${staff.employment_status}) has reached the maximum of ${effectiveCapDays} assigned days this week`,
               staff_id: staff.id,
               exam_session_id: examSession.id,
             });
@@ -518,10 +520,11 @@ export function isStaffAvailable(
 
   const { custom_days_per_week: configuredMaxDays } = resolveAvailabilityPolicy(constraints);
   const targetDaysCap = configuredMaxDays || 5;
+  const configuredPTDays = Math.min(3, Math.max(1, constraints.max_days_per_week_pt ?? 3));
 
   let maxAllowedDaysInWeek = targetDaysCap;
   if (staff.employment_status === 'Part-time') {
-    maxAllowedDaysInWeek = Math.min(targetDaysCap, staff.working_days?.length || 3);
+    maxAllowedDaysInWeek = configuredPTDays;
   } else {
     maxAllowedDaysInWeek = targetDaysCap; // Full-time staff up to 5 days
   }
@@ -529,7 +532,8 @@ export function isStaffAvailable(
   // If this examSession is on a NEW date, check if they are already at their weekly limit
   if (!datesAssignedInWeek.has(examSession.exam_date)) {
     if (datesAssignedInWeek.size >= maxAllowedDaysInWeek) {
-      if (allowDayCapRelax) {
+      const canRelax = allowDayCapRelax && staff.employment_status !== 'Part-time' && maxAllowedDaysInWeek < 5;
+      if (canRelax) {
         softViolations.push({
           type: 'capacity',
           message: `${staff.name} assigned extra day this week to prevent room deficiency`,
@@ -539,7 +543,7 @@ export function isStaffAvailable(
       } else {
         hardViolations.push({
           type: 'unavailable',
-          message: `${staff.name} has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week)`,
+          message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week)`,
           staff_id: staff.id,
           exam_session_id: examSession.id,
         });
@@ -718,7 +722,13 @@ export function sortStaffByPriority(
   staff: Staff[],
   preferredJobTitle?: JobTitle,
   preferNearPharmacy?: boolean,
-  preferredSupervisionRole?: string
+  preferredSupervisionRole?: string,
+  schedulingContext?: {
+    examDate?: string;
+    existingAssignments?: Assignment[];
+    allExamSessions?: ExamSession[];
+    maxDailyShifts?: number;
+  }
 ): Staff[] {
   const jobTitlePriority: Record<JobTitle, number> = {
     Chemist: 3,
@@ -727,12 +737,64 @@ export function sortStaffByPriority(
     Lecturer: 0,
   };
 
+  const staffStats = new Map<string, { shiftsToday: number; daysThisWeek: number }>();
+  if (schedulingContext?.examDate && schedulingContext.existingAssignments) {
+    const targetDate = schedulingContext.examDate;
+    const weekKey = getAcademicWeekKey(targetDate);
+    const sessionMap = (schedulingContext.allExamSessions as any)?._sessionMap ||
+      new Map(schedulingContext.allExamSessions?.map(s => [s.id, s]) || []);
+
+    for (const s of staff) {
+      const distinctSlotsToday = new Set<string>();
+      const assignedDates = new Set<string>();
+      for (const a of schedulingContext.existingAssignments) {
+        if (a.staff_id === s.id) {
+          const sess = sessionMap.get(a.exam_session_id);
+          const sDate = (a as any).exam_date || sess?.exam_date;
+          if (sDate) {
+            const clean = sDate.split('T')[0];
+            if (getAcademicWeekKey(clean) === weekKey) {
+              assignedDates.add(clean);
+            }
+            if (clean === targetDate) {
+              const sTime = (a as any).start_time || sess?.start_time || 'slot';
+              distinctSlotsToday.add(sTime);
+            }
+          }
+        }
+      }
+      staffStats.set(s.id, { shiftsToday: distinctSlotsToday.size, daysThisWeek: assignedDates.size });
+    }
+  }
+
+  const maxDaily = schedulingContext?.maxDailyShifts ?? 2;
+
   return [...staff].sort((a, b) => {
     // Health-room preference: near-pharmacy staff first when flag is set
     if (preferNearPharmacy) {
       // Prioritize staff with health issues for pharmacy rooms (P and M buildings)
       if (a.has_health_issue && !b.has_health_issue) return -1;
       if (!a.has_health_issue && b.has_health_issue) return 1;
+    }
+
+    if (staffStats.size > 0) {
+      const statsA = staffStats.get(a.id);
+      const statsB = staffStats.get(b.id);
+      if (statsA && statsB) {
+        // 1. Shift Packing / Day-off Preservation:
+        // Candidates already on campus today (shiftsToday > 0) who can take another shift today
+        // consume 0 new working days! Prioritize them to keep colleagues home with full days off!
+        const canPackA = statsA.shiftsToday > 0 && statsA.shiftsToday < maxDaily ? 1 : 0;
+        const canPackB = statsB.shiftsToday > 0 && statsB.shiftsToday < maxDaily ? 1 : 0;
+        if (canPackA !== canPackB) {
+          return canPackB - canPackA;
+        }
+
+        // 2. Weekly Day Balance: Candidate with fewer assigned days in this week comes first!
+        if (statsA.daysThisWeek !== statsB.daysThisWeek) {
+          return statsA.daysThisWeek - statsB.daysThisWeek;
+        }
+      }
     }
 
     // Lowest effective score first (PRIMARY SORT: Strict Fairness & Parity across colleagues)
@@ -828,13 +890,13 @@ export function assignStaffToSession(
   // Precompute the lowest effective score for each peer group among active colleagues
   const peerMinScores = getPeerMinScores(allStaff);
 
-  // Evaluate each staff member's availability
+  // Evaluate each staff member's availability (workload cap is a soft constraint during room assignment, strictly equalized at post-pass)
   const staffWithStatus = allStaff.map((staff) => {
     const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
     const { available, hardViolations, softViolations } = isStaffAvailable(
       staff, examSession, existingAssignments, allExamSessions, config.constraints,
       Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom,
-      periodFreeStaff, config.calendarRules, peerMinScore
+      periodFreeStaff, config.calendarRules, peerMinScore, false, true, false
     );
     return { staff, available, hardViolations, softViolations };
   });
@@ -859,14 +921,20 @@ export function assignStaffToSession(
     preferredJob?: JobTitle,
     preferredSupervisionRole?: string
   ): Staff | undefined => {
-    const ideal = candidates.filter((c) => c.softViolations.length === 0).map((c) => c.staff);
-    const fallback = candidates.filter((c) => c.softViolations.length > 0).map((c) => c.staff);
-
-    const tryFrom = (pool: Staff[]) => {
-      const sorted = sortStaffByPriority(pool, preferredJob, nearPharmacy, preferredSupervisionRole);
-      return sorted.find((s) => !excluded.some((e) => e.id === s.id));
-    };
-    return tryFrom(ideal) ?? tryFrom(fallback);
+    const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 3;
+    const sorted = sortStaffByPriority(
+      candidates.map((c) => c.staff),
+      preferredJob,
+      nearPharmacy,
+      preferredSupervisionRole,
+      {
+        examDate: examSession.exam_date,
+        existingAssignments: [...existingAssignments, ...newAssignments],
+        allExamSessions,
+        maxDailyShifts: configuredMaxDaily,
+      }
+    );
+    return sorted.find((s) => !excluded.some((e) => e.id === s.id));
   };
 
   // ── 1. Exam Supervisor (Per Room) ──
@@ -878,7 +946,7 @@ export function assignStaffToSession(
   const headSupervisors: Staff[] = [];
   if (roleToAssign === 'Both' || roleToAssign === 'Head_Supervisor') {
     for (let i = 0; i < required.headSupervisors; i++) {
-      const candidate = pickBest(headPool, headSupervisors, 'Lecturer', 'Exam Supervisor');
+      const candidate = pickBest(headPool, headSupervisors, undefined, 'Exam Supervisor');
       if (candidate) {
         headSupervisors.push(candidate);
         newAssignments.push({
@@ -911,7 +979,7 @@ export function assignStaffToSession(
         (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       );
       while (headSupervisors.length < required.headSupervisors) {
-        const candidate = pickBest(fallbackHeadPool, headSupervisors, 'Lecturer', 'Exam Supervisor');
+        const candidate = pickBest(fallbackHeadPool, headSupervisors, undefined, 'Exam Supervisor');
         if (!candidate) break;
         headSupervisors.push(candidate);
         newAssignments.push({
@@ -943,7 +1011,7 @@ export function assignStaffToSession(
         (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       );
       while (headSupervisors.length < required.headSupervisors) {
-        const candidate = pickBest(emergencyHeadPool, headSupervisors, 'Lecturer', 'Exam Supervisor');
+        const candidate = pickBest(emergencyHeadPool, headSupervisors, undefined, 'Exam Supervisor');
         if (!candidate) break;
         headSupervisors.push(candidate);
         newAssignments.push({
@@ -973,19 +1041,20 @@ export function assignStaffToSession(
       ? orderedPool.filter((s) => s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       : orderedPool.filter((s) => s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
 
-    const idealAssistants = assistantPool
-      .filter((s) => s.softViolations.length === 0)
-      .map((s) => s.staff);
-    const fallbackAssistants = assistantPool
-      .filter((s) => s.softViolations.length > 0)
-      .map((s) => s.staff);
-
-    // Sort both pools by priority (workload score, overload factor, job title) to ensure fairness.
-    // Prioritize pure 'Invigilator' staff (Chemists & pure-invigilator Demonstrators) over dual-role staff
-    // so dual-role staff are preserved for Exam Supervisor duties where pure invigilators cannot serve.
-    const sortedIdeal = sortStaffByPriority(idealAssistants, undefined, nearPharmacy, 'Invigilator');
-    const sortedFallback = sortStaffByPriority(fallbackAssistants, undefined, nearPharmacy, 'Invigilator');
-    const allSortedAssistants = [...sortedIdeal, ...sortedFallback];
+    const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 3;
+    const assistantSortContext = {
+      examDate: examSession.exam_date,
+      existingAssignments: [...existingAssignments, ...newAssignments],
+      allExamSessions,
+      maxDailyShifts: configuredMaxDaily,
+    };
+    const allSortedAssistants = sortStaffByPriority(
+      assistantPool.map((s) => s.staff),
+      undefined,
+      nearPharmacy,
+      'Invigilator',
+      assistantSortContext
+    );
 
     const excludedFromAssistants = [...headSupervisors];
     const finalAssistantPool = allSortedAssistants.filter(
@@ -1027,7 +1096,7 @@ export function assignStaffToSession(
         : fallbackStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
       
       const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
-      const eligible = sortStaffByPriority(fallbackPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator')
+      const eligible = sortStaffByPriority(fallbackPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
         .filter(s => !excludedStaff.some(e => e.id === s.id));
 
       for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
@@ -1064,7 +1133,7 @@ export function assignStaffToSession(
         : emergencyStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
       
       const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
-      const eligible = sortStaffByPriority(emergencyPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator')
+      const eligible = sortStaffByPriority(emergencyPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
         .filter(s => !excludedStaff.some(e => e.id === s.id));
 
       for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
@@ -1249,12 +1318,14 @@ export function batchAssign(
   const csAssignedPeriods = new Map<string, Set<string>>(); // staffId -> Set of slotKeys ('YYYY-MM-DD_Period')
   const csDailyDutyCounts = new Map<string, Map<string, number>>(); // staffId -> Map of date -> count
   const csPeriodDutyCounts = new Map<string, number>(); // staffId -> count of period duties in this run/week
+  const csAssignedDatesInWeek = new Map<string, Map<string, Set<string>>>(); // staffId -> weekKey -> Set<date>
 
   for (const s of currentStaff) {
     if (s.supervision_role === 'Committees Supervisor') {
       csAssignedPeriods.set(s.id, new Set());
       csDailyDutyCounts.set(s.id, new Map());
       csPeriodDutyCounts.set(s.id, 0);
+      csAssignedDatesInWeek.set(s.id, new Map());
     }
   }
 
@@ -1271,6 +1342,12 @@ export function batchAssign(
           const dMap = csDailyDutyCounts.get(a.staff_id)!;
           dMap.set(sess.exam_date, (dMap.get(sess.exam_date) || 0) + 1);
           csPeriodDutyCounts.set(a.staff_id, (csPeriodDutyCounts.get(a.staff_id) || 0) + 1);
+
+          const wk = getAcademicWeekKey(sess.exam_date);
+          if (!csAssignedDatesInWeek.get(a.staff_id)!.has(wk)) {
+            csAssignedDatesInWeek.get(a.staff_id)!.set(wk, new Set());
+          }
+          csAssignedDatesInWeek.get(a.staff_id)!.get(wk)!.add(sess.exam_date);
         }
       }
     }
@@ -1400,37 +1477,50 @@ export function batchAssign(
           // 3. Lowest baseline/cumulative score (breaks ties among candidates with equal duties)
           // 4. Soft violations count
           // 5. Deterministic tie-breaker by name
+          const sessionWeekKey = getAcademicWeekKey(examDate);
           candidateStatus.sort((a, b) => {
             const staffA = a.staff;
             const staffB = b.staff;
 
-            // 1. Daily Equalization: Staff with 0 duties today come before staff with 1 duty today
+            // 1. Shift Consolidation / Day-off Preservation:
+            // If candidate is ALREADY on campus today (has duties today) and is below max_daily_shifts:
+            // Assigning them today costs 0 new working days! Use them first to preserve full days off for peers!
+            const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 2;
             const dayDutiesA = csDailyDutyCounts.get(staffA.id)?.get(examDate) ?? 0;
             const dayDutiesB = csDailyDutyCounts.get(staffB.id)?.get(examDate) ?? 0;
-            if (dayDutiesA !== dayDutiesB) {
-              return dayDutiesA - dayDutiesB;
+            const canPackA = dayDutiesA > 0 && dayDutiesA < configuredMaxDaily ? 1 : 0;
+            const canPackB = dayDutiesB > 0 && dayDutiesB < configuredMaxDaily ? 1 : 0;
+            if (canPackA !== canPackB) {
+              return canPackB - canPackA; // Already on campus today first!
             }
 
-            // 2. Weekly / Cycle Equalization: Fewest duties in this exam run/week first
+            // 2. Weekly Day Balance: candidate with fewer assigned days in this week comes first
+            const daysThisWeekA = csAssignedDatesInWeek.get(staffA.id)?.get(sessionWeekKey)?.size ?? 0;
+            const daysThisWeekB = csAssignedDatesInWeek.get(staffB.id)?.get(sessionWeekKey)?.size ?? 0;
+            if (daysThisWeekA !== daysThisWeekB) {
+              return daysThisWeekA - daysThisWeekB;
+            }
+
+            // 3. Effective score tie-breaker: prioritize staff with lower baseline score
+            const aScore = getEffectiveScore(staffA);
+            const bScore = getEffectiveScore(staffB);
+            if (Math.abs(aScore - bScore) > 0.01) {
+              return aScore - bScore;
+            }
+
+            // 4. Period duties in this cycle
             const periodDutiesA = csPeriodDutyCounts.get(staffA.id) ?? 0;
             const periodDutiesB = csPeriodDutyCounts.get(staffB.id) ?? 0;
             if (periodDutiesA !== periodDutiesB) {
               return periodDutiesA - periodDutiesB;
             }
 
-            // 3. Effective score tie-breaker: prioritize staff with lower baseline score
-            const aScore = getEffectiveScore(staffA);
-            const bScore = getEffectiveScore(staffB);
-            if (aScore !== bScore) {
-              return aScore - bScore;
-            }
-
-            // 4. Soft violations as secondary factor
+            // 5. Soft violations as secondary factor
             if (a.softViolations.length !== b.softViolations.length) {
               return a.softViolations.length - b.softViolations.length;
             }
 
-            // 5. Deterministic tie-breaker by name
+            // 6. Deterministic tie-breaker by name
             return staffA.name.localeCompare(staffB.name);
           });
           
@@ -1460,6 +1550,11 @@ export function batchAssign(
           if (!csDailyDutyCounts.has(chosen.id)) csDailyDutyCounts.set(chosen.id, new Map());
           const dayMap = csDailyDutyCounts.get(chosen.id)!;
           dayMap.set(examDate, (dayMap.get(examDate) || 0) + 1);
+
+          if (!csAssignedDatesInWeek.has(chosen.id)) csAssignedDatesInWeek.set(chosen.id, new Map());
+          const wMap = csAssignedDatesInWeek.get(chosen.id)!;
+          if (!wMap.has(sessionWeekKey)) wMap.set(sessionWeekKey, new Set());
+          wMap.get(sessionWeekKey)!.add(examDate);
 
           csPeriodDutyCounts.set(chosen.id, (csPeriodDutyCounts.get(chosen.id) || 0) + 1);
           chosen.current_score += 1; // Score for taking on the supervisor role
@@ -1500,88 +1595,116 @@ export function batchAssign(
     return b.total_students - a.total_students;
   });
 
-  // Two-phase assignment to ensure Exam Supervisors are fully filled across ALL rooms
-  // before ANY Assistants are assigned. This prevents dual-role staff from being
-  // consumed as Assistants before they can act as Head Supervisors.
+  // Assign room supervisors date-by-date (chronologically).
+  // On each date, prioritize peak periods first so that high-demand time slots (e.g. 27 rooms)
+  // get first pick of supervisors before staff hit daily shift limits in smaller periods.
+  // Within each date, Head Supervisors are assigned first across all rooms, followed by Assistants,
+  // preserving dual-role staff for Head Supervisor duties.
+  const uniqueExamDates = Array.from(new Set(roomGroups.map(g => g.exam_date))).sort();
 
-  // Phase 1: Assign Head Supervisors
-  for (const group of sortedRoomGroups) {
-    const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
-    if (!sampleSession) continue;
+  for (const date of uniqueExamDates) {
+    const dayGroups = roomGroups.filter(rg => rg.exam_date === date);
 
-    const period = getSessionPeriod(sampleSession, sessions);
-    const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
-
-    const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
-    const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
-
-    const result = assignStaffToSession(
-      adjustedSession,
-      currentStaff,
-      currentAssignments,
-      sessions,
-      config,
-      targetRoom,
-      undefined,
-      periodFreeStaff,
-      'Head_Supervisor'
-    );
-
-    if (result.assignments.length > 0) {
-      const multipliedAssignments: Assignment[] = [];
-      for (const sid of group.session_ids) {
-        for (const a of result.assignments) {
-          multipliedAssignments.push({ ...a, id: crypto.randomUUID(), exam_session_id: sid });
-        }
-      }
-      allNewAssignments.push(...multipliedAssignments);
-      currentAssignments.push(...multipliedAssignments);
-      result.assignments.forEach((a) => {
-        const s = currentStaff.find((x) => x.id === a.staff_id);
-        if (s) s.current_score += 1;
-      });
+    // Precalculate period demand counts for this day
+    const dayPeriodCounts = new Map<number, number>();
+    for (const rg of dayGroups) {
+      const sample = sortedSessions.find(s => s.id === rg.session_ids[0]);
+      const p = sample ? getSessionPeriod(sample, sessions) : 0;
+      dayPeriodCounts.set(p, (dayPeriodCounts.get(p) || 0) + 1);
     }
-    if (result.violations.length > 0) allViolations.push(...result.violations);
-  }
 
-  // Phase 2: Assign Assistants
-  for (const group of sortedRoomGroups) {
-    const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
-    if (!sampleSession) continue;
+    // Sort day groups: peak period first, then period chronological, then largest student count
+    const sortedDayGroups = [...dayGroups].sort((a, b) => {
+      const sampleA = sortedSessions.find(s => s.id === a.session_ids[0]);
+      const sampleB = sortedSessions.find(s => s.id === b.session_ids[0]);
+      const pA = sampleA ? getSessionPeriod(sampleA, sessions) : 0;
+      const pB = sampleB ? getSessionPeriod(sampleB, sessions) : 0;
+      const countA = dayPeriodCounts.get(pA) || 0;
+      const countB = dayPeriodCounts.get(pB) || 0;
+      if (countA !== countB) return countB - countA; // Peak period first
+      if (pA !== pB) return pA - pB;
+      return b.total_students - a.total_students;
+    });
 
-    const period = getSessionPeriod(sampleSession, sessions);
-    const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
+    // Sub-Phase 1: Assign Head Supervisors for this date
+    for (const group of sortedDayGroups) {
+      const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
+      if (!sampleSession) continue;
 
-    const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
-    const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
+      const period = getSessionPeriod(sampleSession, sessions);
+      const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
 
-    const result = assignStaffToSession(
-      adjustedSession,
-      currentStaff,
-      currentAssignments,
-      sessions,
-      config,
-      targetRoom,
-      undefined,
-      periodFreeStaff,
-      'Assistant'
-    );
+      const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
+      const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
 
-    if (result.assignments.length > 0) {
-      const multipliedAssignments: Assignment[] = [];
-      for (const sid of group.session_ids) {
-        for (const a of result.assignments) {
-          multipliedAssignments.push({ ...a, id: crypto.randomUUID(), exam_session_id: sid });
+      const result = assignStaffToSession(
+        adjustedSession,
+        currentStaff,
+        currentAssignments,
+        sessions,
+        config,
+        targetRoom,
+        undefined,
+        periodFreeStaff,
+        'Head_Supervisor'
+      );
+
+      if (result.assignments.length > 0) {
+        const multipliedAssignments: Assignment[] = [];
+        for (const sid of group.session_ids) {
+          for (const a of result.assignments) {
+            multipliedAssignments.push({ ...a, id: crypto.randomUUID(), exam_session_id: sid });
+          }
         }
+        allNewAssignments.push(...multipliedAssignments);
+        currentAssignments.push(...multipliedAssignments);
+        result.assignments.forEach((a) => {
+          const s = currentStaff.find((x) => x.id === a.staff_id);
+          if (s) s.current_score += 1;
+        });
       }
-      allNewAssignments.push(...multipliedAssignments);
-      currentAssignments.push(...multipliedAssignments);
-      result.assignments.forEach((a) => {
-        const s = currentStaff.find((x) => x.id === a.staff_id);
-        if (s) s.current_score += 1;
-      });
+      if (result.violations.length > 0) allViolations.push(...result.violations);
     }
-    if (result.violations.length > 0) allViolations.push(...result.violations);
+
+    // Sub-Phase 2: Assign Assistants for this date
+    for (const group of sortedDayGroups) {
+      const sampleSession = sortedSessions.find(s => s.id === group.session_ids[0]);
+      if (!sampleSession) continue;
+
+      const period = getSessionPeriod(sampleSession, sessions);
+      const slotKey = `${group.room_id}__${group.exam_date}__${period}`;
+
+      const adjustedSession: ExamSession = { ...sampleSession, student_count: group.total_students };
+      const targetRoom = rooms?.find((r) => r.id === group.room_id) ?? null;
+
+      const result = assignStaffToSession(
+        adjustedSession,
+        currentStaff,
+        currentAssignments,
+        sessions,
+        config,
+        targetRoom,
+        undefined,
+        periodFreeStaff,
+        'Assistant'
+      );
+
+      if (result.assignments.length > 0) {
+        const multipliedAssignments: Assignment[] = [];
+        for (const sid of group.session_ids) {
+          for (const a of result.assignments) {
+            multipliedAssignments.push({ ...a, id: crypto.randomUUID(), exam_session_id: sid });
+          }
+        }
+        allNewAssignments.push(...multipliedAssignments);
+        currentAssignments.push(...multipliedAssignments);
+        result.assignments.forEach((a) => {
+          const s = currentStaff.find((x) => x.id === a.staff_id);
+          if (s) s.current_score += 1;
+        });
+      }
+      if (result.violations.length > 0) allViolations.push(...result.violations);
+    }
   }
 
   // --- POST-PASS: WORKLOAD EQUALIZATION REBALANCER ---
@@ -1689,6 +1812,24 @@ export function equalizeWorkloadPass(
             if (p.startsWith(sess.exam_date)) lowestDailyCount++;
           }
           if (lowestDailyCount >= configuredMaxDaily + 1) continue;
+
+          // 4b. Weekly days check: lowest must not exceed weekly day cap (PT <= 3 days, FT <= 5 days)
+          const sessionWeekKey = getAcademicWeekKey(sess.exam_date);
+          const configuredPT = Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
+          const maxAllowedWeeklyDays = lowest.staff.employment_status === 'Part-time'
+            ? configuredPT
+            : (config.constraints?.custom_days_per_week || 5);
+
+          const lowestDatesThisWeek = new Set<string>();
+          for (const p of lowest.periods) {
+            const pDate = p.split('_')[0];
+            if (getAcademicWeekKey(pDate) === sessionWeekKey) {
+              lowestDatesThisWeek.add(pDate);
+            }
+          }
+          if (!lowestDatesThisWeek.has(sess.exam_date) && lowestDatesThisWeek.size >= maxAllowedWeeklyDays) {
+            continue; // Cannot swap to recipient because it would add a day exceeding their weekly cap!
+          }
 
           // Perform swap: If this room session is shared, swap all assignments for this room-slot together
           const sameSlotAssigns = highest.assigns.filter(x => {

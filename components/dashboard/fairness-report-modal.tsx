@@ -26,9 +26,14 @@ export interface StaffFairnessRecord {
   job_title: string;
   supervision_role: string;
   cohort: string;
+  employment_status: string;
   totalScore: number;
   roomDuties: number;
   reserveDuties: number;
+  maxDaysInSingleWeek: number;
+  totalDaysWorked: number;
+  weeklyLimit: number;
+  isWeeklyDaysCompliant: boolean;
   workingDaysCount: number;
   configuredDaysCount: number;
   hasHealthIssue: boolean;
@@ -36,6 +41,15 @@ export interface StaffFairnessRecord {
   peerMinScore: number;
   deltaFromMin: number;
   isCompliant: boolean;
+}
+
+function getAcademicWeekKey(dateStr: string): string {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const day = d.getUTCDay();
+  const daysSinceSaturday = (day + 1) % 7;
+  const sat = new Date(d);
+  sat.setUTCDate(d.getUTCDate() - daysSinceSaturday);
+  return sat.toISOString().split('T')[0];
 }
 
 interface FairnessReportModalProps {
@@ -72,6 +86,7 @@ export function FairnessReportModal({
     // 1. Group assignments by staff member
     const staffRoomPeriods = new Map<string, Set<string>>();
     const staffDaysWorked = new Map<string, Set<string>>();
+    const staffDaysByWeek = new Map<string, Map<string, Set<string>>>();
 
     for (const a of assignments) {
       const sess = sessionMap.get(a.exam_session_id);
@@ -82,6 +97,12 @@ export function FairnessReportModal({
 
       if (!staffDaysWorked.has(a.staff_id)) staffDaysWorked.set(a.staff_id, new Set());
       staffDaysWorked.get(a.staff_id)!.add(sess.exam_date);
+
+      const wk = getAcademicWeekKey(sess.exam_date);
+      if (!staffDaysByWeek.has(a.staff_id)) staffDaysByWeek.set(a.staff_id, new Map());
+      const wMap = staffDaysByWeek.get(a.staff_id)!;
+      if (!wMap.has(wk)) wMap.set(wk, new Set());
+      wMap.get(wk)!.add(sess.exam_date);
     }
 
     // 2. Count reserves
@@ -90,6 +111,12 @@ export function FairnessReportModal({
       staffReserves.set(r.staff_id, (staffReserves.get(r.staff_id) || 0) + 1);
       if (!staffDaysWorked.has(r.staff_id)) staffDaysWorked.set(r.staff_id, new Set());
       staffDaysWorked.get(r.staff_id)!.add(r.exam_date);
+
+      const wk = getAcademicWeekKey(r.exam_date);
+      if (!staffDaysByWeek.has(r.staff_id)) staffDaysByWeek.set(r.staff_id, new Map());
+      const wMap = staffDaysByWeek.get(r.staff_id)!;
+      if (!wMap.has(wk)) wMap.set(wk, new Set());
+      wMap.get(wk)!.add(r.exam_date);
     }
 
     // 3. Group by cohort
@@ -126,15 +153,25 @@ export function FairnessReportModal({
       const deltaFromMin = Number((totalScore - pMin).toFixed(2));
       const isCompliant = deltaFromMin <= configuredCap + 1e-4;
 
+      const wMap = staffDaysByWeek.get(s.id);
+      const maxDaysInSingleWeek = wMap ? Math.max(0, ...Array.from(wMap.values()).map(dates => dates.size)) : 0;
+      const weeklyLimit = s.employment_status === 'Part-time' ? 3 : 5;
+      const isWeeklyDaysCompliant = maxDaysInSingleWeek <= weeklyLimit;
+
       return {
         id: s.id,
         name: s.name,
         job_title: s.job_title || 'General',
         supervision_role: s.supervision_role,
         cohort,
+        employment_status: s.employment_status || 'Full-time',
         totalScore,
         roomDuties,
         reserveDuties,
+        maxDaysInSingleWeek,
+        totalDaysWorked: workingDaysCount,
+        weeklyLimit,
+        isWeeklyDaysCompliant,
         workingDaysCount,
         configuredDaysCount,
         hasHealthIssue: Boolean(s.has_health_issue),
@@ -215,7 +252,7 @@ export function FairnessReportModal({
     }
 
     csv += `\n=== DETAILED INDIVIDUAL STAFF ROSTER ===\n`;
-    csv += `Staff Name,Job Title,Supervision Role,Cohort,Total Score,Room Duty Periods,Reserve Duties,Working Days Worked,Configured Days,Health Issue,Peer Min Score,Delta From Min,Cap Status\n`;
+    csv += `Staff Name,Job Title,Supervision Role,Cohort,Employment Status,Total Score,Room Duty Periods,Reserve Duties,Weekly Days (Peak),Weekly Limit,Weekly Days Compliance,Total Period Days,Configured Days,Health Issue,Peer Min Score,Delta From Min,Score Parity Status\n`;
 
     const sortedForExport = [...staffRecords].sort((a, b) => {
       if (a.cohort !== b.cohort) return a.cohort.localeCompare(b.cohort);
@@ -223,8 +260,9 @@ export function FairnessReportModal({
     });
 
     for (const r of sortedForExport) {
-      const capStatus = r.isCompliant ? 'OK' : 'EXCEEDED';
-      csv += `"${r.name}","${r.job_title}","${r.supervision_role}","${r.cohort}",${r.totalScore},${r.roomDuties},${r.reserveDuties},${r.workingDaysCount},${r.configuredDaysCount},"${r.hasHealthIssue ? 'YES' : 'NO'}",${r.peerMinScore},${r.deltaFromMin},"${capStatus}"\n`;
+      const capStatus = r.isCompliant ? 'COMPLIANT' : 'EXCEEDED';
+      const weeklyDayStatus = r.isWeeklyDaysCompliant ? `COMPLIANT (<= ${r.weeklyLimit}d)` : `EXCEEDED (> ${r.weeklyLimit}d)`;
+      csv += `"${r.name}","${r.job_title}","${r.supervision_role}","${r.cohort}","${r.employment_status}",${r.totalScore},${r.roomDuties},${r.reserveDuties},${r.maxDaysInSingleWeek},${r.weeklyLimit},"${weeklyDayStatus}",${r.totalDaysWorked},${r.configuredDaysCount},"${r.hasHealthIssue ? 'YES' : 'NO'}",${r.peerMinScore},${r.deltaFromMin},"${capStatus}"\n`;
     }
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -384,19 +422,20 @@ export function FairnessReportModal({
                   <tr>
                     <th className="py-2.5 px-3 w-10 text-center">#</th>
                     <th className="py-2.5 px-3">Staff Member</th>
-                    <th className="py-2.5 px-3">Role &amp; Cohort</th>
+                    <th className="py-2.5 px-3">Role &amp; Status</th>
                     <th className="py-2.5 px-3 text-center">Total Score</th>
                     <th className="py-2.5 px-3 text-center">Room Periods</th>
                     <th className="py-2.5 px-3 text-center">Reserves</th>
-                    <th className="py-2.5 px-3 text-center">Days Worked</th>
+                    <th className="py-2.5 px-3 text-center">Weekly Days (Peak)</th>
+                    <th className="py-2.5 px-3 text-center">Total Period Days</th>
                     <th className="py-2.5 px-3 text-center">Delta vs Floor</th>
-                    <th className="py-2.5 px-3 text-center">Cap Status</th>
+                    <th className="py-2.5 px-3 text-center">Parity Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-8 text-center text-slate-400">
+                      <td colSpan={10} className="py-8 text-center text-slate-400">
                         No staff members found matching your search.
                       </td>
                     </tr>
@@ -414,7 +453,16 @@ export function FairnessReportModal({
                         </td>
                         <td className="py-2.5 px-3 text-slate-600">
                           <span className="font-medium text-slate-700">{r.cohort}</span>
-                          <span className="text-[10px] text-slate-400 block">{r.supervision_role}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] text-slate-400">{r.supervision_role}</span>
+                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                              r.employment_status === 'Part-time' 
+                                ? 'bg-purple-100 text-purple-800 border border-purple-200' 
+                                : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {r.employment_status}
+                            </span>
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-center font-bold text-indigo-700">
                           <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md">
@@ -431,9 +479,21 @@ export function FairnessReportModal({
                             <span className="text-slate-300">0</span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-center text-slate-600">
-                          <span className="font-medium">{r.workingDaysCount}</span>
-                          <span className="text-slate-400 text-[10px]"> / {r.configuredDaysCount}d</span>
+                        <td className="py-2.5 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <span className={`font-semibold ${r.isWeeklyDaysCompliant ? 'text-slate-800' : 'text-red-600 font-bold'}`}>
+                              {r.maxDaysInSingleWeek}d
+                            </span>
+                            <span className="text-slate-400 text-[10px]">/ max {r.weeklyLimit}d</span>
+                            {r.isWeeklyDaysCompliant ? (
+                              <span className="text-emerald-600 font-bold text-[10px]">✓</span>
+                            ) : (
+                              <span className="text-red-500 font-bold text-[10px]">⚠</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center text-slate-600 font-medium">
+                          {r.totalDaysWorked}d
                         </td>
                         <td className="py-2.5 px-3 text-center font-mono text-[11px]">
                           {r.deltaFromMin === 0 ? (

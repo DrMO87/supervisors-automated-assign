@@ -47,24 +47,24 @@ export function ClassroomSimulatorVisual({ ranges }: ClassroomSimulatorVisualPro
   return (
     <div className="space-y-4">
       {/* Slider Control Bar */}
-      <div className="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
-        <div className="flex items-center gap-3">
-          <span className="p-2 rounded-xl bg-gold-400 text-slate-950 font-bold shadow-glow-gold">
+      <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg">
+        <div className="flex items-center gap-3.5">
+          <span className="p-2.5 rounded-xl bg-gold-400 text-slate-950 font-bold shadow-glow-gold flex-shrink-0">
             <Sparkles className="w-5 h-5" />
           </span>
           <div>
-            <h4 className="font-display font-bold text-white text-base">
+            <h4 className="font-display font-extrabold text-white text-lg">
               Interactive Classroom Architectural Blueprint
             </h4>
-            <p className="text-xs text-slate-300">
+            <p className="text-sm text-slate-300 font-medium mt-0.5">
               Move the slider to simulate room layout, student seating, and assigned staff in real-time.
             </p>
           </div>
         </div>
 
         {/* Interactive Slider */}
-        <div className="flex items-center gap-3 bg-white/10 px-4 py-2 rounded-xl border border-white/15 backdrop-blur-md self-start sm:self-auto">
-          <label className="text-xs text-slate-300 font-medium whitespace-nowrap">Test Students:</label>
+        <div className="flex items-center gap-3.5 bg-white/10 px-4 py-2.5 rounded-xl border border-white/15 backdrop-blur-md self-start sm:self-auto">
+          <label className="text-sm text-slate-200 font-bold whitespace-nowrap">Test Students:</label>
           <input
             type="range"
             min="5"
@@ -72,9 +72,9 @@ export function ClassroomSimulatorVisual({ ranges }: ClassroomSimulatorVisualPro
             step="5"
             value={testStudentCount}
             onChange={(e) => setTestStudentCount(parseInt(e.target.value, 10))}
-            className="w-28 sm:w-36 accent-gold-400 cursor-pointer"
+            className="w-32 sm:w-44 accent-gold-400 cursor-pointer h-2 bg-slate-700 rounded-lg"
           />
-          <div className="bg-gold-400 text-slate-950 px-2.5 py-1 rounded-lg font-bold text-xs font-mono shadow-xs">
+          <div className="bg-gold-400 text-slate-950 px-3.5 py-1.5 rounded-xl font-extrabold text-sm font-mono shadow-xs">
             {testStudentCount} seats
           </div>
         </div>
@@ -225,47 +225,47 @@ interface PresetProfilesSelectorProps {
 
 export function PresetProfilesSelector({ onApplyPreset, disabled }: PresetProfilesSelectorProps) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm mb-6">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-        <div className="flex items-center gap-2">
-          <span className="p-1.5 rounded-lg bg-gold-100 text-gold-900 shadow-2xs">
-            <Zap className="w-4 h-4 text-gold-600" />
+    <div className="bg-white border border-slate-200 rounded-3xl p-6 sm:p-7 shadow-sm mb-6">
+      <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+        <div className="flex items-center gap-3">
+          <span className="p-2.5 rounded-xl bg-gold-100 text-gold-900 shadow-2xs">
+            <Zap className="w-5 h-5 text-gold-600" />
           </span>
           <div>
-            <h4 className="font-display font-bold text-sm text-slate-900">
+            <h4 className="font-display font-extrabold text-base text-slate-900">
               One-Click Operational Presets
             </h4>
-            <p className="text-xs text-slate-500">
+            <p className="text-sm text-slate-500 font-medium mt-0.5">
               Apply verified engine configurations tailored for university exam cycles.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         {/* Preset 1: Standard Semester */}
         <button
           type="button"
           disabled={disabled}
           onClick={() => onApplyPreset('standard')}
-          className="p-4 rounded-xl border border-slate-200 hover:border-primary-500 hover:bg-primary-50/20 text-left transition-all group flex flex-col justify-between shadow-2xs"
+          className="p-5 sm:p-6 rounded-2xl border-2 border-slate-200 hover:border-primary-500 hover:bg-primary-50/25 text-left transition-all group flex flex-col justify-between shadow-xs hover:shadow-md"
         >
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-bold text-xs text-slate-900 group-hover:text-primary-700">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-display font-extrabold text-base text-slate-900 group-hover:text-primary-700">
                 1. Standard Semester
               </span>
-              <span className="text-[10px] bg-primary-100 text-primary-800 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-xs bg-primary-100 text-primary-800 px-3 py-1 rounded-full font-extrabold">
                 Balanced
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal mt-2">
               Strict weekly off-days, soft consecutive shift avoidance, standard reserve bench (3+3), 3-point delta cap.
             </p>
           </div>
-          <div className="mt-3 text-[10px] font-bold text-primary-700 flex items-center gap-1">
+          <div className="mt-5 pt-3 border-t border-slate-100 text-xs sm:text-sm font-extrabold text-primary-700 flex items-center justify-between">
             <span>Apply Balanced Preset</span>
-            <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
 
@@ -274,24 +274,24 @@ export function PresetProfilesSelector({ onApplyPreset, disabled }: PresetProfil
           type="button"
           disabled={disabled}
           onClick={() => onApplyPreset('midterm_crunch')}
-          className="p-4 rounded-xl border border-slate-200 hover:border-amber-500 hover:bg-amber-50/20 text-left transition-all group flex flex-col justify-between shadow-2xs"
+          className="p-5 sm:p-6 rounded-2xl border-2 border-slate-200 hover:border-amber-500 hover:bg-amber-50/25 text-left transition-all group flex flex-col justify-between shadow-xs hover:shadow-md"
         >
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-bold text-xs text-slate-900 group-hover:text-amber-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-display font-extrabold text-base text-slate-900 group-hover:text-amber-800">
                 2. Midterm / Peak Rush
               </span>
-              <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-xs bg-amber-100 text-amber-800 px-3 py-1 rounded-full font-extrabold">
                 High Capacity
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal mt-2">
               Flexible 5-day availability to fill compressed schedules, allow back-to-back periods, max backup reserves (4+4).
             </p>
           </div>
-          <div className="mt-3 text-[10px] font-bold text-amber-700 flex items-center gap-1">
+          <div className="mt-5 pt-3 border-t border-slate-100 text-xs sm:text-sm font-extrabold text-amber-700 flex items-center justify-between">
             <span>Apply Midterm Preset</span>
-            <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
 
@@ -300,24 +300,24 @@ export function PresetProfilesSelector({ onApplyPreset, disabled }: PresetProfil
           type="button"
           disabled={disabled}
           onClick={() => onApplyPreset('welfare_focus')}
-          className="p-4 rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/20 text-left transition-all group flex flex-col justify-between shadow-2xs"
+          className="p-5 sm:p-6 rounded-2xl border-2 border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/25 text-left transition-all group flex flex-col justify-between shadow-xs hover:shadow-md"
         >
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="font-bold text-xs text-slate-900 group-hover:text-emerald-800">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-display font-extrabold text-base text-slate-900 group-hover:text-emerald-800">
                 3. Staff Rest &amp; Equity
               </span>
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+              <span className="text-xs bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full font-extrabold">
                 Protective
               </span>
             </div>
-            <p className="text-[11px] text-slate-600 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-normal mt-2">
               Hard lockout on consecutive shifts (P1 &amp; P2 forbidden), strict 2-point delta fairness cap, max 1 daily shift.
             </p>
           </div>
-          <div className="mt-3 text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+          <div className="mt-5 pt-3 border-t border-slate-100 text-xs sm:text-sm font-extrabold text-emerald-700 flex items-center justify-between">
             <span>Apply Rest &amp; Equity Preset</span>
-            <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </div>
         </button>
       </div>
