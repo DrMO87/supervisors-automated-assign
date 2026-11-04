@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
-import { FileText, Download, Loader2, Calendar, Users, BarChart3, FileSpreadsheet, Building2, UserCheck, Mail } from 'lucide-react';
+import { FileText, Download, Loader2, Calendar, Users, BarChart3, FileSpreadsheet, Building2, UserCheck, Mail, Scale } from 'lucide-react';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
 import type { Staff, ExamSessionWithRelations, AssignmentWithSession } from '@/types/database.types';
 import { getPeriodFromTime, getSessionPeriod } from '@/types/database.types';
@@ -11,6 +11,7 @@ import { StaffSelectModal } from '@/components/reports/staff-select-modal';
 import { DateSelectModal } from '@/components/reports/date-select-modal';
 import { RoomSelectModal } from '@/components/reports/room-select-modal';
 import { BulkEmailModal } from '@/components/reports/bulk-email-modal';
+import { FairnessReportModal } from '@/components/dashboard/fairness-report-modal';
 import {
   generateWorkloadExcel,
   generateDailyHallExcel,
@@ -56,6 +57,7 @@ export default function ReportsPage() {
   const [isDateModalOpen, setIsDateModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isBulkEmailModalOpen, setIsBulkEmailModalOpen] = useState(false);
+  const [isFairnessModalOpen, setIsFairnessModalOpen] = useState(false);
   const [reportType, setReportType] = useState<'pdf' | 'excel' | 'email'>('pdf');
 
   const configStatus = getSupabaseConfigStatus();
@@ -655,6 +657,32 @@ export default function ReportsPage() {
           </button>
         </div>
 
+        {/* Fairness & Workload Parity Report */}
+        <div className="card p-7 border-l-4 border-l-emerald-600 bg-emerald-50/20 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
+            <Scale className="w-32 h-32" />
+          </div>
+          <div className="relative">
+            <div className="flex items-center mb-4">
+              <div className="bg-emerald-600 p-2.5 rounded-xl shadow-lg shadow-emerald-600/20 text-white">
+                <Scale className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold ml-4 text-emerald-950">Fairness &amp; Parity Report</h3>
+            </div>
+            <p className="text-gray-600 mb-8 text-sm leading-relaxed">
+              Audit peer workload score spreads (capped at &le; {config?.max_score_delta_from_average ?? 3} pts), working days, and download the full fairness CSV for Excel.
+            </p>
+            <button
+              onClick={() => setIsFairnessModalOpen(true)}
+              className="btn btn-primary bg-emerald-700 hover:bg-emerald-800 text-white w-full font-bold shadow-sm flex items-center justify-center transition-colors"
+              disabled={staff.length === 0}
+            >
+              <Scale className="w-4 h-4 mr-2" />
+              View Parity Report &amp; CSV
+            </button>
+          </div>
+        </div>
+
         {/* Bulk Master Export */}
         <div className="card p-7">
           <div className="flex items-center mb-4">
@@ -788,6 +816,17 @@ export default function ReportsPage() {
       <StaffSelectModal isOpen={isStaffModalOpen} onClose={() => setIsStaffModalOpen(false)} staff={staff} title="Select Staff Member" onSelect={handleStaffSchedule} />
       <DateSelectModal isOpen={isDateModalOpen} onClose={() => setIsDateModalOpen(false)} title="Select Exam Date" availableDates={examDates} onSelect={handleDailyHallSheet} />
       <RoomSelectModal isOpen={isRoomModalOpen} onClose={() => setIsRoomModalOpen(false)} rooms={rooms} title="Select Exam Hall" onSelect={handleRoomSchedule} />
+      <FairnessReportModal
+        isOpen={isFairnessModalOpen}
+        onClose={() => setIsFairnessModalOpen(false)}
+        staff={staff}
+        assignments={assignments}
+        sessions={exams}
+        reserves={freeStaff}
+        periodName={activePeriod?.name}
+        configuredCap={config?.max_score_delta_from_average ?? 3}
+      />
+
       <BulkEmailModal
         isOpen={isBulkEmailModalOpen}
         onClose={() => setIsBulkEmailModalOpen(false)}
