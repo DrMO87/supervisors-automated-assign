@@ -943,3 +943,79 @@ export function WeeklyHoursBarComparisonSvg({
     </div>
   );
 }
+
+
+// ============================================================================
+// 10. CALENDAR RULES & DATE OVERRIDES SVG
+// ============================================================================
+export function CalendarRuleVisualSvg({
+  startDate,
+  endDate,
+  isUniversalWorkingDay,
+  applyCustomRatios,
+}: {
+  startDate?: string;
+  endDate?: string;
+  isUniversalWorkingDay?: boolean;
+  applyCustomRatios?: boolean;
+}) {
+  return (
+    <div className="w-full relative overflow-hidden rounded-xl bg-slate-900 p-3.5 text-white border border-indigo-900/50 shadow-md">
+      <svg className="w-full h-24 select-none" viewBox="0 0 480 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <text x="20" y="16" fill="#818cf8" fontSize="8.5" fontWeight="800" letterSpacing="0.8">
+          CALENDAR OVERRIDE TIMELINE ENGINE
+        </text>
+
+        {/* Date Window Ribbon */}
+        <g transform="translate(20, 28)">
+          <rect x="0" y="0" width="160" height="36" rx="6" fill="#1e1b4b" stroke="#6366f1" strokeWidth="1" />
+          <text x="12" y="15" fill="#a5b4fc" fontSize="7.5" fontWeight="700">DATE OVERRIDE WINDOW</text>
+          <text x="12" y="28" fill="#ffffff" fontSize="9" fontWeight="800">
+            {startDate ? `${startDate} → ${endDate || startDate}` : 'Selected Exam Dates'}
+          </text>
+        </g>
+
+        {/* Transition Arrows */}
+        <path d="M 190 46 L 220 46" stroke="#6366f1" strokeWidth="2" strokeDasharray="3 3" />
+        <path d="M 218 42 L 225 46 L 218 50" fill="#6366f1" />
+
+        {/* Effects Tags */}
+        <g transform="translate(235, 28)">
+          <rect
+            x="0"
+            y="0"
+            width="110"
+            height="36"
+            rx="6"
+            fill={isUniversalWorkingDay ? '#064e3b' : '#1e293b'}
+            stroke={isUniversalWorkingDay ? '#10b981' : '#475569'}
+          />
+          <text x="10" y="15" fill={isUniversalWorkingDay ? '#a7f3d0' : '#94a3b8'} fontSize="7" fontWeight="700">
+            AVAILABILITY EFFECT
+          </text>
+          <text x="10" y="28" fill="#ffffff" fontSize="8" fontWeight="800">
+            {isUniversalWorkingDay ? '⚡ 100% Mobilized' : 'Normal Staff Days'}
+          </text>
+        </g>
+
+        <g transform="translate(355, 28)">
+          <rect
+            x="0"
+            y="0"
+            width="110"
+            height="36"
+            rx="6"
+            fill={applyCustomRatios ? '#78350f' : '#1e293b'}
+            stroke={applyCustomRatios ? '#f59e0b' : '#475569'}
+          />
+          <text x="10" y="15" fill={applyCustomRatios ? '#fde68a' : '#94a3b8'} fontSize="7" fontWeight="700">
+            RATIO EFFECT
+          </text>
+          <text x="10" y="28" fill="#ffffff" fontSize="8" fontWeight="800">
+            {applyCustomRatios ? '🛡️ Custom Ratios' : 'Standard Tiers'}
+          </text>
+        </g>
+      </svg>
+    </div>
+  );
+}

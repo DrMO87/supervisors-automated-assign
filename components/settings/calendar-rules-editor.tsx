@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { CalendarRule, StaffingRatioRange } from '@/types/database.types';
 import { StaffingRatiosEditor } from '@/components/settings/staffing-ratios-editor';
+import { CalendarRuleVisualSvg } from './settings-svg-illustrations';
 
 interface CalendarRulesEditorProps {
   rules: CalendarRule[];
@@ -203,6 +204,14 @@ export function CalendarRulesEditor({ rules, onChange, disabled }: CalendarRules
                       </div>
                     </button>
                   </div>
+
+                  {/* Bespoke SVG Timeline for this Rule */}
+                  <CalendarRuleVisualSvg
+                    startDate={rule.start_date}
+                    endDate={rule.end_date}
+                    isUniversalWorkingDay={rule.is_universal_working_day}
+                    applyCustomRatios={rule.apply_staffing_ratios}
+                  />
 
                   {/* Nested Custom Ratio Editor if enabled */}
                   {rule.apply_staffing_ratios && (
