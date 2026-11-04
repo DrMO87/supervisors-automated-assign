@@ -219,57 +219,63 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
           </button>
         </div>
 
-        {/* Dynamic Days Sub-control for Mode 2 */}
-        {activePolicy === 'cap_days_per_week' && (
-          <div className="p-5 bg-amber-50/90 border border-amber-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <label className="text-sm font-extrabold text-amber-950 block">
-                  Maximum Active Days Per Week (Full-time Staff)
-                </label>
-                <p className="text-xs text-amber-800 mt-1 font-medium">
-                  Restricts the maximum number of unique calendar days full-time staff can be scheduled across a single academic week (hard prohibited to exceed 5 days).
-                </p>
-              </div>
-              <select
-                value={config.custom_days_per_week || 5}
-                onChange={(e) => updateConstraint('custom_days_per_week', parseInt(e.target.value, 10))}
-                disabled={disabled}
-                className="px-4 py-2.5 bg-white border border-amber-300 rounded-xl text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
-              >
-                {[1, 2, 3, 4, 5, 6].map((num) => (
-                  <option key={num} value={num}>
-                    {num} {num === 1 ? 'day' : 'days'} / week {num === 5 ? '(Recommended)' : ''}
-                  </option>
-                ))}
-              </select>
+        {/* Dynamic Days Sub-control: Authoritative Weekly Days Limits */}
+        <div className="p-5 bg-amber-50/90 border border-amber-200 rounded-2xl flex flex-col gap-5 shadow-2xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="max-w-xl">
+              <label className="text-sm font-extrabold text-amber-950 block">
+                Maximum Active Days Per Week (Full-time Staff)
+              </label>
+              <p className="text-xs text-amber-800 mt-1 font-medium">
+                Strict weekly ceiling for full-time staff. If set to 5 days, the 6th day is strictly prohibited. If set to 4 days, the 5th day is prohibited, and so on.
+              </p>
             </div>
-
-            {/* Part-time Weekly Days Ceiling */}
-            <div className="pt-4 border-t border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <label className="text-sm font-extrabold text-amber-950 block">
-                  Maximum Working Days Per Week (Part-time Staff)
-                </label>
-                <p className="text-xs text-amber-800 mt-1 font-medium">
-                  Strict contractual ceiling for part-time personnel (never relaxed). Standard faculty policy is 2 or 3 days.
-                </p>
-              </div>
-              <select
-                value={config.max_days_per_week_pt || 3}
-                onChange={(e) => updateConstraint('max_days_per_week_pt', parseInt(e.target.value, 10))}
-                disabled={disabled}
-                className="px-4 py-2.5 bg-white border border-amber-300 rounded-xl text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
-              >
-                {[1, 2, 3].map((num) => (
-                  <option key={num} value={num}>
-                    {num} {num === 1 ? 'day' : 'days'} / week {num === 3 ? '(Recommended)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <select
+              value={config.custom_days_per_week || 5}
+              onChange={(e) => updateConstraint('custom_days_per_week', parseInt(e.target.value, 10))}
+              disabled={disabled}
+              className="px-4 py-2.5 bg-white border border-amber-300 rounded-xl text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+            >
+              {[1, 2, 3, 4, 5, 6].map((num) => (
+                <option key={num} value={num}>
+                  {num} {num === 1 ? 'day' : 'days'} / week {num === 5 ? '(Recommended)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
+
+          {/* Part-time Weekly Days Ceiling */}
+          <div className="pt-4 border-t border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="max-w-xl">
+              <label className="text-sm font-extrabold text-amber-950 block">
+                Maximum Working Days Per Week (Part-time Staff)
+              </label>
+              <p className="text-xs text-amber-800 mt-1 font-medium">
+                Strict contractual ceiling for part-time personnel (never relaxed). Standard faculty policy is 2 or 3 days.
+              </p>
+            </div>
+            <select
+              value={config.max_days_per_week_pt || 3}
+              onChange={(e) => updateConstraint('max_days_per_week_pt', parseInt(e.target.value, 10))}
+              disabled={disabled}
+              className="px-4 py-2.5 bg-white border border-amber-300 rounded-xl text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
+            >
+              {[1, 2, 3].map((num) => (
+                <option key={num} value={num}>
+                  {num} {num === 1 ? 'day' : 'days'} / week {num === 3 ? '(Recommended)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Designated Off-Days Notice */}
+          <div className="pt-3 border-t border-amber-200/60 flex items-center gap-2 text-xs text-amber-900 font-semibold">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            <span>
+              <strong>Mandatory Designated Off-Days:</strong> Any specific weekday toggled off in the Staff directory (e.g. Tuesday unchecked) is treated as an obligatory, non-negotiable off-day for that staff member.
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* ── 2. Consecutive Shifts Policy & Daily Cap ── */}

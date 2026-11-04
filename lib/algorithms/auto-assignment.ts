@@ -277,13 +277,13 @@ export function isStaffAvailable(
     });
   }
 
-  // 2. Off-day check (Hard)
+  // 2. Off-day & Designated Day-Off Check (Hard)
   const examDateISO = examSession.exam_date; // already stored as YYYY-MM-DD
-  const hasSpecificOffDates = staff.specific_off_dates && staff.specific_off_dates.length > 0;
+  const dateObj = new Date(`${examDateISO}T12:00:00Z`);
+  const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
 
-  // 2a. Strict Specific Off-Dates (Red X / approved leaves)
-  // CRITICAL SAFETY RULE: Approved individual leaves (medical, emergency, vacation) are ALWAYS respected,
-  // regardless of which availability mode is active!
+  // 2a. Strict Specific Off-Dates (individual leaves, medical, vacation)
+  // CRITICAL SAFETY RULE: Approved individual leaves (medical, emergency, vacation) are ALWAYS respected!
   if (staff.specific_off_dates?.includes(examDateISO)) {
     hardViolations.push({
       type: 'unavailable',
@@ -291,102 +291,29 @@ export function isStaffAvailable(
       staff_id: staff.id,
       exam_session_id: examSession.id,
     });
-  } else {
-    // Resolve availability policy (respect_all_off_days | cap_days_per_week | smart_dates_priority)
-    const { policy, custom_days_per_week: maxDaysPerWeek } = resolveAvailabilityPolicy(constraints);
-
-    if (policy === 'cap_days_per_week') {
-      // Mode 2: Flexible Availability (Bypass weekly off-days, cap days per academic week)
-      const sessionWeekKey = getAcademicWeekKey(examSession.exam_date);
-      const configuredPTDays = Math.min(3, Math.max(1, constraints.max_days_per_week_pt ?? 3));
-      const effectiveCapDays = staff.employment_status === 'Part-time'
-        ? configuredPTDays
-        : (maxDaysPerWeek || 5);
-
-      if (effectiveCapDays && effectiveCapDays > 0) {
-        const assignedDatesThisWeek = new Set<string>();
-        for (const a of existingAssignments) {
-          if (a.staff_id === staff.id) {
-            const s = sessionLookup.get(a.exam_session_id);
-            const sDate = (a as any).exam_date || (a as any).exam_sessions?.exam_date || (a as any).exam_session?.exam_date || s?.exam_date;
-            if (sDate) {
-              const cleanDate = sDate.split('T')[0];
-              if (getAcademicWeekKey(cleanDate) === sessionWeekKey) {
-                assignedDatesThisWeek.add(cleanDate);
-              }
-            }
-          }
-        }
-        for (const r of periodFreeStaff) {
-          if (r.staff_id === staff.id && r.exam_date) {
-            const cleanDate = r.exam_date.split('T')[0];
-            if (getAcademicWeekKey(cleanDate) === sessionWeekKey) {
-              assignedDatesThisWeek.add(cleanDate);
-            }
-          }
-        }
-        if (!assignedDatesThisWeek.has(examSession.exam_date) && assignedDatesThisWeek.size >= effectiveCapDays) {
-          const canRelax = allowDayCapRelax && staff.employment_status !== 'Part-time' && effectiveCapDays < 5;
-          if (canRelax) {
-            softViolations.push({
-              type: 'capacity',
-              message: `${staff.name} assigned extra day this week to prevent room deficiency`,
-              staff_id: staff.id,
-              exam_session_id: examSession.id,
-            });
-          } else {
-            hardViolations.push({
-              type: 'unavailable',
-              message: `${staff.name} (${staff.employment_status}) has reached the maximum of ${effectiveCapDays} assigned days this week`,
-              staff_id: staff.id,
-              exam_session_id: examSession.id,
-            });
-          }
-        }
-      }
-    } else {
-      // Mode 1 (Standard) or Mode 3 (Smart Dates Priority)
-      const isUniversalWorkingDayRaw = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
-      const isUniversalWorkingDay = !strictOffDays && isUniversalWorkingDayRaw && staff.supervision_role !== 'Committees Supervisor';
-
-      if (!isUniversalWorkingDay) {
-        if (staff.specific_standard_off_dates?.includes(examDateISO)) {
-          hardViolations.push({
-            type: 'unavailable',
-            message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
-            staff_id: staff.id,
-            exam_session_id: examSession.id,
-          });
-        } else {
-          const date = new Date(`${examSession.exam_date}T12:00:00Z`);
-          const dayName = date.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-
-          const { recurringOffDays } = hasSpecificOffDates
-            ? classifyOffDays(staff.specific_off_dates, allExamDates)
-            : { recurringOffDays: [] as string[] };
-
-          if (recurringOffDays.includes(dayName)) {
-            hardViolations.push({
-              type: 'unavailable',
-              message: `${staff.name} does not work on ${dayName}s (recurring off throughout exam period)`,
-              staff_id: staff.id,
-              exam_session_id: examSession.id,
-            });
-          } else {
-            // Mode 3: Smart dates priority - if staff has specific off-dates, ignore weekly working days pattern
-            const shouldBypassWeeklyPattern = policy === 'smart_dates_priority' && hasSpecificOffDates;
-            if (!shouldBypassWeeklyPattern && staff.working_days && !staff.working_days.includes(dayName)) {
-              hardViolations.push({
-                type: 'unavailable',
-                message: `${staff.name} does not work on ${dayName}s`,
-                staff_id: staff.id,
-                exam_session_id: examSession.id,
-              });
-            }
-          }
-        }
-      }
+  } else if (staff.specific_standard_off_dates?.includes(examDateISO)) {
+    const isUniversalWorkingDay = calendarRules.some(r => r.is_universal_working_day && r.start_date <= examDateISO && r.end_date >= examDateISO);
+    if (!isUniversalWorkingDay) {
+      hardViolations.push({
+        type: 'unavailable',
+        message: `${staff.name} has a standard specific day-off on ${examDateISO}`,
+        staff_id: staff.id,
+        exam_session_id: examSession.id,
+      });
     }
+  }
+
+  // 2b. Mandatory Staff Designated Off-Day Check (from staff.working_days):
+  // If the user or staff member has explicitly set this day as off in their profile
+  // (e.g. Tuesday is unchecked in working_days), this day is an OBLIGATORY MANDATORY OFF-DAY (أجازة إجباري).
+  // The staff member MUST NOT be assigned on this day under any circumstances.
+  if (staff.working_days && staff.working_days.length > 0 && !staff.working_days.includes(dayName)) {
+    hardViolations.push({
+      type: 'unavailable',
+      message: `${staff.name} is designated OFF on ${dayName}s (mandatory off-day in staff profile)`,
+      staff_id: staff.id,
+      exam_session_id: examSession.id,
+    });
   }
 
   // 2d. Check if staff is already assigned as a Reserve for this period (Hard)
@@ -506,7 +433,7 @@ export function isStaffAvailable(
     }
   }
 
-  // 4b. Max Working Days per week (Scoped to this academic week!)
+  // 4b. Max Working Days per week (Strict ceiling configured in Settings)
   const sessionWeekKey = getAcademicWeekKey(examSession.exam_date);
   const datesAssignedInWeek = new Set<string>();
   existingAssignments.forEach(a => {
@@ -517,37 +444,34 @@ export function isStaffAvailable(
       }
     }
   });
-
-  const { custom_days_per_week: configuredMaxDays } = resolveAvailabilityPolicy(constraints);
-  const targetDaysCap = configuredMaxDays || 5;
-  const configuredPTDays = Math.min(3, Math.max(1, constraints.max_days_per_week_pt ?? 3));
-
-  let maxAllowedDaysInWeek = targetDaysCap;
-  if (staff.employment_status === 'Part-time') {
-    maxAllowedDaysInWeek = configuredPTDays;
-  } else {
-    maxAllowedDaysInWeek = targetDaysCap; // Full-time staff up to 5 days
+  for (const r of periodFreeStaff) {
+    if (r.staff_id === staff.id && r.exam_date && getAcademicWeekKey(r.exam_date) === sessionWeekKey) {
+      datesAssignedInWeek.add(r.exam_date);
+    }
   }
 
-  // If this examSession is on a NEW date, check if they are already at their weekly limit
+  // Settings-driven cap:
+  // Full-time: custom_days_per_week (default 5). If set to 5 -> 6 prohibited; if set to 4 -> 5 prohibited; if set to 3 -> 4 prohibited.
+  // Part-time: max_days_per_week_pt (default 3). If set to 3 -> 4 prohibited; if set to 2 -> 3 prohibited.
+  const configuredFTDays = constraints.custom_days_per_week ?? 5;
+  const configuredPTDays = Math.min(3, Math.max(1, constraints.max_days_per_week_pt ?? 3));
+  let maxAllowedDaysInWeek = staff.employment_status === 'Part-time' ? configuredPTDays : configuredFTDays;
+
+  // Cap cannot exceed the number of available working days the staff member actually has in their profile
+  if (staff.working_days && staff.working_days.length > 0) {
+    maxAllowedDaysInWeek = Math.min(maxAllowedDaysInWeek, staff.working_days.length);
+  }
+
+  // If this examSession is on a NEW date, check if they are already at their weekly limit.
+  // This is a strict, non-relaxable hard prohibition.
   if (!datesAssignedInWeek.has(examSession.exam_date)) {
     if (datesAssignedInWeek.size >= maxAllowedDaysInWeek) {
-      const canRelax = allowDayCapRelax && staff.employment_status !== 'Part-time' && maxAllowedDaysInWeek < 5;
-      if (canRelax) {
-        softViolations.push({
-          type: 'capacity',
-          message: `${staff.name} assigned extra day this week to prevent room deficiency`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      } else {
-        hardViolations.push({
-          type: 'unavailable',
-          message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week)`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      }
+      hardViolations.push({
+        type: 'unavailable',
+        message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week as configured in Settings)`,
+        staff_id: staff.id,
+        exam_session_id: examSession.id,
+      });
     }
   }
 
@@ -1793,6 +1717,12 @@ export function equalizeWorkloadPass(
           // 2. Off-date check: lowest must not have an approved specific off-date on this date
           if (lowest.staff.specific_off_dates?.includes(sess.exam_date)) continue;
 
+          // 2b. Mandatory staff designated off-day check (from staff.working_days)
+          const sessDayName = new Date(`${sess.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+          if (lowest.staff.working_days && lowest.staff.working_days.length > 0 && !lowest.staff.working_days.includes(sessDayName)) {
+            continue; // Recipient is designated off on this weekday!
+          }
+
           // 3. Role eligibility check
           if (a.role === 'Exam_Supervisor') {
             const role = lowest.staff.supervision_role;
@@ -1813,12 +1743,12 @@ export function equalizeWorkloadPass(
           }
           if (lowestDailyCount >= configuredMaxDaily + 1) continue;
 
-          // 4b. Weekly days check: lowest must not exceed weekly day cap (PT <= 3 days, FT <= 5 days)
+          // 4b. Weekly days check: lowest must not exceed weekly day cap configured in Settings
           const sessionWeekKey = getAcademicWeekKey(sess.exam_date);
           const configuredPT = Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
-          const maxAllowedWeeklyDays = lowest.staff.employment_status === 'Part-time'
-            ? configuredPT
-            : (config.constraints?.custom_days_per_week || 5);
+          const configuredFT = config.constraints?.custom_days_per_week ?? 5;
+          const baseLimit = lowest.staff.employment_status === 'Part-time' ? configuredPT : configuredFT;
+          const maxAllowedWeeklyDays = Math.min(baseLimit, lowest.staff.working_days?.length || baseLimit);
 
           const lowestDatesThisWeek = new Set<string>();
           for (const p of lowest.periods) {
