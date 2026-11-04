@@ -245,6 +245,20 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     const sessionIdsToDeleteSet = new Set(!isReserveOnly ? (isOralOnly ? sessions.filter(s => !!s.exam_type?.toLowerCase().includes('oral')) : (isFinalOnly || isMidtermOnly) ? sessions.filter(s => !s.exam_type?.toLowerCase().includes('oral')) : sessions).map(s => s.id) : []);
     const filteredExistingAssignments = existingAssignments.filter(a => !sessionIdsToDeleteSet.has(a.exam_session_id));
 
+    // Calculate clean starting scores based strictly on active assignments that remain:
+    const remainingScoreMap = new Map<string, Set<string>>();
+    filteredExistingAssignments.forEach(a => {
+      const sess = sessions.find(s => s.id === a.exam_session_id);
+      if (sess) {
+        if (!remainingScoreMap.has(a.staff_id)) remainingScoreMap.set(a.staff_id, new Set());
+        remainingScoreMap.get(a.staff_id)!.add(`${sess.exam_date}_${sess.start_time}`);
+      }
+    });
+    for (const s of staff) {
+      s.current_score = remainingScoreMap.get(s.id)?.size || 0;
+      s.free_staff_score = 0;
+    }
+
     if (!isReserveOnly) {
       // Pass an empty array for periodFreeStaff since we just deleted them from DB
       const result = batchAssign(
@@ -362,6 +376,73 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       }
     }
 
+    // Direct score synchronization for current_score so DB is immediately consistent
+    const sessionDateMap = new Map<string, ExamSession>(sessions.map(s => [s.id, s]));
+    const allAssignmentsForStats = [...filteredExistingAssignments, ...allNewAssignments];
+    const staffRoomScoreMap = new Map<string, Set<string>>();
+    allAssignmentsForStats.forEach(a => {
+      const sess = sessionDateMap.get(a.exam_session_id);
+      if (sess) {
+        if (!staffRoomScoreMap.has(a.staff_id)) staffRoomScoreMap.set(a.staff_id, new Set());
+        staffRoomScoreMap.get(a.staff_id)!.add(`${sess.exam_date}_${sess.start_time}`);
+      }
+    });
+
+    const staffIdsToUpdateScore = new Set([
+      ...allNewAssignments.map(a => a.staff_id),
+      ...filteredExistingAssignments.map(a => a.staff_id),
+    ]);
+
+    if (staffIdsToUpdateScore.size > 0) {
+      const scorePromises = Array.from(staffIdsToUpdateScore).map(staffId => {
+        const score = staffRoomScoreMap.get(staffId)?.size || 0;
+        return supabaseAdmin
+          .from('staff')
+          .update({ current_score: score })
+          .eq('id', staffId);
+      });
+      await Promise.all(scorePromises);
+    }
+
+    // Calculate cohort statistics to return to UI for instant fairness display
+    const cohortsSummary: Record<string, { min: number; max: number; avg: number; spread: number; count: number }> = {};
+    const staffBreakdown = staff.map(s => {
+      const roomScore = staffRoomScoreMap.get(s.id)?.size || 0;
+      const resCount = reserveAssignments.filter(r => r.staff_id === s.id).length;
+      const totalScore = roomScore + (resCount * 0.25);
+      const cohort = s.job_title || s.supervision_role || 'General';
+      const isActive = s.availability_status === 'Available' && (s.working_days?.length || 0) > 0;
+      return {
+        id: s.id,
+        name: s.name,
+        cohort,
+        supervision_role: s.supervision_role,
+        roomScore,
+        reserveCount: resCount,
+        totalScore,
+        isActive,
+      };
+    });
+
+    for (const s of staffBreakdown) {
+      if (!s.isActive) continue;
+      if (!cohortsSummary[s.cohort]) {
+        cohortsSummary[s.cohort] = { min: Infinity, max: -Infinity, avg: 0, spread: 0, count: 0 };
+      }
+      const c = cohortsSummary[s.cohort];
+      c.count++;
+      c.min = Math.min(c.min, s.totalScore);
+      c.max = Math.max(c.max, s.totalScore);
+      c.avg += s.totalScore;
+    }
+
+    for (const c of Object.values(cohortsSummary)) {
+      if (c.count > 0) {
+        c.avg = Number((c.avg / c.count).toFixed(2));
+        c.spread = Number((c.max - c.min).toFixed(2));
+      }
+    }
+
     const reserveMsg = reserveAssignments.length > 0 ? ` and ${reserveAssignments.length} reserve staff` : '';
     return NextResponse.json({
       success: true,
@@ -369,6 +450,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       assignmentsCreated: allNewAssignments.length,
       reservesCreated: reserveAssignments.length,
       violations: allViolations,
+      cohortsSummary,
+      staffBreakdown,
     });
 
   } catch (error: any) {

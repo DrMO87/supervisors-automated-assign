@@ -1579,7 +1579,153 @@ export function batchAssign(
     if (result.violations.length > 0) allViolations.push(...result.violations);
   }
 
+  // --- POST-PASS: WORKLOAD EQUALIZATION REBALANCER ---
+  // Strictly enforces max_score_delta_from_average (default: spread <= 3) across each peer cohort
+  equalizeWorkloadPass(allNewAssignments, currentStaff, effectiveSessions, config);
+
   return { assignments: allNewAssignments, violations: allViolations };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKLOAD EQUALIZATION REBALANCER
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Rebalances room assignments within each peer cohort (Chemists, TAs, Demonstrators, Lecturers)
+ * to strictly enforce that max(peer_score) - min(peer_score) <= maxSpread (default 3),
+ * without sacrificing 100% full staffing, room suitability, or constraint integrity.
+ */
+export function equalizeWorkloadPass(
+  assignments: Assignment[],
+  staffList: Staff[],
+  sessions: ExamSession[],
+  config: AutoAssignConfig
+) {
+  const maxSpread = config.constraints?.max_score_delta_from_average ?? 3;
+  const sessionMap = new Map<string, ExamSession>(sessions.map(s => [s.id, s]));
+  const activeStaff = staffList.filter(s => s.availability_status === 'Available' && (s.working_days?.length || 0) > 0);
+  const cohorts = ['Chemist', 'Teaching Assistant', 'Demonstrator', 'Lecturer'];
+
+  for (const cohort of cohorts) {
+    const cohortStaff = activeStaff.filter(s => (s.job_title || s.supervision_role) === cohort);
+    if (cohortStaff.length <= 1) continue;
+
+    const calcPeriods = () => {
+      const map = new Map<string, { staff: Staff; periods: Set<string>; assigns: Assignment[] }>();
+      for (const s of cohortStaff) {
+        map.set(s.id, { staff: s, periods: new Set(), assigns: [] });
+      }
+      for (const a of assignments) {
+        const entry = map.get(a.staff_id);
+        if (!entry) continue;
+        const sess = sessionMap.get(a.exam_session_id);
+        if (sess) {
+          entry.periods.add(`${sess.exam_date}_${sess.start_time}`);
+          entry.assigns.push(a);
+        }
+      }
+      return map;
+    };
+
+    let periodMap = calcPeriods();
+    let members = Array.from(periodMap.values()).sort((a, b) => b.periods.size - a.periods.size);
+    let minSize = members[members.length - 1].periods.size;
+    let maxSize = members[0].periods.size;
+
+    let swaps = 0;
+    while (maxSize - minSize > maxSpread && swaps < 300) {
+      const highest = members[0];
+      let swapped = false;
+
+      // Try swapping duties to lowest scoring members in this cohort
+      for (let lIdx = members.length - 1; lIdx >= 0; lIdx--) {
+        const lowest = members[lIdx];
+        if (highest.periods.size - lowest.periods.size <= maxSpread) break;
+
+        // Find an assignment in highest that lowest can safely take
+        for (const a of highest.assigns) {
+          const sess = sessionMap.get(a.exam_session_id);
+          if (!sess) continue;
+
+          // 1. Slot check: lowest must not already be assigned in this period/slot
+          const slotKey = `${sess.exam_date}_${sess.start_time}`;
+          if (lowest.periods.has(slotKey)) continue;
+
+          // Also check all other assignments in general for lowest at this time
+          const hasClash = assignments.some(x => {
+            if (x.staff_id !== lowest.staff.id) return false;
+            const xs = sessionMap.get(x.exam_session_id);
+            return xs && xs.exam_date === sess.exam_date && (
+              xs.start_time === sess.start_time ||
+              timesOverlap(xs.start_time, xs.end_time, sess.start_time, sess.end_time)
+            );
+          });
+          if (hasClash) continue;
+
+          // 2. Off-date check: lowest must not have an approved specific off-date on this date
+          if (lowest.staff.specific_off_dates?.includes(sess.exam_date)) continue;
+
+          // 3. Role eligibility check
+          if (a.role === 'Exam_Supervisor') {
+            const role = lowest.staff.supervision_role;
+            if (role !== 'Exam Supervisor' && role !== 'Invigilator / Exam Supervisor') {
+              continue;
+            }
+          } else if (a.role === 'Committees_Supervisor') {
+            if (lowest.staff.supervision_role !== 'Committees Supervisor') {
+              continue;
+            }
+          }
+
+          // 4. Daily shifts check: respect max daily shifts
+          const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 2;
+          let lowestDailyCount = 0;
+          for (const p of lowest.periods) {
+            if (p.startsWith(sess.exam_date)) lowestDailyCount++;
+          }
+          if (lowestDailyCount >= configuredMaxDaily + 1) continue;
+
+          // Perform swap: If this room session is shared, swap all assignments for this room-slot together
+          const sameSlotAssigns = highest.assigns.filter(x => {
+            const xs = sessionMap.get(x.exam_session_id);
+            return xs && xs.exam_date === sess.exam_date && xs.start_time === sess.start_time && xs.room_id === sess.room_id;
+          });
+
+          for (const sa of sameSlotAssigns) {
+            sa.staff_id = lowest.staff.id;
+          }
+
+          swapped = true;
+          swaps++;
+          break;
+        }
+
+        if (swapped) break;
+      }
+
+      if (!swapped) {
+        break; // No further valid swaps could be made
+      }
+
+      periodMap = calcPeriods();
+      members = Array.from(periodMap.values()).sort((a, b) => b.periods.size - a.periods.size);
+      minSize = members[members.length - 1].periods.size;
+      maxSize = members[0].periods.size;
+    }
+  }
+
+  // Resynchronize staff.current_score with final assignments
+  const finalScoreMap = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    const sess = sessionMap.get(a.exam_session_id);
+    if (sess) {
+      if (!finalScoreMap.has(a.staff_id)) finalScoreMap.set(a.staff_id, new Set());
+      finalScoreMap.get(a.staff_id)!.add(`${sess.exam_date}_${sess.start_time}`);
+    }
+  }
+  for (const s of staffList) {
+    s.current_score = finalScoreMap.get(s.id)?.size || 0;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1789,20 +1935,24 @@ export function allocateReserveStaff(
     const sortedSupervisors = sortStaffByPriority(supervisorPool, undefined, false, 'Exam Supervisor');
     const sortedAssistants = sortStaffByPriority(assistantPool, undefined, false, 'Invigilator');
 
-    // Equitably distribute reserves: staff with fewer reserves this week come first
-    sortedSupervisors.sort((a, b) => {
-      const aW = getWeekReserveCount(a.id);
-      const bW = getWeekReserveCount(b.id);
-      if (aW !== bW) return aW - bW;
-      return 0;
-    });
+    // Equitably distribute reserves:
+    // 1. Staff with lower effective workload score first (strictly preventing over-allocated staff from getting reserves)
+    // 2. Staff with fewer reserves this week come first
+    // 3. Name tie-breaker
+    const compareReserves = (a: Staff, b: Staff) => {
+      const aScore = getEffectiveScore(a);
+      const bScore = getEffectiveScore(b);
+      if (Math.abs(aScore - bScore) > 0.01) return aScore - bScore;
 
-    sortedAssistants.sort((a, b) => {
       const aW = getWeekReserveCount(a.id);
       const bW = getWeekReserveCount(b.id);
       if (aW !== bW) return aW - bW;
-      return 0;
-    });
+
+      return a.name.localeCompare(b.name);
+    };
+
+    sortedSupervisors.sort(compareReserves);
+    sortedAssistants.sort(compareReserves);
 
     // Health-issue staff are no longer deprioritized for reserves
     // so they can maintain a fair overall workload score.
@@ -1825,6 +1975,8 @@ export function allocateReserveStaff(
     const selected: { staff: Staff; role: 'Exam_Supervisor' | 'Assistant' }[] = [];
     const selectedIds = new Set<string>();
 
+    const maxSpread = config.constraints?.max_score_delta_from_average ?? 3;
+
     // Target configured count for Exam Supervisors (default 3, range 0-10)
     const configuredTargetSupervisors = config.constraints?.reserve_supervisors_target ?? 3;
     const targetSupervisorCount = Math.min(configuredTargetSupervisors, sortedSupervisors.length);
@@ -1832,6 +1984,14 @@ export function allocateReserveStaff(
     for (const supervisor of sortedSupervisors) {
       if (addedSupervisors >= targetSupervisorCount) break;
       if (!selectedIds.has(supervisor.id)) {
+        // Enforce peer spread cap: avoid giving reserve to staff who already exceeded or reached the peer cap
+        const pGroup = supervisor.job_title || supervisor.supervision_role || 'General';
+        const pMin = peerMinScores.get(pGroup);
+        if (pMin !== undefined && getEffectiveScore(supervisor) + 0.25 > pMin + maxSpread) {
+          const hasLowerAlternative = sortedSupervisors.some(s => !selectedIds.has(s.id) && getEffectiveScore(s) + 0.25 <= pMin + maxSpread);
+          if (hasLowerAlternative) continue;
+        }
+
         // Enforce reserve cap: avoid giving 3rd reserve if other colleagues have < maxWeeklyReserves
         if (
           getWeekReserveCount(supervisor.id) >= maxWeeklyReserves &&
@@ -1852,6 +2012,14 @@ export function allocateReserveStaff(
     for (const assistant of sortedAssistants) {
       if (addedAssistants >= targetAssistantCount) break;
       if (!selectedIds.has(assistant.id)) {
+        // Enforce peer spread cap: avoid giving reserve to staff who already exceeded or reached the peer cap
+        const pGroup = assistant.job_title || assistant.supervision_role || 'General';
+        const pMin = peerMinScores.get(pGroup);
+        if (pMin !== undefined && getEffectiveScore(assistant) + 0.25 > pMin + maxSpread) {
+          const hasLowerAlternative = sortedAssistants.some(s => !selectedIds.has(s.id) && getEffectiveScore(s) + 0.25 <= pMin + maxSpread);
+          if (hasLowerAlternative) continue;
+        }
+
         // Enforce reserve cap: avoid giving 3rd reserve if other colleagues have < maxWeeklyReserves
         if (
           getWeekReserveCount(assistant.id) >= maxWeeklyReserves &&

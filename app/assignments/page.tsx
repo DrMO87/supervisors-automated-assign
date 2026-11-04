@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { PageHeader } from '@/components/layout/page-header';
-import { Play, Calendar, Users, DoorOpen, CheckCircle, AlertTriangle, ArrowRight, Download, Upload, Trash2 } from 'lucide-react';
+import { Play, Calendar, Users, DoorOpen, CheckCircle, AlertTriangle, ArrowRight, Download, Upload, Trash2, Scale } from 'lucide-react';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
-import { Staff, ExamSession, Room, Assignment, SystemSettings, getPeriodFromTime } from '@/types/database.types';
+import { Staff, ExamSession, Room, Assignment, SystemSettings, PeriodFreeStaff, getPeriodFromTime } from '@/types/database.types';
 import { SetupRequired } from '@/components/setup-required';
 import { batchAssign, allocateReserveStaff } from '@/lib/algorithms/auto-assignment';
 import { generateAssignmentReport, exportAssignmentsToExcel, parseAssignmentCSV, downloadFile } from '@/lib/utils/csv-helpers';
+import { FairnessReportModal } from '@/components/dashboard/fairness-report-modal';
 
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 
@@ -21,9 +22,11 @@ export default function AutoAssignPage() {
     const [staff, setStaff] = useState<Staff[]>([]);
     const [exams, setExams] = useState<ExamSession[]>([]);
     const [settings, setSettings] = useState<any>(null);
-    const [result, setResult] = useState<{ assigned: number; violations: number, assignments?: Assignment[], violationsList?: any[] } | null>(null);
+    const [result, setResult] = useState<{ assigned: number; violations: number, assignments?: Assignment[], violationsList?: any[], cohortsSummary?: any } | null>(null);
     const [rooms, setRooms] = useState<Room[]>([]);
     const [allAssignments, setAllAssignments] = useState<Assignment[]>([]);
+    const [reserves, setReserves] = useState<PeriodFreeStaff[]>([]);
+    const [isFairnessModalOpen, setIsFairnessModalOpen] = useState(false);
     const [selectedWeek, setSelectedWeek] = useState<string>('all_unassigned');
 
     const configStatus = getSupabaseConfigStatus();
@@ -47,21 +50,26 @@ export default function AutoAssignPage() {
                     .lte('exam_date', activePeriod.end_date);
             }
 
-            const [staffRes, examsRes, roomsRes, assignmentsRes, settingsRes] = await Promise.all([
+            const [staffRes, examsRes, roomsRes, assignmentsRes, settingsRes, reservesRes] = await Promise.all([
                 supabase.from('staff').select('*').limit(10000),
                 examsQuery,
                 supabase.from('rooms').select('*').limit(10000),
                 supabase.from('assignments').select('*, staff:staff(*), exam_session:exam_sessions(*)').limit(10000),
                 supabase.from('system_settings').select('*').not('setting_key', 'like', 'backup_%').limit(10000),
+                supabase.from('period_free_staff').select('*').limit(10000),
             ]);
 
             let filteredExams = examsRes.data || [];
             let filteredAssignments = assignmentsRes.data || [];
+            let filteredReserves = reservesRes.data || [];
 
             if (activePeriod) {
                 filteredAssignments = filteredAssignments.filter(a => {
                     const date = (a.exam_session as any)?.exam_date;
                     return date && date >= activePeriod.start_date && date <= activePeriod.end_date;
+                });
+                filteredReserves = filteredReserves.filter(r => {
+                    return r.exam_date >= activePeriod.start_date && r.exam_date <= activePeriod.end_date;
                 });
             }
 
@@ -76,8 +84,7 @@ export default function AutoAssignPage() {
             setExams(filteredExams);
             setRooms(roomsRes.data || []);
             setAllAssignments(filteredAssignments);
-
-            setAllAssignments(assignmentsRes.data || []);
+            setReserves(filteredReserves);
 
             // Process Settings
             const fetchedSettings: any = {};
@@ -214,6 +221,7 @@ export default function AutoAssignPage() {
             let totalViolations = 0;
             const collectedViolations: any[] = [];
 
+            let lastSummary: any = null;
             for (const week of weeksToRun) {
                 const response = await fetch('/api/assignments/auto-assign', {
                     method: 'POST',
@@ -230,6 +238,9 @@ export default function AutoAssignPage() {
                 }
 
                 totalAssigned += data.assignmentsCreated || 0;
+                if (data.cohortsSummary) {
+                    lastSummary = data.cohortsSummary;
+                }
                 if (data.violations && Array.isArray(data.violations)) {
                     totalViolations += data.violations.length;
                     collectedViolations.push(...data.violations);
@@ -240,12 +251,12 @@ export default function AutoAssignPage() {
                 assigned: totalAssigned,
                 violations: totalViolations,
                 assignments: [],
-                violationsList: collectedViolations
+                violationsList: collectedViolations,
+                cohortsSummary: lastSummary,
             });
 
             // Reload counts
             await loadData();
-            loadData();
 
         } catch (error: any) {
             console.error('Assignment generation failed:', error);
@@ -402,6 +413,15 @@ export default function AutoAssignPage() {
                 actions={
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsFairnessModalOpen(true)}
+              disabled={isProcessing || counts.assignments === 0}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-indigo-200 bg-indigo-50 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Inspect Peer Fairness & Workload Parity Report"
+            >
+              <Scale className="w-3.5 h-3.5" />
+              Fairness Report
+            </button>
+            <button
               onClick={handleResetAssignments}
               disabled={isProcessing || counts.assignments === 0}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-200 bg-red-50 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
@@ -459,30 +479,54 @@ export default function AutoAssignPage() {
                 {/* Action Area */}
                 <div className="card p-6 lg:col-span-2 flex flex-col items-center justify-center text-center space-y-6 min-h-[400px]">
                     {result ? (
-                        <div className="w-full max-w-md bg-green-50 border border-green-200 rounded-lg p-6 space-y-4">
+                        <div className="w-full max-w-lg bg-green-50 border border-green-200 rounded-xl p-6 space-y-4">
                             <CheckCircle className="w-16 h-16 text-green-600 mx-auto" />
-                            <h2 className="text-2xl font-bold text-green-800">Assignment Complete!</h2>
-                            <p className="text-green-700">
-                                Successfully created <strong>{result.assigned}</strong> new assignments.
-                                {result.violations > 0 && <span className="block mt-1 text-amber-700 font-medium">Note: {result.violations} constraints could not be fully met. Check the dashboard for details.</span>}
-                            </p>
+                            <div>
+                                <h2 className="text-2xl font-bold text-green-800">Assignment Complete!</h2>
+                                <p className="text-green-700 mt-1">
+                                    Successfully created <strong>{result.assigned}</strong> new assignments.
+                                    {result.violations > 0 && <span className="block mt-1 text-amber-700 font-medium text-xs">Note: {result.violations} soft constraints adjusted to prevent room deficiency.</span>}
+                                </p>
+                            </div>
 
-                            <div className="pt-4 flex gap-3 justify-center">
+                            {/* Built-in Fairness Quick Card */}
+                            <div className="bg-white/90 border border-green-200 rounded-xl p-4 text-left shadow-xs">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                        <Scale className="w-4 h-4 text-indigo-600" />
+                                        Built-in Fairness &amp; Parity Check
+                                    </span>
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
+                                        Cap &le; {settings?.scheduling_constraints?.max_score_delta_from_average ?? 3} Points
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-600 mb-3 leading-relaxed">
+                                    Peer cohorts (Chemists, Demonstrators, Teaching Assistants, Lecturers) have been audited and equalized to ensure equal workload distribution.
+                                </p>
+                                <button
+                                    onClick={() => setIsFairnessModalOpen(true)}
+                                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-xs shadow-sm transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Scale className="w-4 h-4" /> Check Built-in Fairness Report &amp; Download
+                                </button>
+                            </div>
+
+                            <div className="pt-2 flex flex-wrap gap-2.5 justify-center">
                                 <button
                                     onClick={() => setResult(null)}
-                                    className="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-white"
+                                    className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-white transition-colors"
                                 >
                                     Run Again
                                 </button>
                                 <button
                                     onClick={handleDownloadReport}
-                                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 shadow-sm flex items-center gap-2"
+                                    className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-colors"
                                 >
-                                    <Download className="w-4 h-4" /> Download Report
+                                    <Download className="w-4 h-4" /> Export Assignments
                                 </button>
                                 <button
                                     onClick={() => router.push('/dashboard')}
-                                    className="px-6 py-2 bg-primary-600 text-white rounded hover:bg-primary-700 shadow-sm flex items-center gap-2"
+                                    className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-xs font-semibold shadow-sm flex items-center gap-1.5 transition-colors"
                                 >
                                     View Schedule <ArrowRight className="w-4 h-4" />
                                 </button>
@@ -576,6 +620,18 @@ export default function AutoAssignPage() {
                     )}
                 </div>
             </div>
+
+            {/* Built-in Fairness & Parity Modal */}
+            <FairnessReportModal
+                isOpen={isFairnessModalOpen}
+                onClose={() => setIsFairnessModalOpen(false)}
+                staff={staff}
+                assignments={allAssignments}
+                sessions={exams}
+                reserves={reserves}
+                configuredCap={settings?.scheduling_constraints?.max_score_delta_from_average ?? 3}
+                periodName={activePeriod?.name || 'Active Exam Period'}
+            />
         </div>
     );
 }

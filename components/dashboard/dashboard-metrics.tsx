@@ -7,10 +7,12 @@ import { format, addDays } from 'date-fns';
 import { AlertCircle, CheckCircle2, Users, LayoutDashboard, Calendar as CalendarIcon } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, Tooltip, LabelList } from 'recharts';
 import { ScheduleHealthModal, ScheduleHealthDiagnostics } from './schedule-health-modal';
+import { FairnessReportModal } from './fairness-report-modal';
 
 export function DashboardMetrics({ weekStart }: { weekStart: Date }) {
-  const { examSessions, conflicts, staff, staffingRatios, systemSettings } = useSchedulingStore();
+  const { examSessions, conflicts, staff, staffingRatios, systemSettings, periodFreeStaff } = useSchedulingStore();
   const [isHealthModalOpen, setIsHealthModalOpen] = useState(false);
+  const [isFairnessModalOpen, setIsFairnessModalOpen] = useState(false);
 
   const metrics = useMemo(() => {
     const startStr = format(weekStart, 'yyyy-MM-dd');
@@ -275,13 +277,18 @@ export function DashboardMetrics({ weekStart }: { weekStart: Date }) {
         </div>
 
         {/* Staff Utilization */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs flex flex-col justify-between">
+        {/* Staff Active / Peer Workload Parity */}
+        <div 
+          onClick={() => setIsFairnessModalOpen(true)}
+          className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs flex flex-col justify-between hover:border-blue-400 hover:shadow-md transition-all cursor-pointer group"
+          title="Click to view detailed Peer Fairness & Workload Parity report"
+        >
           <div className="flex items-start justify-between mb-2">
             <div>
-              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Staff Active</p>
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider group-hover:text-blue-600 transition-colors">Staff Active</p>
               <h3 className="text-2xl font-display font-bold text-gray-900 mt-1">{metrics.activeStaffCount}</h3>
             </div>
-            <div className="p-2 rounded-lg bg-blue-100 text-blue-600">
+            <div className="p-2 rounded-lg bg-blue-100 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
               <Users className="w-5 h-5" />
             </div>
           </div>
@@ -291,7 +298,10 @@ export function DashboardMetrics({ weekStart }: { weekStart: Date }) {
               style={{ width: `${metrics.staffUtilization}%` }}
             />
           </div>
-          <p className="text-xs text-gray-500 mt-2">{metrics.staffUtilization}% of available pool</p>
+          <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+            <span>{metrics.staffUtilization}% of available pool</span>
+            <span className="text-[11px] font-semibold text-blue-600 group-hover:underline">Fairness Report ↗</span>
+          </div>
         </div>
 
         {/* Weekly Volume Chart */}
@@ -324,6 +334,17 @@ export function DashboardMetrics({ weekStart }: { weekStart: Date }) {
         isOpen={isHealthModalOpen}
         onClose={() => setIsHealthModalOpen(false)}
         diagnostics={metrics.diagnostics}
+      />
+
+      {/* Built-in Fairness & Parity Modal */}
+      <FairnessReportModal
+        isOpen={isFairnessModalOpen}
+        onClose={() => setIsFairnessModalOpen(false)}
+        staff={staff}
+        assignments={examSessions.flatMap(s => s.assignments || [])}
+        sessions={examSessions}
+        reserves={periodFreeStaff || []}
+        configuredCap={(systemSettings?.find(s => s.setting_key === 'scheduling_constraints')?.setting_value as any)?.max_score_delta_from_average ?? 3}
       />
     </>
   );
