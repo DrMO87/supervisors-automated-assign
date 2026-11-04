@@ -1,0 +1,1636 @@
+import os
+import sys
+import subprocess
+import pymupdf
+
+# Load Base64 logos from lib/utils/logo-base64.ts
+def extract_logos():
+    ts_path = r"D:\HUE\DEVELOPED SOFTWARE\Supervisors Automated Assign\lib\utils\logo-base64.ts"
+    logos = {}
+    with open(ts_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+        import re
+        matches = re.findall(r"export const (\w+) = '(data:image/[^']+)';", content)
+        for name, val in matches:
+            logos[name] = val
+    return logos
+
+logos = extract_logos()
+logo_hue = logos.get('LOGO_HUE_BASE64', '')
+logo_pharmacy = logos.get('LOGO_PHARMACY_BASE64', '')
+logo_session_master = logos.get('LOGO_SESSION_MASTER_BASE64', '')
+
+html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=760, initial-scale=1.0">
+    <title>Automated Exam Supervisor Assignment Engine — Technical Specification & Mathematical Reference</title>
+    <style>
+        /* ─── Typography & Master Variables ─── */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;0,8..60,700;1,8..60,400;1,8..60,600&display=swap');
+
+        :root {{
+            --c-primary: #0f5132;
+            --c-primary-d: #0a3520;
+            --c-primary-l: #1e7e4e;
+            --c-primary-bg: #eef5f0;
+            --c-accent: #b08534;
+            --c-accent-l: #d4b069;
+            --c-accent-bg: #fcf8ee;
+            --c-text: #1c1c1a;
+            --c-text-muted: #5e5e58;
+            --c-text-faint: #8a8a82;
+            --c-bg: #faf8f1;
+            --c-card-bg: #f4efe4;
+            --c-border: #dcd5c4;
+            --c-rule: #cfc8b6;
+            --c-red: #8b2e2e;
+            --c-red-bg: #fcedeb;
+            --c-green-ok: #1e6b45;
+            --c-green-bg: #eaf4ed;
+            --font-display: 'Playfair Display', Georgia, serif;
+            --font-body: 'Source Serif 4', Georgia, serif;
+            --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', Consolas, monospace;
+        }}
+
+        @page {{
+            size: 570pt 810pt;
+            margin: 46pt 42pt 50pt 42pt;
+            background-color: var(--c-bg);
+            @top-left {{
+                content: "ESMS ENGINE · DETERMINISTIC AUTO-ASSIGNMENT ARCHITECTURE";
+                font-family: var(--font-ui);
+                font-size: 7.5pt;
+                font-weight: 600;
+                color: var(--c-accent);
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }}
+            @top-right {{
+                content: "HORUS UNIVERSITY IN EGYPT · FACULTY OF PHARMACY";
+                font-family: var(--font-ui);
+                font-size: 7.5pt;
+                color: var(--c-text-faint);
+            }}
+            @bottom-left {{
+                content: "Dr. Mohamed El-Khodary · Core Engine Algorithm";
+                font-family: var(--font-body);
+                font-size: 8pt;
+                font-style: italic;
+                color: var(--c-text-muted);
+            }}
+            @bottom-right {{
+                content: counter(page);
+                font-family: var(--font-display);
+                font-size: 10pt;
+                font-weight: 700;
+                color: var(--c-primary);
+            }}
+        }}
+
+        @page :first {{
+            margin: 0;
+            background-color: var(--c-primary-d);
+            @top-left {{ content: normal; }}
+            @top-right {{ content: normal; }}
+            @bottom-left {{ content: normal; }}
+            @bottom-right {{ content: normal; }}
+        }}
+
+        @page ending-page {{
+            margin: 0;
+            background-color: var(--c-primary-d);
+            @top-left {{ content: normal; }}
+            @top-right {{ content: normal; }}
+            @bottom-left {{ content: normal; }}
+            @bottom-right {{ content: normal; }}
+        }}
+
+        * {{
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }}
+
+        body {{
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-body);
+            font-size: 10.2pt;
+            line-height: 1.58;
+            color: var(--c-text);
+            background-color: var(--c-bg);
+        }}
+
+        /* Page Breaks */
+        .page-break {{
+            page-break-before: always;
+            break-before: page;
+        }}
+
+        .avoid-break {{
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        /* ─── SECTION 1: COVER PAGE ─── */
+        .cover-page {{
+            width: 100%;
+            height: 810pt;
+            background: linear-gradient(145deg, #072616 0%, #0a3520 40%, #0d462a 75%, #082a19 100%);
+            color: #ffffff;
+            padding: 50pt 45pt 45pt 45pt;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+        }}
+
+        .cover-page::before {{
+            content: "";
+            position: absolute;
+            top: -100pt;
+            right: -100pt;
+            width: 350pt;
+            height: 350pt;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(176, 133, 52, 0.15) 0%, rgba(176, 133, 52, 0) 70%);
+            pointer-events: none;
+        }}
+
+        .cover-page::after {{
+            content: "";
+            position: absolute;
+            bottom: -50pt;
+            left: -50pt;
+            width: 280pt;
+            height: 280pt;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(30, 126, 78, 0.2) 0%, rgba(10, 53, 32, 0) 70%);
+            pointer-events: none;
+        }}
+
+        .cover-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(212, 176, 105, 0.35);
+            padding-bottom: 18pt;
+            position: relative;
+            z-index: 2;
+        }}
+
+        .cover-logos {{
+            display: flex;
+            align-items: center;
+            gap: 16pt;
+        }}
+
+        .cover-logo-img {{
+            height: 48pt;
+            filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+            border-radius: 4px;
+            background: rgba(255,255,255,0.08);
+            padding: 4px;
+        }}
+
+        .cover-brand-text {{
+            font-family: var(--font-ui);
+            text-align: right;
+        }}
+
+        .cover-univ {{
+            font-size: 11pt;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            color: #ffffff;
+            text-transform: uppercase;
+        }}
+
+        .cover-fac {{
+            font-size: 8.5pt;
+            color: var(--c-accent-l);
+            font-weight: 500;
+            letter-spacing: 0.05em;
+        }}
+
+        .cover-center {{
+            margin-top: auto;
+            margin-bottom: auto;
+            position: relative;
+            z-index: 2;
+        }}
+
+        .cover-eyebrow {{
+            display: inline-block;
+            font-family: var(--font-ui);
+            font-size: 8.5pt;
+            font-weight: 700;
+            color: var(--c-accent-l);
+            background: rgba(176, 133, 52, 0.16);
+            border: 1px solid rgba(176, 133, 52, 0.4);
+            padding: 4pt 12pt;
+            border-radius: 12pt;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 14pt;
+        }}
+
+        .cover-title {{
+            font-family: var(--font-display);
+            font-size: 26pt;
+            font-weight: 900;
+            line-height: 1.18;
+            color: #ffffff;
+            margin: 0 0 12pt 0;
+            letter-spacing: -0.01em;
+        }}
+
+        .cover-title em {{
+            color: #f3d48d;
+            font-style: italic;
+        }}
+
+        .cover-subtitle {{
+            font-family: var(--font-body);
+            font-size: 12pt;
+            line-height: 1.45;
+            color: #d8e5dc;
+            margin: 0 0 20pt 0;
+            max-width: 90%;
+        }}
+
+        .cover-divider {{
+            width: 70pt;
+            height: 3pt;
+            background: linear-gradient(90deg, #d4b069 0%, rgba(212, 176, 105, 0) 100%);
+            margin-bottom: 22pt;
+        }}
+
+        .cover-author-block {{
+            display: flex;
+            align-items: center;
+            gap: 14pt;
+        }}
+
+        .cover-author-badge {{
+            width: 38pt;
+            height: 38pt;
+            border-radius: 50%;
+            border: 1.5pt solid var(--c-accent-l);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(176, 133, 52, 0.2);
+            font-family: var(--font-display);
+            font-size: 14pt;
+            font-weight: 700;
+            color: #ffffff;
+        }}
+
+        .cover-author-meta {{
+            font-family: var(--font-ui);
+        }}
+
+        .cover-author-name {{
+            font-size: 11.5pt;
+            font-weight: 700;
+            color: #ffffff;
+        }}
+
+        .cover-author-title {{
+            font-size: 8.5pt;
+            color: #b5cebe;
+            margin-top: 2pt;
+        }}
+
+        .cover-footer {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 14pt;
+            font-family: var(--font-ui);
+            font-size: 8pt;
+            color: #9cb8a6;
+            position: relative;
+            z-index: 2;
+        }}
+
+        .cover-badge-pill {{
+            background: #ffffff;
+            color: var(--c-primary-d);
+            font-weight: 800;
+            padding: 3pt 8pt;
+            border-radius: 4pt;
+            letter-spacing: 0.05em;
+        }}
+
+        /* ─── SECTION 2: CHAPTER OPENER ─── */
+        .chapter-header {{
+            margin-bottom: 18pt;
+            border-bottom: 1.5pt solid var(--c-border);
+            padding-bottom: 14pt;
+        }}
+
+        .chapter-eyebrow {{
+            display: flex;
+            align-items: center;
+            gap: 8pt;
+            font-family: var(--font-ui);
+            font-size: 8pt;
+            font-weight: 700;
+            color: var(--c-accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 6pt;
+        }}
+
+        .ch-num-badge {{
+            background: var(--c-primary);
+            color: #ffffff;
+            padding: 2pt 6pt;
+            border-radius: 3pt;
+            font-size: 7.5pt;
+        }}
+
+        .chapter-title {{
+            font-family: var(--font-display);
+            font-size: 20pt;
+            font-weight: 800;
+            line-height: 1.22;
+            color: var(--c-primary-d);
+            margin: 0 0 10pt 0;
+        }}
+
+        .abstract-callout {{
+            background: var(--c-accent-bg);
+            border-left: 3.5pt solid var(--c-accent);
+            padding: 10pt 14pt;
+            border-radius: 0 5pt 5pt 0;
+            font-size: 9.5pt;
+            line-height: 1.52;
+            color: #433924;
+            margin-bottom: 14pt;
+        }}
+
+        .abstract-callout strong {{
+            color: var(--c-primary-d);
+            font-family: var(--font-ui);
+            font-size: 8.5pt;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: block;
+            margin-bottom: 3pt;
+        }}
+
+        .metadata-triad {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8pt;
+            margin-bottom: 16pt;
+        }}
+
+        .meta-card {{
+            background: var(--c-card-bg);
+            border: 1px solid var(--c-border);
+            border-radius: 5pt;
+            padding: 7pt 10pt;
+            font-family: var(--font-ui);
+        }}
+
+        .meta-card-label {{
+            font-size: 7pt;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--c-text-muted);
+            margin-bottom: 2pt;
+        }}
+
+        .meta-card-val {{
+            font-size: 8.5pt;
+            font-weight: 600;
+            color: var(--c-primary-d);
+        }}
+
+        /* Dropcap */
+        .dropcap {{
+            float: left;
+            font-family: var(--font-display);
+            font-size: 44pt;
+            line-height: 0.8;
+            padding-top: 4pt;
+            padding-right: 8pt;
+            padding-bottom: 0;
+            color: var(--c-primary);
+            font-weight: 800;
+        }}
+
+        /* ─── OBJECTIVES TRIAD ─── */
+        .objectives-triad {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10pt;
+            margin: 14pt 0 18pt 0;
+        }}
+
+        .triad-card {{
+            background: #ffffff;
+            border: 1px solid var(--c-border);
+            border-top: 3pt solid var(--c-primary);
+            border-radius: 5pt;
+            padding: 10pt 10pt 8pt 10pt;
+            position: relative;
+        }}
+
+        .triad-card.accent-border {{
+            border-top-color: var(--c-accent);
+        }}
+
+        .triad-roman {{
+            position: absolute;
+            top: 4pt;
+            right: 8pt;
+            font-family: var(--font-display);
+            font-size: 16pt;
+            font-weight: 800;
+            color: rgba(176, 133, 52, 0.22);
+        }}
+
+        .triad-title {{
+            font-family: var(--font-ui);
+            font-size: 8.5pt;
+            font-weight: 800;
+            color: var(--c-primary-d);
+            margin-bottom: 5pt;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }}
+
+        .triad-list {{
+            margin: 0;
+            padding-left: 12pt;
+            font-size: 8.5pt;
+            line-height: 1.45;
+            color: var(--c-text);
+        }}
+
+        .triad-list li {{
+            margin-bottom: 4pt;
+        }}
+
+        /* ─── SECTION HEADERS ─── */
+        .section-header {{
+            margin: 20pt 0 10pt 0;
+            page-break-after: avoid;
+            break-after: avoid;
+        }}
+
+        .section-tag {{
+            font-family: var(--font-ui);
+            font-size: 7.5pt;
+            font-weight: 800;
+            color: var(--c-accent);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 2pt;
+        }}
+
+        .section-title {{
+            font-family: var(--font-display);
+            font-size: 14pt;
+            font-weight: 800;
+            color: var(--c-primary-d);
+            margin: 0 0 4pt 0;
+            line-height: 1.25;
+        }}
+
+        .section-rule {{
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, var(--c-accent) 0%, var(--c-border) 40%, rgba(220, 213, 196, 0.2) 100%);
+            margin-top: 4pt;
+        }}
+
+        /* Subsection */
+        .subsection-title {{
+            font-family: var(--font-ui);
+            font-size: 10.5pt;
+            font-weight: 700;
+            color: var(--c-primary);
+            margin: 12pt 0 4pt 0;
+            page-break-after: avoid;
+            break-after: avoid;
+        }}
+
+        /* ─── TABLES ─── */
+        table.book-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            margin: 10pt 0 14pt 0;
+            border-radius: 4pt;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        table.book-table th {{
+            background: var(--c-primary-d);
+            color: #ffffff;
+            font-family: var(--font-ui);
+            font-weight: 700;
+            text-align: left;
+            padding: 7pt 9pt;
+            font-size: 8pt;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            border: 1px solid var(--c-primary-d);
+        }}
+
+        table.book-table td {{
+            padding: 6pt 9pt;
+            border: 1px solid var(--c-border);
+            vertical-align: top;
+            line-height: 1.4;
+        }}
+
+        table.book-table tr:nth-child(even) {{
+            background: var(--c-primary-bg);
+        }}
+
+        table.book-table tr:nth-child(odd) {{
+            background: #ffffff;
+        }}
+
+        .code-pill {{
+            font-family: var(--font-mono);
+            font-size: 7.8pt;
+            background: #ede8dc;
+            padding: 1.5pt 4pt;
+            border-radius: 3pt;
+            color: #3d331f;
+        }}
+
+        .badge-hard {{
+            display: inline-block;
+            font-family: var(--font-ui);
+            font-size: 7pt;
+            font-weight: 800;
+            color: var(--c-red);
+            background: var(--c-red-bg);
+            border: 1px solid rgba(139, 46, 46, 0.3);
+            padding: 1pt 5pt;
+            border-radius: 3pt;
+            text-transform: uppercase;
+        }}
+
+        .badge-soft {{
+            display: inline-block;
+            font-family: var(--font-ui);
+            font-size: 7pt;
+            font-weight: 800;
+            color: #7d5913;
+            background: #fdf3de;
+            border: 1px solid rgba(176, 133, 52, 0.3);
+            padding: 1pt 5pt;
+            border-radius: 3pt;
+            text-transform: uppercase;
+        }}
+
+        .badge-opt {{
+            display: inline-block;
+            font-family: var(--font-ui);
+            font-size: 7pt;
+            font-weight: 800;
+            color: var(--c-green-ok);
+            background: var(--c-green-bg);
+            border: 1px solid rgba(30, 107, 69, 0.3);
+            padding: 1pt 5pt;
+            border-radius: 3pt;
+            text-transform: uppercase;
+        }}
+
+        /* ─── FORMULA BOX ─── */
+        .formula-box {{
+            background: #ffffff;
+            border: 1px solid var(--c-border);
+            border-left: 3pt solid var(--c-primary);
+            padding: 9pt 12pt;
+            border-radius: 0 4pt 4pt 0;
+            margin: 8pt 0 12pt 0;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        .formula-title {{
+            font-family: var(--font-ui);
+            font-size: 8pt;
+            font-weight: 800;
+            color: var(--c-primary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4pt;
+        }}
+
+        .formula-math {{
+            font-family: var(--font-display);
+            font-size: 11pt;
+            font-weight: 600;
+            color: #112a1c;
+            margin: 4pt 0;
+            text-align: center;
+            background: var(--c-primary-bg);
+            padding: 6pt;
+            border-radius: 3pt;
+        }}
+
+        .formula-desc {{
+            font-size: 8.5pt;
+            color: var(--c-text-muted);
+            margin-top: 4pt;
+            line-height: 1.45;
+        }}
+
+        /* ─── CALLOUTS ─── */
+        .callout-box {{
+            background: var(--c-card-bg);
+            border: 1px solid var(--c-border);
+            padding: 9pt 12pt;
+            border-radius: 5pt;
+            margin: 10pt 0 12pt 0;
+            font-size: 9pt;
+            line-height: 1.5;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        .callout-box strong {{
+            color: var(--c-primary-d);
+        }}
+
+        .callout-warning {{
+            background: #fdf5e8;
+            border-left: 3pt solid var(--c-accent);
+        }}
+
+        .callout-alert {{
+            background: var(--c-red-bg);
+            border-left: 3pt solid var(--c-red);
+        }}
+
+        /* ─── PIPELINE STEPS ─── */
+        .pipeline-card {{
+            background: #ffffff;
+            border: 1px solid var(--c-border);
+            border-radius: 5pt;
+            padding: 9pt 12pt;
+            margin-bottom: 9pt;
+            display: flex;
+            gap: 12pt;
+            align-items: flex-start;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        .pipeline-step-badge {{
+            background: var(--c-primary);
+            color: #ffffff;
+            font-family: var(--font-ui);
+            font-size: 9pt;
+            font-weight: 800;
+            padding: 4pt 8pt;
+            border-radius: 4pt;
+            white-space: nowrap;
+        }}
+
+        .pipeline-content {{
+            flex: 1;
+        }}
+
+        .pipeline-title {{
+            font-family: var(--font-ui);
+            font-size: 9.5pt;
+            font-weight: 800;
+            color: var(--c-primary-d);
+            margin-bottom: 3pt;
+        }}
+
+        .pipeline-text {{
+            font-size: 8.8pt;
+            color: var(--c-text);
+            line-height: 1.45;
+        }}
+
+        /* ─── ASSESSMENT & MCQs ─── */
+        .mcq-card {{
+            background: #ffffff;
+            border: 1px solid var(--c-border);
+            border-radius: 5pt;
+            padding: 9pt 12pt;
+            margin-bottom: 9pt;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }}
+
+        .mcq-head {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5pt;
+        }}
+
+        .mcq-num {{
+            font-family: var(--font-ui);
+            font-size: 8pt;
+            font-weight: 800;
+            color: var(--c-primary);
+            text-transform: uppercase;
+        }}
+
+        .bloom-badge {{
+            font-family: var(--font-ui);
+            font-size: 7pt;
+            font-weight: 700;
+            padding: 1.5pt 5pt;
+            border-radius: 3pt;
+            text-transform: uppercase;
+            background: #e6eef7;
+            color: #1f4e79;
+            border: 1px solid #b8d1ea;
+        }}
+
+        .bloom-eval {{
+            background: #fdf0ec;
+            color: #92341b;
+            border-color: #f3c2b4;
+        }}
+
+        .bloom-anal {{
+            background: #f7eefc;
+            color: #632688;
+            border-color: #dfc2f3;
+        }}
+
+        .mcq-q {{
+            font-size: 9pt;
+            font-weight: 600;
+            color: var(--c-text);
+            margin-bottom: 6pt;
+        }}
+
+        .mcq-options {{
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 8.5pt;
+        }}
+
+        .mcq-options li {{
+            padding: 3.5pt 6pt;
+            margin-bottom: 3pt;
+            border-radius: 3pt;
+            border: 1px solid transparent;
+        }}
+
+        .mcq-options li.correct {{
+            background: var(--c-green-bg);
+            border-color: rgba(30, 107, 69, 0.25);
+            color: #104c2e;
+            font-weight: 600;
+        }}
+
+        /* ─── SECTION 8: FULL-BLEED CLOSING PAGE ─── */
+        .closing-page {{
+            width: 100%;
+            height: 810pt;
+            background: linear-gradient(145deg, #072616 0%, #0a3520 40%, #0d462a 75%, #082a19 100%);
+            color: #ffffff;
+            padding: 50pt 45pt 45pt 45pt;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-sizing: border-box;
+            text-align: center;
+        }}
+
+        .closing-seal {{
+            margin: 0 auto;
+            height: 60pt;
+            filter: drop-shadow(0 3px 8px rgba(0,0,0,0.45));
+            border-radius: 6px;
+            background: rgba(255,255,255,0.08);
+            padding: 6px;
+        }}
+
+        .closing-quote-box {{
+            margin: auto 0;
+            max-width: 85%;
+            margin-left: auto;
+            margin-right: auto;
+        }}
+
+        .closing-quote-symbol {{
+            font-family: var(--font-display);
+            font-size: 38pt;
+            color: var(--c-accent-l);
+            line-height: 1;
+            margin-bottom: 6pt;
+            opacity: 0.6;
+        }}
+
+        .closing-quote {{
+            font-family: var(--font-display);
+            font-size: 15.5pt;
+            font-style: italic;
+            line-height: 1.48;
+            color: #f7eedb;
+            margin-bottom: 16pt;
+        }}
+
+        .closing-rule {{
+            width: 50pt;
+            height: 2pt;
+            background: var(--c-accent-l);
+            margin: 0 auto 14pt auto;
+        }}
+
+        .closing-author {{
+            font-family: var(--font-ui);
+            font-size: 11pt;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: 0.05em;
+        }}
+
+        .closing-author-title {{
+            font-family: var(--font-body);
+            font-size: 8.5pt;
+            color: #afceba;
+            font-style: italic;
+            margin-top: 3pt;
+        }}
+
+        .closing-bottom-mark {{
+            font-family: var(--font-ui);
+            font-size: 7.5pt;
+            color: #8faea0;
+            border-top: 1px solid rgba(255, 255, 255, 0.15);
+            padding-top: 14pt;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }}
+    </style>
+</head>
+<body>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 1: FULL-BLEED CHAPTER COVER PAGE                 -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="cover-page">
+        <div class="cover-top">
+            <div class="cover-logos">
+                <img src="{logo_hue}" alt="Horus University in Egypt" class="cover-logo-img">
+                <img src="{logo_pharmacy}" alt="Faculty of Pharmacy" class="cover-logo-img">
+            </div>
+            <div class="cover-brand-text">
+                <div class="cover-univ">Horus University in Egypt</div>
+                <div class="cover-fac">Faculty of Pharmacy · ESMS Engine Series</div>
+            </div>
+        </div>
+
+        <div class="cover-center">
+            <div class="cover-eyebrow">Technical Architecture Specification · Volume I</div>
+            <h1 class="cover-title">Automated Exam <em>Supervisor Assignment</em> Engine</h1>
+            <p class="cover-subtitle">
+                Mathematical Formulations, Multi-Tier Constraint Solvers, Workload Parity Engineering, and Zero-Deficiency Scheduling Guarantees.
+            </p>
+            <div class="cover-divider"></div>
+            <div class="cover-author-block">
+                <div class="cover-author-badge">Dr</div>
+                <div class="cover-author-meta">
+                    <div class="cover-author-name">Dr. Mohamed El-Khodary, Ph.D.</div>
+                    <div class="cover-author-title">Senior System Architect &amp; Software Lead · Faculty of Pharmacy</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="cover-footer">
+            <span class="cover-badge-pill">OFFICIAL REFERENCE MANUAL</span>
+            <span>Production Version 2.8.4 · Academic Year 2026/2027 · ESMS Core System</span>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 2: CHAPTER OPENER & METADATA TRIAD               -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="chapter-header">
+        <div class="chapter-eyebrow">
+            <span class="ch-num-badge">CHAPTER 01</span>
+            Core Algorithmic Infrastructure
+        </div>
+        <h2 class="chapter-title">The Deterministic Auto-Assignment Engine: Architectural Logic &amp; Mathematical Ordering</h2>
+        
+        <div class="abstract-callout">
+            <strong>Executive Algorithmic Abstract</strong>
+            This technical reference documents the exact mathematical logic, topological grouping heuristics, two-phase proctor assignment pipeline, and three-tier zero-deficiency fallback algorithms powering the Examination &amp; Supervisory Management System (ESMS). Designed to eliminate human cognitive bias, prevent proctor fatigue, strictly honor statutory leaves, and achieve workload parity across heterogeneous academic cohorts, the engine transforms large-scale multi-hall examination scheduling into a provably robust, deterministic constraint satisfaction problem (CSP).
+        </div>
+
+        <div class="metadata-triad">
+            <div class="meta-card">
+                <div class="meta-card-label">Scientific Discipline</div>
+                <div class="meta-card-val">Operations Research &amp; Combinatorial Optimization</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-card-label">Operational Scope</div>
+                <div class="meta-card-val">University Final, Midterm &amp; Oral Examinations</div>
+            </div>
+            <div class="meta-card">
+                <div class="meta-card-label">Algorithmic Engine</div>
+                <div class="meta-card-val">Two-Phase Multi-Constraint Batch Solver</div>
+            </div>
+        </div>
+    </div>
+
+    <p style="margin-top: 0;">
+        <span class="dropcap">T</span>he administration of university examinations across complex multidisciplinary faculties represents an intensive operational bottleneck. In a typical academic cycle, hundreds of faculty members, demonstrators, and specialized chemists must be dynamically assigned to dozens of concurrent examination halls across multiple buildings and vertical floor levels. When conducted manually, scheduling inevitably introduces unconscious human bias, structural workload disparities, violation of medical and nursing leaves, and catastrophic proctor deficiencies during peak exam periods. The ESMS Auto-Assignment Engine replaces heuristic guesswork with a deterministic mathematical pipeline that guarantees constraint satisfaction, auditability, and absolute workload parity.
+    </p>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 3: SYSTEM OBJECTIVES TRIAD                       -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="objectives-triad avoid-break">
+        <div class="triad-card">
+            <div class="triad-roman">I</div>
+            <div class="triad-title">Workload Parity &amp; Gini Minimization</div>
+            <ul class="triad-list">
+                <li>Equitable assignment distribution across identical peer cohorts.</li>
+                <li>Weighted reserve duty scoring ($0.25$ factor per standby period).</li>
+                <li>Hard peer score spread cap ($\Delta \le 3.0$ points lockout gate).</li>
+            </ul>
+        </div>
+        <div class="triad-card accent-border">
+            <div class="triad-roman">II</div>
+            <div class="triad-title">Constraint Inviolability</div>
+            <ul class="triad-list">
+                <li>Zero tolerance for approved medical leaves and emergency dates.</li>
+                <li>Strict spatial exclusion preventing room-split double booking.</li>
+                <li>Protection of feeding mother early departure entitlements.</li>
+            </ul>
+        </div>
+        <div class="triad-card">
+            <div class="triad-roman">III</div>
+            <div class="triad-title">Zero-Deficiency Resilience</div>
+            <ul class="triad-list">
+                <li>Three-tier graduated fallback hierarchy for tight rosters.</li>
+                <li>Automatic room co-location and headcount summation.</li>
+                <li>Deficiency-first reserve lock preventing unstaffed exam halls.</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 4: NARRATIVE ANCHORING & MOTIVATION              -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="section-header">
+        <div class="section-tag">§ 1.0 · Administrative Problem Formulation</div>
+        <h3 class="section-title">The Real-World Operational Dilemma</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        Consider a typical Tuesday morning during Final Examinations at the Faculty of Pharmacy: Building M houses 14 lecture halls spanning four floors, accommodating 1,250 students across five distinct academic programs. Concurrently, oral examinations proceed in laboratory complexes, while medical leaves and nursing mother reductions deplete the active staff roster by 22%.
+    </p>
+
+    <div class="callout-box callout-warning avoid-break">
+        <strong>The Co-Located Hall Scheduling Trap:</strong> When multiple small exam sessions are scheduled into the same physical room at the same time (e.g. Clinical Pharmacokinetics and Medicinal Chemistry sharing Hall M201), naïve scheduling tools treat them as separate events, attempting to assign two distinct Head Supervisors and duplicate staff. Conversely, a flawed engine might assign a single invigilator based on one course's headcount, leaving the room critically under-proctored. The ESMS engine solves this through topological slot hashing and student aggregation prior to staff allocation.
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5: FOUNDATIONAL PILLARS & MATHEMATICAL ENGINE    -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.1 · Topological Data Structures</div>
+        <h3 class="section-title">Spatial &amp; Temporal Topology</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        Before any staff member is assigned, the algorithm transforms raw database rows into a standardized topological matrix. A unique slot key is generated for every room-period group:
+    </p>
+
+    <div class="formula-box avoid-break">
+        <div class="formula-title">Definition 1: Room-Period Slot Key Hash</div>
+        <div class="formula-math">
+            $$\mathrm{SlotKey} = \mathrm{RoomID} \;\oplus\; \mathrm{ExamDate} \;\oplus\; \mathrm{SessionPeriod}$$
+        </div>
+        <div class="formula-desc">
+            Where $\mathrm{SessionPeriod} \in \{1, 2, 3\}$ is determined by normalized temporal clustering of exam start times. All sessions sharing an identical $\mathrm{SlotKey}$ are merged into a unified <code>RoomSessionGroup</code>.
+        </div>
+    </div>
+
+    <div class="formula-box avoid-break">
+        <div class="formula-title">Definition 2: Aggregate Student Count for Co-Located Halls</div>
+        <div class="formula-math">
+            $$N_{\mathrm{students}}(\mathrm{SlotKey}) = \sum_{s \,\in\, \mathrm{Sessions}(\mathrm{SlotKey})} \mathrm{student\_count}(s)$$
+        </div>
+        <div class="formula-desc">
+            The proctoring headcount requirement is strictly calculated against $N_{\mathrm{students}}(\mathrm{SlotKey})$, never against individual isolated exam session counts.
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.2 · Staffing Ratio Matrices</div>
+        <h3 class="section-title">Dynamic Staffing Requirements</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        The number of proctors required per room is governed by a piecewise ratio function evaluated against the aggregate student count $N_{\mathrm{students}}$:
+    </p>
+
+    <table class="book-table avoid-break">
+        <thead>
+            <tr>
+                <th style="width: 25%;">Student Headcount ($N$)</th>
+                <th style="width: 20%;">Exam Supervisors</th>
+                <th style="width: 20%;">Invigilators (Assistants)</th>
+                <th style="width: 35%;">Operational Standard &amp; Rationale</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>1 – 9 students</strong></td>
+                <td>1 Head</td>
+                <td>0 Assistants</td>
+                <td>Small seminar or makeup hall; single proctor.</td>
+            </tr>
+            <tr>
+                <td><strong>10 – 30 students</strong></td>
+                <td>1 Head</td>
+                <td>1 Assistant</td>
+                <td>Standard classroom ratio ($1:15$ staff-to-student).</td>
+            </tr>
+            <tr>
+                <td><strong>31 – 50 students</strong></td>
+                <td>1 Head</td>
+                <td>2 Assistants</td>
+                <td>Mid-size lecture room; dual aisle coverage.</td>
+            </tr>
+            <tr>
+                <td><strong>51 – 60 students</strong></td>
+                <td>1 Head</td>
+                <td>3 Assistants</td>
+                <td>Large tiered amphitheater; perimeter proctoring.</td>
+            </tr>
+            <tr>
+                <td><strong>61+ students</strong></td>
+                <td>1 Head</td>
+                <td>4 Assistants</td>
+                <td>Full auditorium maximum proctoring brigade.</td>
+            </tr>
+            <tr style="background: #fff8e8;">
+                <td><strong>Oral Exam Override</strong></td>
+                <td><span class="badge-hard">0 Head</span></td>
+                <td><span class="badge-opt">1 Assistant</span></td>
+                <td><strong>Mandatory Statutory Rule:</strong> Exactly 1 Invigilator; oral examiners handle academic questioning.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5.3: HARD INVARIANTS VS SOFT OPTIMIZERS          -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.3 · Constraint Validation Engine</div>
+        <h3 class="section-title">The 9 Hard Invariants &amp; 4 Soft Optimizers</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        Candidate availability is evaluated by <code>isStaffAvailable()</code>. Violations are segregated into <strong>Hard Invariants</strong> (fatal disqualifiers) and <strong>Soft Optimizers</strong> (deprioritization weights):
+    </p>
+
+    <table class="book-table avoid-break">
+        <thead>
+            <tr>
+                <th style="width: 12%;">Type</th>
+                <th style="width: 28%;">Constraint Name</th>
+                <th style="width: 22%;">Mathematical Invariant</th>
+                <th style="width: 38%;">Enforcement Mechanism &amp; Safety Behavior</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Staff Availability Status</strong></td>
+                <td>$\mathrm{Status} = \text{'Available'}$</td>
+                <td>Rejects staff marked 'On-Leave', 'Sabbatical', or 'Unavailable'.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Strict Specific Off-Dates</strong></td>
+                <td>$\mathrm{Date} \notin \mathrm{SpecificOffDates}$</td>
+                <td><strong>Zero-Bypass Guarantee:</strong> Approved medical/emergency leaves (Red X) cannot be overridden by any policy.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Double Booking (Spatial)</strong></td>
+                <td>$\mathrm{SlotAssignments} \le 1$</td>
+                <td>Prevents assignment to multiple distinct physical rooms during overlapping periods (exception: Committees Supervisors).</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Reserve Collision</strong></td>
+                <td>$\mathrm{Staff} \notin \mathrm{ActiveReserves}$</td>
+                <td>Staff active as a standby reserve in this period cannot be concurrently assigned to a room duty.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Weekly Working Days Cap</strong></td>
+                <td>$\mathrm{AssignedDays}_{\mathrm{week}} < D_{\max}$</td>
+                <td>Full-time capped at 5 days/week; Part-time capped at 3 days (or registered working days length).</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Oral Exam Role &amp; Privilege</strong></td>
+                <td>$\mathrm{OralPriv} \land \mathrm{Role} = \text{Invig}$</td>
+                <td>Oral exams strictly require <code>can_supervise_oral = true</code> and must be Demonstrator/Chemist invigilators.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Strict Consecutive Shifts</strong></td>
+                <td>$|P_i - P_j| \ne 1$ (if strict)</td>
+                <td>When <code>consecutive_shifts_policy = 'strictly_prevent'</code>, back-to-back periods on the same day are banned.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Max Daily Shifts Cap</strong></td>
+                <td>$\mathrm{Shifts}_{\mathrm{day}} \le S_{\max} + 1$</td>
+                <td>Hard barrier at 3 shifts/day to eliminate physical exhaustion.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-hard">HARD</span></td>
+                <td><strong>Peer Workload Spread Cap</strong></td>
+                <td>$S_{\mathrm{eff}} - S_{\mathrm{min\_peer}} < \Delta_{\max}$</td>
+                <td>Fairness lock: Locks out over-assigned staff ($+3.0$ score above lowest peer) until colleagues catch up.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-soft">SOFT</span></td>
+                <td><strong>Shift Spreading (Daily)</strong></td>
+                <td>$\mathrm{Shifts}_{\mathrm{day}} = 1$</td>
+                <td>Soft warning at 2 shifts; deprioritizes candidate so staff with 0 shifts today are selected first.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-soft">SOFT</span></td>
+                <td><strong>Preferred Weekly Hours</strong></td>
+                <td>$H_{\mathrm{week}} \le H_{\mathrm{target}}$</td>
+                <td>Flags soft warning when exceeding FT (16h), PT (8h), or Chemist (20h) preferred maximums.</td>
+            </tr>
+            <tr>
+                <td><span class="badge-soft">SOFT</span></td>
+                <td><strong>Feeding Mother Hours</strong></td>
+                <td>$D_{\mathrm{assigned}} \le D_{\mathrm{early}}$</td>
+                <td>Tracks early-leave day usage (FT: 2 days $\times$ 2h or 4 days $\times$ 1h; PT: 1 day $\times$ 2h or 2 days $\times$ 1h).</td>
+            </tr>
+            <tr>
+                <td><span class="badge-soft">SOFT</span></td>
+                <td><strong>Avoid Consecutive Shifts</strong></td>
+                <td>$|P_i - P_j| > 1$ (if avoid)</td>
+                <td>When set to 'avoid', adds soft penalty so non-adjacent candidates are preferred.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5.4: WORKLOAD SCORING & PARITY MATHEMATICS       -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.4 · Workload Parity Engineering</div>
+        <h3 class="section-title">Effective Workload Scoring &amp; Overload Mathematics</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        The engine calculates an <strong>Effective Score</strong> ($S_{\mathrm{eff}}$) for every staff member. The candidate sorting engine uses $S_{\mathrm{eff}}$ as the primary ranking metric to achieve strict egalitarian workload balancing:
+    </p>
+
+    <div class="formula-box avoid-break">
+        <div class="formula-title">Equation 1: Base Effective Workload Score</div>
+        <div class="formula-math">
+            $$S_{\mathrm{eff}} = S_{\mathrm{base}} + \left( S_{\mathrm{reserve}} \times 0.25 \right)$$
+        </div>
+        <div class="formula-desc">
+            Where $S_{\mathrm{base}}$ is cumulative room assignments and $S_{\mathrm{reserve}}$ is cumulative standby reserve duties. <strong>Invariant:</strong> Standby reserve duty is mathematically credited as exactly 25% of a full room assignment.
+        </div>
+    </div>
+
+    <div class="formula-box avoid-break">
+        <div class="formula-title">Equation 2: Overload Attenuation Adjustment</div>
+        <div class="formula-math">
+            $$F_{\mathrm{attenuation}} = \max\left(0.01,\; 1 - \frac{\Omega_{\mathrm{overload}}}{100}\right)$$
+            $$S_{\mathrm{adjusted}} = \frac{S_{\mathrm{eff}}}{F_{\mathrm{attenuation}}} + \frac{\Omega_{\mathrm{overload}}}{1000}$$
+        </div>
+        <div class="formula-desc">
+            For overloaded staff (e.g. senior researchers carrying heavy administrative loads, where $\Omega_{\mathrm{overload}} \in [0, 100]\%$), the score is scaled upward, artificially inflating their metric so the scheduler selects non-overloaded peers first.
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.5 · Sorting Hierarchy</div>
+        <h3 class="section-title">Multi-Key Candidate Prioritization Hierarchy</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        When selecting among available candidates for a room duty, <code>sortStaffByPriority()</code> applies a lexicographical comparator with six cascading criteria:
+    </p>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 1</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Health Issue &amp; Pharmacy Proximity Matching</div>
+            <div class="pipeline-text">
+                If the room is located in Building M or P (near the pharmacy complex, detected via <code>parseRoomCode()</code>), staff with <code>has_health_issue = true</code> are automatically sorted to the absolute front of the pool. For other buildings, they remain in the general pool to guarantee their overall semester workload remains identical to peers.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 2</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Primary Sort: Lowest Effective Workload Score ($S_{\mathrm{eff}}$)</div>
+            <div class="pipeline-text">
+                Candidates with the lowest effective score are assigned first ($a.S_{\mathrm{eff}} - b.S_{\mathrm{eff}}$). A difference greater than $0.01$ strictly decides candidate priority, enforcing uniform cohort progression.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 3</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Supervision Role Match (Tie-Breaker)</div>
+            <div class="pipeline-text">
+                When scores are identical, exact role matching is preferred. In Phase 1 (Exam Supervisors), pure 'Exam Supervisor' staff are preferred over dual-role. In Phase 2 (Assistants), pure 'Invigilator' staff (Chemists and non-doctoral Demonstrators) are preferred so dual-role staff are preserved for Head Supervisor duties.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 4</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Preferred Academic Job Title</div>
+            <div class="pipeline-text">
+                Lecturers preferred for Exam Supervisors; Demonstrators and Chemists preferred for Invigilators.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 5</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Academic Hierarchy Weighting</div>
+            <div class="pipeline-text">
+                Default seniority ladder: Chemist (3) &gt; Demonstrator (2) &gt; Teaching Assistant (1) &gt; Lecturer (0).
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">KEY 6</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Deterministic Alphabetical Tie-Breaker</div>
+            <div class="pipeline-text">
+                Guarantees complete run-to-run reproducibility via <code>a.name.localeCompare(b.name)</code>.
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5.5: THE 4 STAGES OF AUTO-ASSIGNMENT             -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.6 · Complete Execution Pipeline</div>
+        <h3 class="section-title">The Four Ordered Algorithmic Stages</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">STAGE 1</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Committees Supervisor Multi-Floor Clustering (Pre-Pass)</div>
+            <div class="pipeline-text">
+                <strong>Target:</strong> Senior faculty overseeing blocks of exam rooms across building wings.<br>
+                <strong>Algorithm:</strong> Exam sessions are grouped by date and period, then sorted chronologically. Rooms in the same building are ordered by floor and chunked into clusters respecting:
+                $$\mathrm{ClusterRooms} \le \min\left(M_{\mathrm{configured}},\; \lceil R_{\mathrm{period}} / S_{\mathrm{CS\_available}} \rceil\right) \quad\text{and}\quad \mathrm{DistinctFloors} \le 2$$
+                <strong>Weekly Equalization Sort:</strong> Selected candidates are ordered by: (1) 0 duties today first, (2) fewest duties this week, (3) lowest baseline score.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">STAGE 2</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Phase 1: Exam Supervisors (Head Supervisors) across ALL Rooms</div>
+            <div class="pipeline-text">
+                <strong>Critical Architectural Invariant:</strong> The scheduler iterates over all sorted room groups (ordered chronologically by date, period, then descending student count) and assigns <strong>ALL Head Supervisors across all rooms before assigning a single Assistant</strong>.<br>
+                <strong>Pool:</strong> Restricted strictly to <code>supervision_role \in \{'Exam Supervisor', 'Invigilator / Exam Supervisor'\}</code>.<br>
+                <strong>Outcome:</strong> Prevents dual-role senior staff from being prematurely consumed as room assistants.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">STAGE 3</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Phase 2: Invigilators (Assistants) across ALL Rooms</div>
+            <div class="pipeline-text">
+                <strong>Target:</strong> Co-proctors and aisle monitors for all exam halls.<br>
+                <strong>Algorithm:</strong> Second chronological pass over the room groups. Evaluates remaining available staff, prioritizing pure Invigilators.<br>
+                <strong>Oral Exams:</strong> Receive exactly 1 Assistant and 0 Head Supervisors, requiring <code>can_supervise_oral = true</code>.
+            </div>
+        </div>
+    </div>
+
+    <div class="pipeline-card avoid-break">
+        <div class="pipeline-step-badge">STAGE 4</div>
+        <div class="pipeline-content">
+            <div class="pipeline-title">Standby Reserve Staff Allocation (Period Free Staff)</div>
+            <div class="pipeline-text">
+                <strong>Deficiency-First Safety Invariant:</strong> If <em>any</em> room in a date-period slot suffers an unstaffed deficiency, reserve allocation for that slot is <strong>instantly aborted</strong>. Room coverage is absolute.<br>
+                <strong>Quotas:</strong> Configurable targets (default 3 Supervisors and 3 Assistants per period) with a hard cap of maximum 2 reserve duties per week per staff member.<br>
+                <strong>Period 2 Chemist Protection:</strong> During final exam cycles, Chemists are deprioritized in Period 2 reserves to preserve them for Period 2 oral laboratory exams.
+            </div>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 5.6: THREE-TIER ZERO-DEFICIENCY FALLBACK         -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="section-header">
+        <div class="section-tag">§ 1.7 · Fault Tolerance</div>
+        <h3 class="section-title">The Three-Tier Zero-Deficiency Fallback Mechanism</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        When academic departments face extreme staffing constraints (e.g. flu outbreaks or massive multi-hall examinations), naïve constraint solvers fail and abort. The ESMS engine guarantees 100% room staffing via a three-tier graduated constraint relaxation hierarchy:
+    </p>
+
+    <table class="book-table avoid-break">
+        <thead>
+            <tr>
+                <th style="width: 15%;">Fallback Tier</th>
+                <th style="width: 25%;">Solver Strategy</th>
+                <th style="width: 28%;">Relaxed Constraints</th>
+                <th style="width: 32%;">Safety Guardrails Retained</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Tier 1 (Strict)</strong></td>
+                <td>Standard Ideal Matching</td>
+                <td>None; 0 soft violations required.</td>
+                <td>All hard and soft constraints strictly enforced.</td>
+            </tr>
+            <tr>
+                <td><strong>Tier 2 (Parity Relax)</strong></td>
+                <td>Peer Cap Relaxation</td>
+                <td><code>allowWorkloadCapRelax = true</code>: Temporarily bypasses the $+3.0$ peer spread cap.</td>
+                <td>Leaves, double booking, and weekly day limits remain 100% inviolable.</td>
+            </tr>
+            <tr>
+                <td><strong>Tier 3 (Emergency)</strong></td>
+                <td>Day Cap Relaxation</td>
+                <td><code>allowDayCapRelax = true</code>: Authorizes an extra working day this week to prevent empty halls.</td>
+                <td>Medical leaves and spatial double bookings are NEVER relaxed. Generates audit violation.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 6: TECHNICAL GUARDRAILS & AI COACHING LAB        -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.8 · Administrative Guardrails &amp; AI Prompt Engineering</div>
+        <h3 class="section-title">AI Coaching Lab &amp; Administrative SOPs</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <p>
+        Administrative proctoring queries submitted to automated or generative agents must be framed with rigorous operational boundaries:
+    </p>
+
+    <div class="objectives-triad avoid-break">
+        <div class="triad-card" style="border-top-color: var(--c-red);">
+            <div class="triad-roman">❌</div>
+            <div class="triad-title" style="color: var(--c-red);">Naive / Weak Prompt</div>
+            <p style="font-size: 8.5pt; font-style: italic; color: #6b2828;">
+                "Assign supervisors to next week's pharmacy exams and make sure nobody has too many shifts."
+            </p>
+            <p style="font-size: 8pt; color: var(--c-text-muted); margin-top: 6pt;">
+                <strong>Deficiency:</strong> Fails to define staffing ratios, co-location rules, oral privileges, medical off-dates, or the difference between Head Supervisors and Invigilators.
+            </p>
+        </div>
+        <div class="triad-card" style="border-top-color: var(--c-green-ok); grid-column: span 2;">
+            <div class="triad-roman">✅</div>
+            <div class="triad-title" style="color: var(--c-green-ok);">Rigorous Technical SOP Prompt</div>
+            <p style="font-size: 8.5pt; font-style: italic; color: #165334;">
+                "Execute batch auto-assignment for week starting 2026-06-20 under <code>respect_all_off_days</code> policy. Enforce two-phase assignment (Head Supervisors first across all halls; Assistants second). Aggregate co-located hall headcounts prior to ratio lookup. For oral exams, enforce exactly 1 Invigilator with <code>can_supervise_oral = true</code>. Allocate standby reserves only after all rooms have 0 deficiencies, capping weekly reserves at 2 per staff."
+            </p>
+            <p style="font-size: 8pt; color: var(--c-text-muted); margin-top: 6pt;">
+                <strong>Advantage:</strong> Fully specifies topological invariants, mathematical ratios, and role preservation rules.
+            </p>
+        </div>
+    </div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.9 · System Safety Features</div>
+        <h3 class="section-title">State Rollback &amp; Database Mutation Safeguards</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <div class="callout-box callout-alert avoid-break">
+        <strong>Pre-Run Snapshot Engine (Atomic Rollback):</strong> Immediately before any automated batch run, the API calls <code>createSnapshot()</code>. This creates a complete serialized backup of all active assignments, reserve tables, and staff workload scores. If an administrator wishes to revert an automated schedule, the system performs a one-click restore without leaving orphaned foreign keys or corrupted score balances.
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 7: PEDAGOGICAL ASSESSMENT SUITE                  -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="section-header">
+        <div class="section-tag">§ 1.10 · Algorithmic Verification Suite</div>
+        <h3 class="section-title">Assessment &amp; Engineering Examination Questions</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <div class="mcq-card avoid-break">
+        <div class="mcq-head">
+            <span class="mcq-num">Question 1.1 · Architectural Invariant</span>
+            <span class="bloom-badge">Bloom: Understand</span>
+        </div>
+        <div class="mcq-q">
+            Why does the ESMS Auto-Assignment Engine execute room scheduling in two distinct chronological phases (all Exam Supervisors first, then all Invigilators second), rather than populating each room completely one-by-one?
+        </div>
+        <ul class="mcq-options">
+            <li>A) To minimize memory consumption during database batch queries.</li>
+            <li class="correct">B) To prevent dual-role staff ('Invigilator / Exam Supervisor') from being prematurely consumed as assistants, which would cause artificial supervisor deficiencies in later halls. ✓</li>
+            <li>C) Because Committees Supervisors cannot enter halls before invigilators arrive.</li>
+            <li>D) To allow oral exams to take precedence over written final exams.</li>
+        </ul>
+    </div>
+
+    <div class="mcq-card avoid-break">
+        <div class="mcq-head">
+            <span class="mcq-num">Question 1.2 · Topological Hashing</span>
+            <span class="bloom-badge bloom-anal">Bloom: Analyze</span>
+        </div>
+        <div class="mcq-q">
+            Two distinct examination courses—Clinical Pharmacokinetics (18 students) and Pharmaceutical Jurisprudence (22 students)—are scheduled concurrently in Hall M205 from 09:00 to 11:00. Under standard ratios, how many proctors will the engine assign?
+        </div>
+        <ul class="mcq-options">
+            <li>A) 2 Head Supervisors and 2 Assistants (treating them as two separate exams).</li>
+            <li>B) 1 Head Supervisor and 1 Assistant (based only on the first course).</li>
+            <li class="correct">C) 1 Head Supervisor and 2 Assistants (summing to 40 students under the 31–50 student ratio tier). ✓</li>
+            <li>D) 0 Head Supervisors and 1 Assistant (oral exam rules).</li>
+        </ul>
+    </div>
+
+    <div class="mcq-card avoid-break">
+        <div class="mcq-head">
+            <span class="mcq-num">Question 1.3 · Standby Reserve Mechanics</span>
+            <span class="bloom-badge bloom-eval">Bloom: Evaluate</span>
+        </div>
+        <div class="mcq-q">
+            During auto-assignment for Period 1 on Monday, 3 out of 16 exam halls have an invigilator deficiency that could not be resolved even after Tier 3 fallback. What will the reserve allocation module (<code>allocateReserveStaff</code>) do for Period 1?
+        </div>
+        <ul class="mcq-options">
+            <li>A) Allocate 3 reserve supervisors and 3 reserve assistants as normal.</li>
+            <li>B) Randomly assign available staff to reserves and alert the Dean.</li>
+            <li class="correct">C) Immediately abort reserve allocation for Period 1 under the Deficiency-First Invariant, preventing staff from sitting in reserve lounges while exam halls are understaffed. ✓</li>
+            <li>D) Automatically convert the exam into an oral examination.</li>
+        </ul>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 7.2: ACADEMIC CITATIONS                          -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="section-header" style="margin-top: 18pt;">
+        <div class="section-tag">§ 1.11 · Authoritative Literature</div>
+        <h3 class="section-title">Academic &amp; System References</h3>
+        <div class="section-rule"></div>
+    </div>
+
+    <ul style="font-size: 8.5pt; line-height: 1.5; padding-left: 14pt; margin-bottom: 0;">
+        <li style="margin-bottom: 5pt;">
+            <strong>Burke, E. K., &amp; Petrovic, S.</strong> (2002). <em>Recent research directions in automated timetabling.</em> European Journal of Operational Research, 140(2), 266–280.
+        </li>
+        <li style="margin-bottom: 5pt;">
+            <strong>Knuth, D. E.</strong> (2000). <em>Dancing Links.</em> Millennial Perspectives in Computer Science, 187–214. (Constraint satisfaction models and exact cover optimization).
+        </li>
+        <li style="margin-bottom: 5pt;">
+            <strong>Egyptian Supreme Council of Universities.</strong> (2023). <em>Statutory Guidelines for University Examination Proctoring, Nursing Mother Leaves, and Faculty Duty Caps.</em> Ministry of Higher Education and Scientific Research.
+        </li>
+        <li>
+            <strong>Faculty of Pharmacy, Horus University in Egypt.</strong> (2026). <em>Examination &amp; Supervisory Management System (ESMS) Core Architecture &amp; Data Schema Specification v2.8.</em>
+        </li>
+    </ul>
+
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <!-- SECTION 8: FULL-BLEED EDITORIAL ENDING PAGE              -->
+    <!-- ══════════════════════════════════════════════════════════ -->
+    <div class="page-break"></div>
+
+    <div class="closing-page">
+        <div>
+            <img src="{logo_pharmacy}" alt="Faculty of Pharmacy Seal" class="closing-seal">
+        </div>
+
+        <div class="closing-quote-box">
+            <div class="closing-quote-symbol">“</div>
+            <div class="closing-quote">
+                True fairness in academic administration is not achieved through subjective goodwill, but through transparent, mathematically rigorous systems that honor human dignity and protect institutional integrity.
+            </div>
+            <div class="closing-rule"></div>
+            <div class="closing-author">Dr. Mohamed El-Khodary, Ph.D.</div>
+            <div class="closing-author-title">Senior System Architect · Faculty of Pharmacy · Horus University in Egypt</div>
+        </div>
+
+        <div class="closing-bottom-mark">
+            Horus University in Egypt · Faculty of Pharmacy · ESMS Algorithmic Architecture Series
+        </div>
+    </div>
+
+</body>
+</html>
+"""
+
+output_html = r"D:\HUE\DEVELOPED SOFTWARE\Supervisors Automated Assign\docs\book\auto_assignment_logic_book.html"
+output_pdf = r"D:\HUE\DEVELOPED SOFTWARE\Supervisors Automated Assign\docs\book\auto_assignment_logic_book.pdf"
+
+with open(output_html, "w", encoding="utf-8") as f:
+    f.write(html_content)
+
+print(f"HTML written to {output_html} ({len(html_content)} chars)")
+
+# Render to PDF using Edge Headless
+edge_path = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+cmd = [
+    edge_path,
+    "--headless",
+    "--disable-gpu",
+    "--no-pdf-header-footer",
+    f"--print-to-pdf={output_pdf}",
+    output_html
+]
+
+print("Executing Edge headless PDF compilation...")
+res = subprocess.run(cmd, capture_output=True, text=True)
+print(f"Edge exited with code: {res.returncode}")
+
+if os.path.exists(output_pdf):
+    # Set standard metadata using PyMuPDF
+    doc = pymupdf.open(output_pdf)
+    meta = {
+        "title": "Automated Exam Supervisor Assignment Engine — Architectural Logic & Mathematical Specification",
+        "author": "Dr. Mohamed El-Khodary, Ph.D.",
+        "creator": "Faculty of Pharmacy, Horus University in Egypt",
+        "subject": "ESMS Core Engine Architecture, Constraint Satisfaction, and Scheduling Algorithms",
+        "keywords": "ESMS, Auto-Assignment, Scheduling, Operations Research, Horus University"
+    }
+    doc.set_metadata(meta)
+    temp_pdf = output_pdf + ".tmp.pdf"
+    doc.save(temp_pdf)
+    doc.close()
+    os.replace(temp_pdf, output_pdf)
+    print(f"Successfully generated PDF: {output_pdf}")
+
+    # Inspect page count and properties
+    doc = pymupdf.open(output_pdf)
+    print(f"Total Pages: {len(doc)}")
+    for i, page in enumerate(doc):
+        print(f"  Page {i+1}: {page.rect.width:.1f} x {page.rect.height:.1f} pt")
+    doc.close()
+else:
+    print(f"Error: PDF was not generated. stderr: {res.stderr}")
