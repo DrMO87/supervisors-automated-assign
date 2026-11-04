@@ -355,9 +355,86 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const { viewMode, toggleViewMode } = useMobileView();
 
+  // ─── Columns Visibility & Presets State ─────────────────────────────────
+  const [visibleColumns, setVisibleColumns] = useState<StaffVisibleColumns>(DEFAULT_STAFF_COLUMNS);
+  const [activePreset, setActivePreset] = useState<StaffViewPreset>('all');
+  const [isColumnsDropdownOpen, setIsColumnsDropdownOpen] = useState(false);
+  const columnsDropdownRef = useRef<HTMLDivElement>(null);
+
+  // ─── Search & Filters State ─────────────────────────────────────────────
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterRole, setFilterRole] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterCondition, setFilterCondition] = useState('all');
+
   useEffect(() => {
     setLocalStaff(staff);
   }, [staff]);
+
+  // Load preferences from localStorage once mounted
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedCols = localStorage.getItem(STORAGE_KEY_STAFF_COLUMNS);
+      const savedPreset = localStorage.getItem(STORAGE_KEY_STAFF_PRESET);
+      if (savedCols) {
+        setVisibleColumns(JSON.parse(savedCols));
+      }
+      if (savedPreset) {
+        setActivePreset(savedPreset as StaffViewPreset);
+      }
+    } catch (e) {
+      console.error('Failed to load table column preferences', e);
+    }
+  }, []);
+
+  // Click-outside listener for columns dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnsDropdownRef.current && !columnsDropdownRef.current.contains(event.target as Node)) {
+        setIsColumnsDropdownOpen(false);
+      }
+    };
+    if (isColumnsDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isColumnsDropdownOpen]);
+
+  const applyPreset = (presetId: StaffViewPreset) => {
+    if (presetId === 'custom') return;
+    const target = STAFF_PRESETS.find(p => p.id === presetId);
+    if (!target) return;
+    setVisibleColumns(target.columns);
+    setActivePreset(presetId);
+    try {
+      localStorage.setItem(STORAGE_KEY_STAFF_COLUMNS, JSON.stringify(target.columns));
+      localStorage.setItem(STORAGE_KEY_STAFF_PRESET, presetId);
+    } catch (e) {}
+  };
+
+  const toggleColumn = (key: keyof StaffVisibleColumns) => {
+    setVisibleColumns(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      // Check if next matches any preset
+      const matchingPreset = STAFF_PRESETS.find(p => 
+        Object.keys(p.columns).every(k => p.columns[k as keyof StaffVisibleColumns] === next[k as keyof StaffVisibleColumns])
+      );
+      const newPreset: StaffViewPreset = matchingPreset ? matchingPreset.id : 'custom';
+      setActivePreset(newPreset);
+      try {
+        localStorage.setItem(STORAGE_KEY_STAFF_COLUMNS, JSON.stringify(next));
+        localStorage.setItem(STORAGE_KEY_STAFF_PRESET, newPreset);
+      } catch (e) {}
+      return next;
+    });
+  };
+
+  const resetAllColumns = () => {
+    applyPreset('all');
+  };
 
   const handleToggleWorkingDay = async (staffId: string, day: string) => {
     if (!supabase) return;
@@ -421,6 +498,41 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
     }
   };
 
+  // ─── Filtering logic ────────────────────────────────────────────────────
+  const filteredStaff = useMemo(() => {
+    let result = [...localStaff];
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      result = result.filter(s =>
+        (s.name && s.name.toLowerCase().includes(q)) ||
+        (s.email && s.email.toLowerCase().includes(q)) ||
+        (s.job_title && s.job_title.toLowerCase().includes(q))
+      );
+    }
+    if (filterRole !== 'all') {
+      result = result.filter(s => s.supervision_role === filterRole);
+    }
+    if (filterStatus !== 'all') {
+      result = result.filter(s => s.availability_status === filterStatus);
+    }
+    if (filterCondition !== 'all') {
+      if (filterCondition === 'overloaded') result = result.filter(s => s.is_overloaded);
+      else if (filterCondition === 'feeding_mother') result = result.filter(s => s.is_feeding_mother);
+      else if (filterCondition === 'health') result = result.filter(s => s.has_health_issue);
+      else if (filterCondition === 'oral') result = result.filter(s => s.can_supervise_oral);
+    }
+    return result;
+  }, [localStaff, searchTerm, filterRole, filterStatus, filterCondition]);
+
+  const hasActiveFilters = Boolean(searchTerm || filterRole !== 'all' || filterStatus !== 'all' || filterCondition !== 'all');
+
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterRole('all');
+    setFilterStatus('all');
+    setFilterCondition('all');
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -472,19 +584,8 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
     });
   };
 
-  const toggleAllSelection = () => {
-    if (selectedIds.size === localStaff.length && localStaff.length > 0) {
-      setSelectedIds(new Set());
-      if (onSelectionChange) onSelectionChange([]);
-    } else {
-      const allIds = new Set(localStaff.map(s => s.id));
-      setSelectedIds(allIds);
-      if (onSelectionChange) onSelectionChange(Array.from(allIds));
-    }
-  };
-
   const getSortedStaff = () => {
-    const arr = [...localStaff];
+    const arr = [...filteredStaff];
     if (!sortField) return arr;
 
     return arr.sort((a, b) => {
@@ -543,16 +644,38 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
     });
   };
 
+  const sortedStaff = getSortedStaff();
+
+  const toggleAllSelection = () => {
+    const selectable = sortedStaff.map(s => s.id);
+    const allSelected = selectable.length > 0 && selectable.every(id => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        selectable.forEach(id => next.delete(id));
+        if (onSelectionChange) onSelectionChange(Array.from(next));
+        return next;
+      });
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        selectable.forEach(id => next.add(id));
+        if (onSelectionChange) onSelectionChange(Array.from(next));
+        return next;
+      });
+    }
+  };
+
   const renderHeader = (field: SortField, label: string, align: 'left' | 'center' = 'left', tooltip?: string, padding: string = 'px-4 py-3') => {
     const isSorted = sortField === field;
     const isCenter = align === 'center';
-      return (
-        <th 
-          key={field}
-          onClick={() => handleSort(field)}
-          className={`${padding} text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 hover:text-gray-700 transition-colors bg-gray-50 ${isCenter ? 'text-center' : 'text-left'}`}
-          title={tooltip}
-        >
+    return (
+      <th 
+        key={field}
+        onClick={() => handleSort(field)}
+        className={`${padding} text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:bg-gray-100 hover:text-gray-700 transition-colors bg-gray-50 ${isCenter ? 'text-center' : 'text-left'}`}
+        title={tooltip}
+      >
         <div className={`flex items-center gap-1.5 ${isCenter ? 'justify-center' : ''}`}>
           <span>{label}</span>
           <span className="shrink-0 text-gray-400">
@@ -567,74 +690,276 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
     );
   };
 
-  const sortedStaff = getSortedStaff();
+  // Dynamic count of columns before the days matrix
+  const colSpanLeft = 2
+    + (visibleColumns.job_title ? 1 : 0)
+    + (visibleColumns.supervision_role ? 1 : 0)
+    + (visibleColumns.scores ? 3 : 0)
+    + (visibleColumns.availability_status ? 1 : 0)
+    + (visibleColumns.conditions ? 1 : 0);
 
-  // Number of columns before the day matrix (Name, Job, Role, Score, Free, Total, Status, Conditions)
-  const LEFT_COLS = 9;
+  const activeColumnsCount = Object.values(visibleColumns).filter(Boolean).length;
 
-    return (
-      <div className="flex flex-col w-full">
-        {/* Mobile View Toggle */}
-        <div className="md:hidden flex justify-end mb-3">
-          <button onClick={toggleViewMode} className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50">
-            {viewMode === 'standard' ? <List className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
-            {viewMode === 'standard' ? 'Compact View' : 'Standard View'}
-          </button>
+  return (
+    <div className="flex flex-col w-full">
+      {/* ─── Top Control Toolbar: Presets, Columns Toggle & Quick Filters ─── */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xs p-4 mb-4 space-y-3">
+        {/* Row 1: Presets & Columns Dropdown */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Preset Buttons */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs font-semibold text-gray-500 mr-1 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              View Presets:
+            </span>
+            {STAFF_PRESETS.map((preset) => {
+              const isActive = activePreset === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  onClick={() => applyPreset(preset.id)}
+                  title={preset.desc}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-xs font-semibold'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200 hover:text-gray-900'
+                  }`}
+                >
+                  {preset.label}
+                  {isActive && <Check className="w-3 h-3 stroke-[3]" />}
+                </button>
+              );
+            })}
+            {activePreset === 'custom' && (
+              <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                Custom View
+              </span>
+            )}
+          </div>
+
+          {/* Right Side: Columns Dropdown & Mobile View */}
+          <div className="flex items-center gap-2 relative" ref={columnsDropdownRef}>
+            {/* Columns Customizer Dropdown Button */}
+            <button
+              onClick={() => setIsColumnsDropdownOpen(prev => !prev)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                isColumnsDropdownOpen 
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-200'
+                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Columns</span>
+              <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.2 rounded-full text-[10px] font-bold">
+                {activeColumnsCount}/6
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isColumnsDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Mobile View Toggle */}
+            <div className="md:hidden">
+              <button 
+                onClick={toggleViewMode} 
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-gray-300 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50"
+                title="Toggle View Mode"
+              >
+                {viewMode === 'standard' ? <List className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {/* Columns Dropdown Popover */}
+            {isColumnsDropdownOpen && (
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-xl border border-gray-200 z-50 p-3 space-y-2.5 animate-in fade-in zoom-in-95 duration-100">
+                <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                  <div className="flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-gray-900">Customize Columns</span>
+                  </div>
+                  <button
+                    onClick={resetAllColumns}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    Reset
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                  {[
+                    { key: 'job_title', label: 'Job Title & Status', labelAr: 'الوظيفة والتعاقد', desc: 'Display job rank and employment type' },
+                    { key: 'supervision_role', label: 'Supervision Role', labelAr: 'الدور الرقابي', desc: 'Invigilator, Exam Supervisor, etc.' },
+                    { key: 'scores', label: 'Workload & Scores', labelAr: 'الأعباء والدرجات', desc: 'Assigned score, reserve score, and total' },
+                    { key: 'availability_status', label: 'Availability Status', labelAr: 'حالة التفرغ', desc: 'Available, On-Leave, Unavailable' },
+                    { key: 'conditions', label: 'Special Conditions', labelAr: 'الشروط والحالات الخاصة', desc: 'Overload, Feeding Mother, Health, Oral' },
+                    { key: 'working_days', label: 'Working Days Matrix', labelAr: 'مصفوفة أيام الأسبوع', desc: 'Saturday to Thursday availability cells' },
+                  ].map((col) => {
+                    const isChecked = visibleColumns[col.key as keyof StaffVisibleColumns];
+                    return (
+                      <label
+                        key={col.key}
+                        className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleColumn(col.key as keyof StaffVisibleColumns)}
+                          className="mt-0.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-xs font-semibold text-gray-900 leading-tight">
+                            {col.label}
+                          </span>
+                          <span className="text-[10px] text-gray-500 mt-0.5">
+                            {col.desc}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="pt-2 border-t border-gray-100 flex justify-between items-center text-[11px] text-gray-500">
+                  <span>{activeColumnsCount} of 6 selected</span>
+                  <button
+                    onClick={() => applyPreset('all')}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                  >
+                    Select All
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Mobile Card View */}
-        <div className="md:hidden flex flex-col gap-4 pb-4">
-          {sortedStaff.map((member) => {
-            const hasOffDates = (member.specific_off_dates?.length ?? 0) > 0;
-            const canExpand = examDates && examDates.length > 0;
-            const isExpanded  = expanded.has(member.id);
+        {/* Row 2: Search & Filter Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-gray-100">
+          {/* Search Input */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by name, email, or job..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            />
+          </div>
 
-            const allKnownDates = examDates && examDates.length > 0
-              ? examDates
-              : Array.from(new Set(localStaff.flatMap((s) => s.specific_off_dates ?? [])));
+          {/* Role Filter */}
+          <select
+            value={filterRole}
+            onChange={(e) => setFilterRole(e.target.value)}
+            className="px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500 text-gray-700"
+          >
+            <option value="all">All Roles</option>
+            <option value="Invigilator">Invigilator</option>
+            <option value="Committees Supervisor">Committees Supervisor</option>
+            <option value="Exam Supervisor">Exam Supervisor</option>
+            <option value="Invigilator / Exam Supervisor">Invigilator / Exam Supervisor</option>
+          </select>
 
-            const { recurringOffDays } = hasOffDates
-              ? classifyOffDays(member.specific_off_dates, allKnownDates)
-              : { recurringOffDays: [] as string[] };
+          {/* Status Filter */}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500 text-gray-700"
+          >
+            <option value="all">All Statuses</option>
+            <option value="Available">Available</option>
+            <option value="On-Leave">On-Leave</option>
+            <option value="Unavailable">Unavailable</option>
+          </select>
 
-            const weekGroups = canExpand
-              ? groupByAcademicWeek(member.specific_off_dates || [], member.specific_standard_off_dates || [], allKnownDates)
-              : [];
+          {/* Condition Filter */}
+          <select
+            value={filterCondition}
+            onChange={(e) => setFilterCondition(e.target.value)}
+            className="px-2.5 py-1.5 text-xs bg-gray-50 border border-gray-300 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500 text-gray-700"
+          >
+            <option value="all">All Conditions</option>
+            <option value="overloaded">Overloaded (OL)</option>
+            <option value="feeding_mother">Feeding Mother (FM)</option>
+            <option value="health">Medical / Health (M/P)</option>
+            <option value="oral">Oral Exams Eligible</option>
+          </select>
 
-            if (viewMode === 'compact') {
-              return (
-                <div key={member.id} className={`bg-white rounded-lg border ${selectedIds.has(member.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm flex items-center p-3 gap-3 transition-all`} onClick={canExpand ? () => toggleExpanded(member.id) : undefined}>
-                  <input type="checkbox" className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4" checked={selectedIds.has(member.id)} onChange={() => toggleSelection(member.id)} onClick={e => e.stopPropagation()} />
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="font-bold text-gray-900 text-sm truncate">{member.name}</span>
-                    <span className="text-xs text-gray-500 truncate">{member.job_title} • {member.supervision_role}</span>
+          {/* Clear button */}
+          {hasActiveFilters && (
+            <button
+              onClick={clearFilters}
+              className="px-2.5 py-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1 font-medium"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Clear
+            </button>
+          )}
+
+          {/* Total Count Pill */}
+          <div className="ml-auto text-xs text-gray-500 font-medium">
+            Showing <span className="font-bold text-gray-900">{sortedStaff.length}</span> of {localStaff.length}
+          </div>
+        </div>
+      </div>
+
+      {/* Mobile Card View */}
+      <div className="md:hidden flex flex-col gap-4 pb-4">
+        {sortedStaff.map((member) => {
+          const hasOffDates = (member.specific_off_dates?.length ?? 0) > 0;
+          const canExpand = examDates && examDates.length > 0;
+          const isExpanded  = expanded.has(member.id);
+
+          const allKnownDates = examDates && examDates.length > 0
+            ? examDates
+            : Array.from(new Set(localStaff.flatMap((s) => s.specific_off_dates ?? [])));
+
+          const { recurringOffDays } = hasOffDates
+            ? classifyOffDays(member.specific_off_dates, allKnownDates)
+            : { recurringOffDays: [] as string[] };
+
+          const weekGroups = canExpand
+            ? groupByAcademicWeek(member.specific_off_dates || [], member.specific_standard_off_dates || [], allKnownDates)
+            : [];
+
+          if (viewMode === 'compact') {
+            return (
+              <div key={member.id} className={`bg-white rounded-lg border ${selectedIds.has(member.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm flex items-center p-3 gap-3 transition-all`} onClick={canExpand ? () => toggleExpanded(member.id) : undefined}>
+                <input type="checkbox" className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4" checked={selectedIds.has(member.id)} onChange={() => toggleSelection(member.id)} onClick={e => e.stopPropagation()} />
+                <div className="flex flex-col min-w-0 flex-1">
+                  <span className="font-bold text-gray-900 text-sm truncate">{member.name}</span>
+                  <span className="text-xs text-gray-500 truncate">{member.job_title} • {member.supervision_role}</span>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{member.current_score || 0}</span>
+                  <span className={`w-2 h-2 rounded-full ${member.availability_status === 'Available' ? 'bg-green-500' : member.availability_status === 'On-Leave' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={member.id} className={`bg-white rounded-xl border ${selectedIds.has(member.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm flex flex-col overflow-hidden transition-all`}>
+              <div className="p-4 flex flex-col gap-3">
+                <div className="flex items-start gap-3 border-b border-gray-100 pb-3">
+                  <div className="pt-1">
+                    <input type="checkbox" checked={selectedIds.has(member.id)} onChange={() => toggleSelection(member.id)} className="w-5 h-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500" />
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">{member.current_score || 0}</span>
-                    <span className={`w-2 h-2 rounded-full ${member.availability_status === 'Available' ? 'bg-green-500' : member.availability_status === 'On-Leave' ? 'bg-yellow-500' : 'bg-red-500'}`} />
+                  <div className="flex-1 min-w-0" onClick={canExpand ? () => toggleExpanded(member.id) : undefined}>
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="font-bold text-gray-900 truncate">{member.name}</div>
+                      <span className={`shrink-0 inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full ${getAvailabilityBadge(member.availability_status)}`}>
+                        {member.availability_status === 'Available' ? 'Avail' : member.availability_status}
+                      </span>
+                    </div>
+                    {visibleColumns.job_title && (
+                      <div className="text-xs text-gray-500 truncate mt-0.5" title={`${member.job_title} - ${member.employment_status}`}>
+                        {member.job_title} • {member.employment_status}
+                      </div>
+                    )}
                   </div>
                 </div>
-              );
-            }
 
-            return (
-              <div key={member.id} className={`bg-white rounded-xl border ${selectedIds.has(member.id) ? 'border-primary-400 ring-1 ring-primary-400' : 'border-gray-200'} shadow-sm flex flex-col overflow-hidden transition-all`}>
-                <div className="p-4 flex flex-col gap-3">
-                  <div className="flex items-start gap-3 border-b border-gray-100 pb-3">
-                    <div className="pt-1">
-                      <input type="checkbox" checked={selectedIds.has(member.id)} onChange={() => toggleSelection(member.id)} className="w-5 h-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500" />
-                    </div>
-                    <div className="flex-1 min-w-0" onClick={canExpand ? () => toggleExpanded(member.id) : undefined}>
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="font-bold text-gray-900 truncate">{member.name}</div>
-                        <span className={`shrink-0 inline-flex px-2 py-0.5 text-[10px] font-semibold rounded-full ${getAvailabilityBadge(member.availability_status)}`}>
-                          {member.availability_status === 'Available' ? 'Avail' : member.availability_status}
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-500 truncate mt-0.5" title={`${member.job_title} - ${member.employment_status}`}>{member.job_title} • {member.employment_status}</div>
-                    </div>
-                  </div>
-
+                {visibleColumns.scores && (
                   <div className="grid grid-cols-3 gap-2 py-2 bg-gray-50 rounded-lg border border-gray-100 px-3">
                     <div className="text-center">
                       <div className="text-[10px] text-gray-500 uppercase font-semibold">Score</div>
@@ -649,19 +974,27 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
                       <div className="font-bold text-primary-700">{(member.current_score || 0) + ((member.free_staff_score || 0) * 0.25)}</div>
                     </div>
                   </div>
+                )}
 
-                  <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
+                  {visibleColumns.supervision_role && (
                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded ${supervisionRoleBadge[member.supervision_role] ?? 'bg-gray-100 text-gray-700'}`}>
                       <ShieldCheck className="w-3 h-3" />
                       {member.supervision_role?.replace('Supervisor', 'Sprv')}
                     </span>
-                    {member.is_overloaded && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px] font-medium">OL·{member.overload_percentage}%</span>}
-                    {member.is_feeding_mother && <span className="bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded text-[10px] font-medium">FM·{member.feeding_mother_days}d</span>}
-                    {member.has_health_issue && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">M/P</span>}
-                    {member.can_supervise_oral && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-medium">Oral</span>}
-                  </div>
+                  )}
+                  {visibleColumns.conditions && (
+                    <>
+                      {member.is_overloaded && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px] font-medium">OL·{member.overload_percentage}%</span>}
+                      {member.is_feeding_mother && <span className="bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded text-[10px] font-medium">FM·{member.feeding_mother_days}d</span>}
+                      {member.has_health_issue && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">M/P</span>}
+                      {member.can_supervise_oral && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-medium">Oral</span>}
+                    </>
+                  )}
+                </div>
 
-                  {/* Day Pills Matrix */}
+                {/* Day Pills Matrix */}
+                {visibleColumns.working_days && (
                   <div className="mt-1 pt-3 border-t border-gray-100 flex items-center justify-between px-1">
                     {FULL_DAYS.map((day, idx) => {
                       const isWorking = member.working_days?.includes(day);
@@ -687,321 +1020,358 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
                       );
                     })}
                   </div>
+                )}
 
-                  <div className="mt-2 pt-3 border-t border-gray-100 flex justify-between items-center">
-                    {canExpand ? (
-                      <button onClick={() => toggleExpanded(member.id)} className="text-indigo-600 text-xs font-semibold flex items-center gap-1 bg-indigo-50 px-2 py-1.5 rounded hover:bg-indigo-100">
-                        {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                        {isExpanded ? 'Hide Weeks' : 'Show Weeks'}
-                      </button>
-                    ) : (
-                      <div />
-                    )}
-                    <div className="flex gap-2">
-                      <button onClick={() => onEdit(member)} className="p-1.5 text-primary-600 hover:text-primary-900 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors">
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => onDelete(member)} className="p-1.5 text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                <div className="mt-2 pt-3 border-t border-gray-100 flex justify-between items-center">
+                  {canExpand ? (
+                    <button onClick={() => toggleExpanded(member.id)} className="text-indigo-600 text-xs font-semibold flex items-center gap-1 bg-indigo-50 px-2 py-1.5 rounded hover:bg-indigo-100">
+                      {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                      {isExpanded ? 'Hide Weeks' : 'Show Weeks'}
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+                  <div className="flex gap-2">
+                    <button onClick={() => onEdit(member)} className="p-1.5 text-primary-600 hover:text-primary-900 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors">
+                      <Edit className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => onDelete(member)} className="p-1.5 text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
-
-                {/* Expanded Weeks */}
-                {canExpand && isExpanded && (
-                  <div className="bg-gray-50 border-t border-gray-200 divide-y divide-gray-200">
-                    {weekGroups.map((wg) => (
-                      <div key={wg.weekStart} className="p-3 px-4">
-                        <div className="flex items-center gap-1.5 mb-2 text-indigo-700 font-medium text-[11px] uppercase tracking-wider">
-                          <CalendarDays className="w-3 h-3" />
-                          {fmtShort(parseISODate(wg.weekStart))} – {fmtShort(parseISODate(wg.weekEnd))}
-                        </div>
-                        <div className="flex justify-between items-center px-1">
-                          {FULL_DAYS.map((day) => {
-                            const satD = parseISODate(wg.weekStart);
-                            const i = FULL_DAYS.indexOf(day);
-                            const d = new Date(satD.getTime() + i * 86_400_000);
-                            const isoForDay = d.toISOString().split('T')[0];
-
-                            const isRecurringOff = recurringOffDays.includes(day);
-                            const isWorkDay = member.working_days?.includes(day);
-                            const isStrictOff = wg.offDates.includes(isoForDay);
-                            const isStandardOff = wg.standardOffDates.includes(isoForDay);
-                            const isNonWorking = !isWorkDay && !isStrictOff && !isStandardOff;
-                            const available = !isNonWorking && !isStrictOff && !isStandardOff;
-
-                            return (
-                              <div
-                                key={day}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleToggleSpecificDate(member.id, isoForDay);
-                                }}
-                                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-all ${
-                                  isStrictOff ? 'bg-red-100 text-red-500 ring-1 ring-red-300' :
-                                  isStandardOff ? 'bg-orange-100 text-orange-500 ring-1 ring-orange-300' :
-                                  available ? 'bg-green-100 text-green-700 ring-1 ring-green-300' :
-                                  'bg-gray-200 text-gray-400'
-                                }`}
-                              >
-                                {isStrictOff ? 'x' : isStandardOff ? 'o' : available ? '✓' : ''}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
 
-        {/* Desktop Table View */}
-        <div className="hidden md:block w-full overflow-x-auto border-b border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
+              {/* Expanded Weeks */}
+              {canExpand && isExpanded && (
+                <div className="bg-gray-50 border-t border-gray-200 divide-y divide-gray-200">
+                  {weekGroups.map((wg) => (
+                    <div key={wg.weekStart} className="p-3 px-4">
+                      <div className="flex items-center gap-1.5 mb-2 text-indigo-700 font-medium text-[11px] uppercase tracking-wider">
+                        <CalendarDays className="w-3 h-3" />
+                        {fmtShort(parseISODate(wg.weekStart))} – {fmtShort(parseISODate(wg.weekEnd))}
+                      </div>
+                      <div className="flex justify-between items-center px-1">
+                        {FULL_DAYS.map((day) => {
+                          const satD = parseISODate(wg.weekStart);
+                          const i = FULL_DAYS.indexOf(day);
+                          const d = new Date(satD.getTime() + i * 86_400_000);
+                          const isoForDay = d.toISOString().split('T')[0];
+
+                          const isRecurringOff = recurringOffDays.includes(day);
+                          const isWorkDay = member.working_days?.includes(day);
+                          const isStrictOff = wg.offDates.includes(isoForDay);
+                          const isStandardOff = wg.standardOffDates.includes(isoForDay);
+                          const isNonWorking = !isWorkDay && !isStrictOff && !isStandardOff;
+                          const available = !isNonWorking && !isStrictOff && !isStandardOff;
+
+                          return (
+                            <div
+                              key={day}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleSpecificDate(member.id, isoForDay);
+                              }}
+                              className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold cursor-pointer transition-all ${
+                                isStrictOff ? 'bg-red-100 text-red-500 ring-1 ring-red-300' :
+                                isStandardOff ? 'bg-orange-100 text-orange-500 ring-1 ring-orange-300' :
+                                available ? 'bg-green-100 text-green-700 ring-1 ring-green-300' :
+                                'bg-gray-200 text-gray-400'
+                              }`}
+                            >
+                              {isStrictOff ? 'x' : isStandardOff ? 'o' : available ? '✓' : ''}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop Table View */}
+      <div className="hidden md:block w-full overflow-x-auto border-b border-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50 sticky top-0 z-20 shadow-[0_1px_2px_0_rgba(0,0,0,0.05)]">
             <tr>
               <th className="px-4 py-3 text-left w-10">
                 <input
                   type="checkbox"
                   className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4 cursor-pointer"
-                  checked={localStaff.length > 0 && selectedIds.size === localStaff.length}
+                  checked={sortedStaff.length > 0 && sortedStaff.every(s => selectedIds.has(s.id))}
                   onChange={toggleAllSelection}
                 />
               </th>
               {renderHeader('name', 'Name', 'left', undefined, 'px-2 py-2')}
-            {renderHeader('job_title', 'Job', 'left', undefined, 'px-2 py-2')}
-            {renderHeader('supervision_role', 'Role', 'left', undefined, 'px-2 py-2')}
-            {renderHeader('current_score', 'Score', 'center', 'Workload score', 'px-1 py-2')}
-            {renderHeader('free_staff_score', 'Resv', 'center', 'Reserve score', 'px-1 py-2')}
-            {renderHeader('total_score', 'Tot', 'center', 'Total score', 'px-1 py-2')}
-            {renderHeader('availability_status', 'Status', 'left', undefined, 'px-2 py-2')}
-            {renderHeader('conditions', 'Conds', 'left', undefined, 'px-2 py-2')}
-              {SHORT_DAYS.map((d, index) => {
+              {visibleColumns.job_title && renderHeader('job_title', 'Job', 'left', undefined, 'px-2 py-2')}
+              {visibleColumns.supervision_role && renderHeader('supervision_role', 'Role', 'left', undefined, 'px-2 py-2')}
+              {visibleColumns.scores && (
+                <>
+                  {renderHeader('current_score', 'Score', 'center', 'Workload score', 'px-1 py-2')}
+                  {renderHeader('free_staff_score', 'Resv', 'center', 'Reserve score', 'px-1 py-2')}
+                  {renderHeader('total_score', 'Tot', 'center', 'Total score', 'px-1 py-2')}
+                </>
+              )}
+              {visibleColumns.availability_status && renderHeader('availability_status', 'Status', 'left', undefined, 'px-2 py-2')}
+              {visibleColumns.conditions && renderHeader('conditions', 'Conds', 'left', undefined, 'px-2 py-2')}
+              {visibleColumns.working_days && SHORT_DAYS.map((d, index) => {
                 const fullDay = FULL_DAYS[index];
                 return renderHeader(fullDay, d, 'center', undefined, 'px-1 py-2');
               })}
               <th className="px-2 py-2 text-right text-[10px] font-medium text-gray-500 uppercase tracking-wider select-none bg-gray-50">Actions</th>
             </tr>
           </thead>
-        <tbody className="bg-white divide-y divide-gray-200">
-          {sortedStaff.map((member) => {
-            const hasOffDates = (member.specific_off_dates?.length ?? 0) > 0;
-            const canExpand = examDates && examDates.length > 0;
-            const isExpanded  = expanded.has(member.id);
+          <tbody className="bg-white divide-y divide-gray-200">
+            {sortedStaff.map((member) => {
+              const hasOffDates = (member.specific_off_dates?.length ?? 0) > 0;
+              const canExpand = examDates && examDates.length > 0;
+              const isExpanded  = expanded.has(member.id);
 
-            // Use the real exam-session dates if available; fallback to the union of all off-dates
-            const allKnownDates = examDates && examDates.length > 0
-              ? examDates
-              : Array.from(new Set(localStaff.flatMap((s) => s.specific_off_dates ?? [])));
+              // Use the real exam-session dates if available; fallback to the union of all off-dates
+              const allKnownDates = examDates && examDates.length > 0
+                ? examDates
+                : Array.from(new Set(localStaff.flatMap((s) => s.specific_off_dates ?? [])));
 
-            const { recurringOffDays } = hasOffDates
-              ? classifyOffDays(member.specific_off_dates, allKnownDates)
-              : { recurringOffDays: [] as string[] };
+              const { recurringOffDays } = hasOffDates
+                ? classifyOffDays(member.specific_off_dates, allKnownDates)
+                : { recurringOffDays: [] as string[] };
 
-            const weekGroups = canExpand
-              ? groupByAcademicWeek(member.specific_off_dates || [], member.specific_standard_off_dates || [], allKnownDates)
-              : [];
+              const weekGroups = canExpand
+                ? groupByAcademicWeek(member.specific_off_dates || [], member.specific_standard_off_dates || [], allKnownDates)
+                : [];
 
-            return (
-              <Fragment key={member.id}>
-                {/* ── Main staff row ── */}
-                <tr
-                  className={`hover:bg-gray-50 ${canExpand ? 'cursor-pointer' : ''} ${selectedIds.has(member.id) ? 'bg-primary-50/30' : ''}`}
-                  onClick={canExpand ? () => toggleExpanded(member.id) : undefined}
-                >
-                  <td className="px-2 py-2 w-10" onClick={e => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4 cursor-pointer"
-                      checked={selectedIds.has(member.id)}
-                      onChange={() => toggleSelection(member.id)}
-                    />
-                  </td>
-                  {/* Name + email */}
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      {canExpand && (
-                        <span className="text-indigo-400 flex-shrink-0">
-                          {isExpanded
-                            ? <ChevronDown className="w-3.5 h-3.5" />
-                            : <ChevronRight className="w-3.5 h-3.5" />}
-                        </span>
-                      )}
-                      <div>
-                        <div className="font-medium text-gray-900">{member.name}</div>
-                        <div className="text-xs text-gray-400">{member.email}</div>
+              return (
+                <Fragment key={member.id}>
+                  {/* ── Main staff row ── */}
+                  <tr
+                    className={`hover:bg-gray-50 ${canExpand ? 'cursor-pointer' : ''} ${selectedIds.has(member.id) ? 'bg-primary-50/30' : ''}`}
+                    onClick={canExpand ? () => toggleExpanded(member.id) : undefined}
+                  >
+                    <td className="px-2 py-2 w-10" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        className="rounded border-gray-300 text-primary-600 focus:ring-primary-500 w-4 h-4 cursor-pointer"
+                        checked={selectedIds.has(member.id)}
+                        onChange={() => toggleSelection(member.id)}
+                      />
+                    </td>
+                    {/* Name + email */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        {canExpand && (
+                          <span className="text-indigo-400 flex-shrink-0">
+                            {isExpanded
+                              ? <ChevronDown className="w-3.5 h-3.5" />
+                              : <ChevronRight className="w-3.5 h-3.5" />}
+                          </span>
+                        )}
+                        <div>
+                          <div className="font-medium text-gray-900">{member.name}</div>
+                          <div className="text-xs text-gray-400">{member.email}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Job Title + Employment */}
-                  <td className="px-2 py-2">
-                    <div className="text-gray-900 text-xs leading-tight line-clamp-2" title={`${member.job_title} - ${member.employment_status}`}>
-                      {member.job_title}
-                      <span className="block text-[10px] text-gray-400">{member.employment_status}</span>
-                    </div>
-                  </td>
+                    {/* Job Title + Employment */}
+                    {visibleColumns.job_title && (
+                      <td className="px-2 py-2">
+                        <div className="text-gray-900 text-xs leading-tight line-clamp-2" title={`${member.job_title} - ${member.employment_status}`}>
+                          {member.job_title}
+                          <span className="block text-[10px] text-gray-400">{member.employment_status}</span>
+                        </div>
+                      </td>
+                    )}
 
-                  {/* Supervision Role */}
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full ${supervisionRoleBadge[member.supervision_role] ?? 'bg-gray-100 text-gray-700'}`}>
-                      <ShieldCheck className="w-3 h-3" />
-                      {member.supervision_role?.replace('Supervisor', 'Sprv')}
-                    </span>
-                  </td>
-
-                  {/* Score */}
-                  <td className="px-1 py-2 whitespace-nowrap text-center">
-                    <span className="font-semibold text-gray-900">{member.current_score}</span>
-                  </td>
-
-                  {/* Free Score */}
-                  <td className="px-1 py-2 whitespace-nowrap text-center">
-                    <span className="text-gray-600">{member.free_staff_score || 0}</span>
-                  </td>
-
-                  {/* Total Score */}
-                  <td className="px-1 py-2 whitespace-nowrap text-center">
-                    <span className="font-bold text-primary-600">{(member.current_score || 0) + ((member.free_staff_score || 0) * 0.25)}</span>
-                  </td>
-
-                  {/* Availability Status */}
-                  <td className="px-2 py-2 whitespace-nowrap">
-                    <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${getAvailabilityBadge(member.availability_status)}`}>
-                      {member.availability_status === 'Available' ? 'Avail' : member.availability_status}
-                    </span>
-                  </td>
-
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {member.is_overloaded && (
-                        <span title={`Overloaded — decrease workload score priority by ${member.overload_percentage}%`}
-                          className="flex items-center gap-0.5 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs font-medium">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                          OL{member.overload_percentage > 0 ? `·${member.overload_percentage}%` : ''}
+                    {/* Supervision Role */}
+                    {visibleColumns.supervision_role && (
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full ${supervisionRoleBadge[member.supervision_role] ?? 'bg-gray-100 text-gray-700'}`}>
+                          <ShieldCheck className="w-3 h-3" />
+                          {member.supervision_role?.replace('Supervisor', 'Sprv')}
                         </span>
-                      )}
-                      {member.is_feeding_mother && (
-                        <span title={`Feeding mother — ${member.feeding_mother_days} days/week early leave`}
-                          className="flex items-center gap-0.5 bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded text-xs font-medium">
-                          <Baby className="w-3 h-3" />
-                          FM{member.feeding_mother_days > 0 ? `·${member.feeding_mother_days}d` : ''}
-                        </span>
-                      )}
-                      {member.has_health_issue && (
-                        <span title="Health issue — prefers M/P buildings (near pharmacy)"
-                          className="flex items-center gap-0.5 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
-                          <HeartPulse className="w-3 h-3" />
-                          M/P
-                        </span>
-                      )}
-                      {member.can_supervise_oral && (
-                        <span title="Can supervise Oral Exams"
-                          className="flex items-center gap-0.5 bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-medium border border-orange-200">
-                          <MessageCircle className="w-3 h-3" />
-                          Oral
-                        </span>
-                      )}
-                      {!member.is_feeding_mother && !member.has_health_issue && !member.is_overloaded && !member.can_supervise_oral && (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </div>
-                  </td>
+                      </td>
+                    )}
 
-                  {/* Weekday matrix — static if no off-dates, summary if has off-dates */}
-                  {canExpand ? (
-                    FULL_DAYS.map((day) => {
-                      const isWorking = member.working_days?.includes(day);
-                      return (
-                        <td key={day} className="px-1 py-3 whitespace-nowrap text-center">
-                          <div
-                            title={`${day}: ${isWorking ? 'working day (may have specific off-dates — click to expand)' : 'non-working day'}`}
-                            className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all ${isWorking ? 'bg-primary-200 border-primary-300' : 'bg-red-50 border-red-200'}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleWorkingDay(member.id, day);
-                            }}
-                          >
-                            {isWorking ? (
-                              <svg className="w-3 h-3 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                              </svg>
-                            ) : (
-                              <span className="text-[10px] font-bold text-red-400 leading-none">✕</span>
-                            )}
-                          </div>
+                    {/* Score */}
+                    {visibleColumns.scores && (
+                      <>
+                        <td className="px-1 py-2 whitespace-nowrap text-center">
+                          <span className="font-semibold text-gray-900">{member.current_score}</span>
                         </td>
-                      );
-                    })
-                  ) : (
-                    <StaticDayCells workingDays={member.working_days || []} staffId={member.id} onToggleWorkingDay={handleToggleWorkingDay} />
-                  )}
 
-                  {/* Actions */}
-                  <td className="px-2 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1">
-                      <button onClick={() => onEdit(member)} className="p-1.5 text-primary-600 hover:text-primary-900 hover:bg-primary-50 rounded transition-colors" title="Edit staff member">
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => onDelete(member)} className="p-1.5 text-red-600 hover:text-red-900 hover:bg-red-50 rounded transition-colors" title="Delete staff member">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                        <td className="px-1 py-2 whitespace-nowrap text-center">
+                          <span className="text-gray-600">{member.free_staff_score || 0}</span>
+                        </td>
 
-                {/* ── Per-week availability rows (expanded) ── */}
-                {canExpand && isExpanded && weekGroups.map((wg) => (
-                  <WeekAvailabilityRow
-                    key={wg.weekStart}
-                    weekStart={wg.weekStart}
-                    weekEnd={wg.weekEnd}
-                    offDatesInWeek={wg.offDates}
-                    standardOffDatesInWeek={wg.standardOffDates}
-                    workingDays={member.working_days || []}
-                    recurringOffDays={recurringOffDays}
-                    colSpanLeft={LEFT_COLS}
-                    staffId={member.id}
-                    onToggleSpecificDate={handleToggleSpecificDate}
-                  />
-                ))}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+                        <td className="px-1 py-2 whitespace-nowrap text-center">
+                          <span className="font-bold text-primary-600">{(member.current_score || 0) + ((member.free_staff_score || 0) * 0.25)}</span>
+                        </td>
+                      </>
+                    )}
+
+                    {/* Availability Status */}
+                    {visibleColumns.availability_status && (
+                      <td className="px-2 py-2 whitespace-nowrap">
+                        <span className={`inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${getAvailabilityBadge(member.availability_status)}`}>
+                          {member.availability_status === 'Available' ? 'Avail' : member.availability_status}
+                        </span>
+                      </td>
+                    )}
+
+                    {/* Conditions */}
+                    {visibleColumns.conditions && (
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {member.is_overloaded && (
+                            <span title={`Overloaded — decrease workload score priority by ${member.overload_percentage}%`}
+                              className="flex items-center gap-0.5 bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs font-medium">
+                              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                              OL{member.overload_percentage > 0 ? `·${member.overload_percentage}%` : ''}
+                            </span>
+                          )}
+                          {member.is_feeding_mother && (
+                            <span title={`Feeding mother — ${member.feeding_mother_days} days/week early leave`}
+                              className="flex items-center gap-0.5 bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded text-xs font-medium">
+                              <Baby className="w-3 h-3" />
+                              FM{member.feeding_mother_days > 0 ? `·${member.feeding_mother_days}d` : ''}
+                            </span>
+                          )}
+                          {member.has_health_issue && (
+                            <span title="Health issue — prefers M/P buildings (near pharmacy)"
+                              className="flex items-center gap-0.5 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                              <HeartPulse className="w-3 h-3" />
+                              M/P
+                            </span>
+                          )}
+                          {member.can_supervise_oral && (
+                            <span title="Can supervise Oral Exams"
+                              className="flex items-center gap-0.5 bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-medium border border-orange-200">
+                              <MessageCircle className="w-3 h-3" />
+                              Oral
+                            </span>
+                          )}
+                          {!member.is_feeding_mother && !member.has_health_issue && !member.is_overloaded && !member.can_supervise_oral && (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Weekday matrix — static if no off-dates, summary if has off-dates */}
+                    {visibleColumns.working_days && (
+                      canExpand ? (
+                        FULL_DAYS.map((day) => {
+                          const isWorking = member.working_days?.includes(day);
+                          return (
+                            <td key={day} className="px-1 py-3 whitespace-nowrap text-center">
+                              <div
+                                title={`${day}: ${isWorking ? 'working day (may have specific off-dates — click to expand)' : 'non-working day'}`}
+                                className={`w-4 h-4 mx-auto rounded border flex items-center justify-center cursor-pointer hover:ring-2 hover:ring-primary-500 transition-all ${isWorking ? 'bg-primary-200 border-primary-300' : 'bg-red-50 border-red-200'}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleWorkingDay(member.id, day);
+                                }}
+                              >
+                                {isWorking ? (
+                                  <svg className="w-3 h-3 text-primary-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-red-400 leading-none">✕</span>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })
+                      ) : (
+                        <StaticDayCells workingDays={member.working_days || []} staffId={member.id} onToggleWorkingDay={handleToggleWorkingDay} />
+                      )
+                    )}
+
+                    {/* Actions */}
+                    <td className="px-2 py-2 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => onEdit(member)} className="p-1.5 text-primary-600 hover:text-primary-900 hover:bg-primary-50 rounded transition-colors" title="Edit staff member">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => onDelete(member)} className="p-1.5 text-red-600 hover:text-red-900 hover:bg-red-50 rounded transition-colors" title="Delete staff member">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* ── Per-week availability rows (expanded) ── */}
+                  {canExpand && isExpanded && weekGroups.map((wg) => (
+                    <WeekAvailabilityRow
+                      key={wg.weekStart}
+                      weekStart={wg.weekStart}
+                      weekEnd={wg.weekEnd}
+                      offDatesInWeek={wg.offDates}
+                      standardOffDatesInWeek={wg.standardOffDates}
+                      workingDays={member.working_days || []}
+                      recurringOffDays={recurringOffDays}
+                      colSpanLeft={colSpanLeft}
+                      showWorkingDays={visibleColumns.working_days}
+                      staffId={member.id}
+                      onToggleSpecificDate={handleToggleSpecificDate}
+                    />
+                  ))}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* No matching filter results message */}
+      {sortedStaff.length === 0 && (
+        <div className="text-center py-12 bg-white rounded-xl border border-gray-200 mt-2">
+          <Filter className="w-10 h-10 text-gray-400 mx-auto mb-3" />
+          <h4 className="text-sm font-semibold text-gray-800 mb-1">No staff members match the selected filters</h4>
+          <p className="text-xs text-gray-500 mb-4">Try clearing your search query or reset your filters.</p>
+          <button
+            onClick={clearFilters}
+            className="px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors inline-flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Clear All Filters
+          </button>
+        </div>
+      )}
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mt-3 px-2 pb-1 text-xs text-gray-400">
-        <span className="flex items-center gap-1">
-          <span className="w-4 h-4 rounded bg-primary-600 border border-primary-600 inline-flex items-center justify-center">
-            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
+      {visibleColumns.working_days && (
+        <div className="flex items-center gap-4 mt-3 px-2 pb-1 text-xs text-gray-400 flex-wrap">
+          <span className="flex items-center gap-1">
+            <span className="w-4 h-4 rounded bg-primary-600 border border-primary-600 inline-flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            Working day
           </span>
-          Working day
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-5 h-5 rounded-full bg-green-100 text-green-700 ring-1 ring-green-300 inline-flex items-center justify-center text-[10px] font-bold">✓</span>
-          Available this week
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 ring-1 ring-red-300 inline-flex items-center justify-center text-[10px] font-bold">✕</span>
-          Specific day off
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-300 inline-flex items-center justify-center text-[10px] font-bold">·</span>
-          Non-working day
-        </span>
-        <span className="ml-auto flex items-center gap-1 italic">
-          <ChevronRight className="w-3 h-3" /> Click staff with week-based schedules to expand
-        </span>
-      </div>
-    </div>
+          <span className="flex items-center gap-1">
+            <span className="w-5 h-5 rounded-full bg-green-100 text-green-700 ring-1 ring-green-300 inline-flex items-center justify-center text-[10px] font-bold">✓</span>
+            Available this week
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-5 h-5 rounded-full bg-red-100 text-red-500 ring-1 ring-red-300 inline-flex items-center justify-center text-[10px] font-bold">✕</span>
+            Specific day off
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-300 inline-flex items-center justify-center text-[10px] font-bold">·</span>
+            Non-working day
+          </span>
+          <span className="ml-auto flex items-center gap-1 italic">
+            <ChevronRight className="w-3 h-3" /> Click staff with week-based schedules to expand
+          </span>
+        </div>
+      )}
     </div>
   );
 }
