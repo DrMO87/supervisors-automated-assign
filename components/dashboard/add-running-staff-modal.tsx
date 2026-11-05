@@ -4,7 +4,7 @@ import { Fragment, useState, useEffect, useMemo } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import {
   X, Users, Calendar, Clock, Plus, Loader2, AlertCircle,
-  CheckCircle, Building2, PersonStanding, Zap, ShieldCheck
+  CheckCircle, Building2, PersonStanding, Zap, ShieldCheck, Sparkles, Filter
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Staff, ExamSessionWithRelations, AssignmentRole } from '@/types/database.types';
@@ -16,23 +16,54 @@ import {
 } from '@/lib/algorithms/auto-assignment';
 
 // ── Building Proximity Groups ────────────────────────────────────────────────
-// M, P, E buildings are near each other (Zone 0)
-// S, F, A buildings are near each other (Zone 1)
+// M, P, E buildings are in Zone 1 (0)
+// S, F, A buildings are in Zone 2 (1)
 export function getBuildingGroup(buildingCode: string): number {
   if (!buildingCode) return -1;
   const upper = buildingCode.trim().toUpperCase();
   if (upper.startsWith('M') || upper.startsWith('P') || upper.startsWith('E')) {
-    return 0; // M, P, E zone
+    return 0; // Zone 1: M, P, E
   }
   if (upper.startsWith('S') || upper.startsWith('F') || upper.startsWith('A')) {
-    return 1; // S, F, A zone
+    return 1; // Zone 2: S, F, A
   }
   return -1; // Other
 }
 
-const GROUP_META: Record<number, { label: string; color: string; bg: string; border: string; badge: string }> = {
-  0: { label: 'M / P / E Zone', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', badge: 'bg-blue-100 text-blue-800' },
-  1: { label: 'S / F / A Zone', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', badge: 'bg-emerald-100 text-emerald-800' },
+export const ZONE_CONFIG = {
+  0: {
+    name: 'Zone 1 (M / P / E)',
+    shortName: 'Zone 1 (M, P, E)',
+    buildings: 'M, M1, M2, P, E',
+    color: 'text-blue-700',
+    headerBg: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    chipBg: 'bg-blue-50/90 hover:bg-blue-100/90 text-blue-900 border-blue-300',
+    badgeBg: 'bg-blue-100 text-blue-800 border-blue-200',
+    dotColor: 'bg-blue-500',
+  },
+  1: {
+    name: 'Zone 2 (S / F / A)',
+    shortName: 'Zone 2 (S, F, A)',
+    buildings: 'S, F, A',
+    color: 'text-emerald-700',
+    headerBg: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    chipBg: 'bg-emerald-50/90 hover:bg-emerald-100/90 text-emerald-900 border-emerald-300',
+    badgeBg: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    dotColor: 'bg-emerald-500',
+  },
+  other: {
+    name: 'Other Buildings',
+    shortName: 'Other',
+    buildings: 'Other',
+    color: 'text-gray-700',
+    headerBg: 'bg-gray-50',
+    borderColor: 'border-gray-200',
+    chipBg: 'bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-200',
+    badgeBg: 'bg-gray-100 text-gray-700 border-gray-200',
+    dotColor: 'bg-gray-400',
+  },
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -78,6 +109,7 @@ export function AddRunningStaffModal({
 }: AddRunningStaffModalProps) {
   const { staff, systemSettings, staffingRatios } = useSchedulingStore();
   const [isLoading, setIsLoading] = useState(false);
+  const [filterZone, setFilterZone] = useState<'all' | '0' | '1'>('all');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const calendarRules = useMemo(() => {
@@ -138,7 +170,12 @@ export function AddRunningStaffModal({
     return candidates.sort((a, b) => a.staff.name.localeCompare(b.staff.name));
   }, [previousPeriodSessions, currentPeriodSessions, staff]);
 
-  // ── 2. Only rooms that have VACANT places (leave already filled rooms untouched) ──
+  // Separate candidates by zone for clear visibility
+  const zone1Candidates = useMemo(() => runningCandidates.filter(c => c.fromGroup === 0), [runningCandidates]);
+  const zone2Candidates = useMemo(() => runningCandidates.filter(c => c.fromGroup === 1), [runningCandidates]);
+  const otherCandidates = useMemo(() => runningCandidates.filter(c => c.fromGroup !== 0 && c.fromGroup !== 1), [runningCandidates]);
+
+  // ── 2. Only rooms that have VACANT places ──
   const vacantRooms = useMemo<VacantRoom[]>(() => {
     return currentPeriodSessions
       .map(session => {
@@ -170,7 +207,7 @@ export function AddRunningStaffModal({
       .sort((a, b) => b.vacantSlots - a.vacantSlots);
   }, [currentPeriodSessions, fullStaffingRatiosConfig, calendarRules]);
 
-  // ── 3. Group vacant rooms by proximity zone ────────────────────────────────
+  // Group vacant rooms by proximity zone
   const vacantByGroup = useMemo(() => {
     const map = new Map<number, VacantRoom[]>();
     vacantRooms.forEach(r => {
@@ -181,15 +218,11 @@ export function AddRunningStaffModal({
     return map;
   }, [vacantRooms]);
 
-  // ── 4. Candidates matching each zone ───────────────────────────────────────
-  const candidatesByGroup = useMemo(() => {
-    const map = new Map<number, RunningCandidate[]>();
-    for (const [groupIdx] of vacantByGroup) {
-      const matching = runningCandidates.filter(c => c.fromGroup === groupIdx);
-      map.set(groupIdx, matching);
-    }
-    return map;
-  }, [runningCandidates, vacantByGroup]);
+  // Filtered rooms based on user selection
+  const filteredRooms = useMemo(() => {
+    if (filterZone === 'all') return vacantRooms;
+    return vacantRooms.filter(r => r.group === Number(filterZone));
+  }, [vacantRooms, filterZone]);
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
@@ -230,14 +263,11 @@ export function AddRunningStaffModal({
     }
   };
 
-  // Auto-fill all vacant rooms in a zone with nearby runners
-  const handleAutoFillZone = async (groupIdx: number) => {
+  // Auto-fill all vacant rooms: prioritizes same-zone runners first, then cross-zone runners so rooms are filled!
+  const handleAutoFill = async (sameZoneOnly: boolean = false) => {
     if (!supabase) return;
-    const roomsInZone = vacantByGroup.get(groupIdx) || [];
-    const availableRunners = [...(candidatesByGroup.get(groupIdx) || [])];
-
-    if (roomsInZone.length === 0 || availableRunners.length === 0) {
-      setMessage({ type: 'error', text: 'No matching runners or vacant rooms in this zone' });
+    if (vacantRooms.length === 0 || runningCandidates.length === 0) {
+      setMessage({ type: 'error', text: 'No vacant rooms or runners available' });
       return;
     }
 
@@ -246,18 +276,21 @@ export function AddRunningStaffModal({
       let assignedCount = 0;
       const assignmentsToInsert: any[] = [];
       const updatedStaffScores = new Map<string, number>();
+      const availableRunners = [...runningCandidates];
 
-      for (const room of roomsInZone) {
+      // Pass 1: Try to match each room with runners from the SAME zone
+      for (const room of vacantRooms) {
         let remainingVacancies = room.vacantSlots;
-        const alreadyAssignedStaffInRoom = new Set((room.session.assignments || []).map((a: any) => a.staff_id));
+        const alreadyAssigned = new Set((room.session.assignments || []).map((a: any) => a.staff_id));
 
-        while (remainingVacancies > 0 && availableRunners.length > 0) {
-          // Find first runner not already in this room
-          const runnerIdx = availableRunners.findIndex(r => !alreadyAssignedStaffInRoom.has(r.staff.id));
+        while (remainingVacancies > 0) {
+          const runnerIdx = availableRunners.findIndex(
+            r => !alreadyAssigned.has(r.staff.id) && r.fromGroup === room.group
+          );
           if (runnerIdx === -1) break;
 
           const runner = availableRunners.splice(runnerIdx, 1)[0];
-          alreadyAssignedStaffInRoom.add(runner.staff.id);
+          alreadyAssigned.add(runner.staff.id);
 
           const isOral = !!room.session.exam_type?.toLowerCase().includes('oral');
           let role: AssignmentRole = 'Assistant';
@@ -278,8 +311,45 @@ export function AddRunningStaffModal({
         }
       }
 
+      // Pass 2: If not sameZoneOnly, fill remaining vacancies with runners from ANY zone
+      if (!sameZoneOnly) {
+        for (const room of vacantRooms) {
+          const newlyAssigned = assignmentsToInsert.filter(a => a.exam_session_id === room.session.id).length;
+          let remainingVacancies = room.vacantSlots - newlyAssigned;
+          const alreadyAssigned = new Set([
+            ...(room.session.assignments || []).map((a: any) => a.staff_id),
+            ...assignmentsToInsert.filter(a => a.exam_session_id === room.session.id).map(a => a.staff_id),
+          ]);
+
+          while (remainingVacancies > 0 && availableRunners.length > 0) {
+            const runnerIdx = availableRunners.findIndex(r => !alreadyAssigned.has(r.staff.id));
+            if (runnerIdx === -1) break;
+
+            const runner = availableRunners.splice(runnerIdx, 1)[0];
+            alreadyAssigned.add(runner.staff.id);
+
+            const isOral = !!room.session.exam_type?.toLowerCase().includes('oral');
+            let role: AssignmentRole = 'Assistant';
+            if (!isOral && (runner.staff.supervision_role === 'Exam Supervisor' || runner.staff.supervision_role === 'Invigilator / Exam Supervisor')) {
+              role = 'Exam_Supervisor';
+            }
+
+            assignmentsToInsert.push({
+              exam_session_id: room.session.id,
+              staff_id: runner.staff.id,
+              role,
+              is_manual_override: true,
+            });
+
+            updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
+            remainingVacancies--;
+            assignedCount++;
+          }
+        }
+      }
+
       if (assignmentsToInsert.length === 0) {
-        setMessage({ type: 'error', text: 'Could not assign runners to these rooms.' });
+        setMessage({ type: 'error', text: 'No eligible runners could be assigned.' });
         setIsLoading(false);
         return;
       }
@@ -292,7 +362,7 @@ export function AddRunningStaffModal({
         await supabase.from('staff').update({ current_score: newScore }).eq('id', staffId);
       }
 
-      setMessage({ type: 'success', text: `Successfully filled ${assignedCount} vacancy slots with nearby runners!` });
+      setMessage({ type: 'success', text: `Successfully filled ${assignedCount} vacancy slots!` });
       onUpdate();
     } catch (err: any) {
       console.error('Error auto-filling runners:', err);
@@ -332,7 +402,7 @@ export function AddRunningStaffModal({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-3xl transform overflow-hidden rounded-2xl bg-white shadow-2xl transition-all flex flex-col max-h-[90vh] border border-gray-200">
+              <Dialog.Panel className="w-full max-w-4xl transform overflow-hidden rounded-2xl bg-white shadow-2xl transition-all flex flex-col max-h-[92vh] border border-gray-200">
 
                 {/* ── Header ─────────────────────────────────────────── */}
                 <div className="flex items-center justify-between px-6 py-4 border-b bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 flex-shrink-0">
@@ -345,7 +415,7 @@ export function AddRunningStaffModal({
                         Add Running Staff (Period {period})
                       </Dialog.Title>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Free staff from the previous period available to run to nearby vacant rooms
+                        Free staff from the previous period who can run to fill vacant rooms
                       </p>
                     </div>
                   </div>
@@ -357,28 +427,74 @@ export function AddRunningStaffModal({
                   </button>
                 </div>
 
-                {/* ── Info Bar ────────────────────────────────────────── */}
-                <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3 border-b border-gray-100 bg-gray-50 text-xs">
-                  <div className="flex items-center gap-4 text-gray-600">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                      <span className="font-semibold text-gray-800">
-                        {format(new Date(dateStr + 'T12:00:00Z'), 'EEEE, MMMM d, yyyy')}
-                      </span>
+                {/* ── Info & Zone Highlights Bar ────────────────────────── */}
+                <div className="flex flex-col gap-2 px-6 py-3 border-b border-gray-100 bg-gray-50 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-4 text-gray-600">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="font-semibold text-gray-800">
+                          {format(new Date(dateStr + 'T12:00:00Z'), 'EEEE, MMMM d, yyyy')}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Period {period} (Gap: {gapMinutes}m from previous)</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-gray-400" />
-                      <span>Period {period} (Gap: {gapMinutes}m from previous)</span>
+
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
+                        {totalVacancies} Vacant Spot{totalVacancies !== 1 ? 's' : ''} ({vacantRooms.length} rooms)
+                      </span>
+                      <span className="font-bold px-2.5 py-1 rounded-full bg-gray-200 text-gray-800">
+                        {runningCandidates.length} Total Runners
+                      </span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700">
-                      {totalVacancies} Vacant Spot{totalVacancies !== 1 ? 's' : ''} ({vacantRooms.length} rooms)
-                    </span>
-                    <span className="font-bold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
-                      {runningCandidates.length} Free Runner{runningCandidates.length !== 1 ? 's' : ''}
-                    </span>
+                  {/* ── Highlighted Zone Pools ── */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-200/60">
+                    <span className="text-[11px] font-bold text-gray-500 uppercase mr-1">Available Runners Pool:</span>
+                    
+                    {/* Zone 1 Pool Badge */}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-semibold shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                      <span>Zone 1 (M / P / E):</span>
+                      <span className="bg-blue-600 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
+                        {zone1Candidates.length} staff
+                      </span>
+                    </div>
+
+                    {/* Zone 2 Pool Badge */}
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-semibold shadow-xs">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Zone 2 (S / F / A):</span>
+                      <span className="bg-emerald-600 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
+                        {zone2Candidates.length} staff
+                      </span>
+                    </div>
+
+                    {otherCandidates.length > 0 && (
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-100 border border-gray-200 text-gray-700 font-semibold">
+                        <span>Other: {otherCandidates.length}</span>
+                      </div>
+                    )}
+
+                    {/* Quick Auto-Fill Buttons */}
+                    {runningCandidates.length > 0 && vacantRooms.length > 0 && (
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => handleAutoFill(false)}
+                          disabled={isLoading}
+                          className="flex items-center gap-1.5 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg shadow-sm transition-all disabled:opacity-50"
+                          title="Fills all vacancies: matches same-zone runners first, then cross-zone runners if needed"
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          Auto-Fill All Vacancies
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -400,25 +516,6 @@ export function AddRunningStaffModal({
                     </div>
                   )}
 
-                  {/* Proximity Rule Notice */}
-                  <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 flex items-start gap-3">
-                    <ShieldCheck className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-800 leading-relaxed">
-                      <strong className="font-bold">Proximity Rule Active:</strong>
-                      <span className="ml-1">
-                        Only candidates from nearby buildings are suggested to ensure safe physical transit:
-                      </span>
-                      <div className="flex flex-wrap gap-3 mt-1.5 font-medium">
-                        <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-                          Zone 1: Buildings M, P, E
-                        </span>
-                        <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
-                          Zone 2: Buildings S, F, A
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
                   {/* Empty States */}
                   {previousPeriodSessions.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -427,7 +524,7 @@ export function AddRunningStaffModal({
                       </div>
                       <h4 className="text-base font-bold text-gray-700">First Period of the Day</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        Period {period} is the first scheduled period on this day. Running staff can only be drawn from preceding periods.
+                        Period {period} is the first scheduled period on this day. Running staff are drawn from the previous period.
                       </p>
                     </div>
                   )}
@@ -439,7 +536,7 @@ export function AddRunningStaffModal({
                       </div>
                       <h4 className="text-base font-bold text-green-800">All Rooms Are Fully Staffed!</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        There are no vacant places in Period {period}. Already filled rooms are left untouched.
+                        There are no vacant places in Period {period}. Filled rooms are untouched.
                       </p>
                     </div>
                   )}
@@ -456,88 +553,189 @@ export function AddRunningStaffModal({
                     </div>
                   )}
 
-                  {/* ── Vacant Zones ───────────────────────────────────── */}
-                  {Array.from(vacantByGroup.entries()).map(([groupIdx, rooms]) => {
-                    const meta = GROUP_META[groupIdx] || {
-                      label: 'Other Buildings',
-                      color: 'text-gray-700',
-                      bg: 'bg-gray-50',
-                      border: 'border-gray-200',
-                      badge: 'bg-gray-100 text-gray-700',
-                    };
-                    const zoneCandidates = candidatesByGroup.get(groupIdx) || [];
-                    const zoneVacancies = rooms.reduce((sum, r) => sum + r.vacantSlots, 0);
+                  {/* ── Vacant Rooms List with Both Zone Runners Highlighted ── */}
+                  {vacantRooms.length > 0 && runningCandidates.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-gray-600 uppercase tracking-wider flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-gray-500" />
+                          Rooms With Vacant Slots ({vacantRooms.length})
+                        </h4>
+                        <span className="text-[11px] text-gray-400">
+                          Click any runner chip below a room to assign them immediately
+                        </span>
+                      </div>
 
-                    return (
-                      <div key={groupIdx} className={`rounded-2xl border ${meta.border} overflow-hidden shadow-sm`}>
-                        {/* Zone Header */}
-                        <div className={`${meta.bg} px-5 py-3 border-b ${meta.border} flex flex-wrap items-center justify-between gap-3`}>
-                          <div className="flex items-center gap-2.5">
-                            <Building2 className={`w-5 h-5 ${meta.color}`} />
-                            <span className={`font-bold text-sm ${meta.color}`}>{meta.label}</span>
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${meta.badge}`}>
-                              {rooms.length} vacant room{rooms.length !== 1 ? 's' : ''} ({zoneVacancies} spots)
-                            </span>
-                            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-white text-gray-600 border border-gray-200">
-                              {zoneCandidates.length} runner{zoneCandidates.length !== 1 ? 's' : ''} nearby
-                            </span>
-                          </div>
+                      {vacantRooms.map(room => {
+                        const roomZone = room.group;
+                        const roomZoneConfig = roomZone === 0 ? ZONE_CONFIG[0] : roomZone === 1 ? ZONE_CONFIG[1] : ZONE_CONFIG.other;
 
-                          {zoneCandidates.length > 0 && (
-                            <button
-                              onClick={() => handleAutoFillZone(groupIdx)}
-                              disabled={isLoading}
-                              className="flex items-center gap-1.5 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg shadow-sm transition-all disabled:opacity-50"
-                            >
-                              <Zap className="w-3.5 h-3.5" />
-                              Auto-Fill Zone Runners
-                            </button>
-                          )}
-                        </div>
+                        // Sort running candidates so that same-zone candidates appear first, but BOTH zones are shown!
+                        const sortedCandidates = [...runningCandidates].sort((a, b) => {
+                          const aIsSame = a.fromGroup === roomZone;
+                          const bIsSame = b.fromGroup === roomZone;
+                          if (aIsSame && !bIsSame) return -1;
+                          if (!aIsSame && bIsSame) return 1;
+                          return a.fromGroup - b.fromGroup;
+                        });
 
-                        {/* Rooms List */}
-                        <div className="p-4 bg-white divide-y divide-gray-100 space-y-4">
-                          {rooms.map(room => (
-                            <div key={room.session.id} className="pt-3 first:pt-0">
-                              <div className="flex items-start justify-between gap-2 mb-2">
+                        return (
+                          <div
+                            key={room.session.id}
+                            className={`rounded-2xl border ${roomZoneConfig.borderColor} bg-white shadow-xs p-4 hover:shadow-md transition-all`}
+                          >
+                            {/* Room Header */}
+                            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 pb-3 mb-3">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h5 className="font-bold text-sm text-gray-900 leading-tight">
+                                    {room.session.subject_name}
+                                  </h5>
+                                  {room.session.program && (
+                                    <span className="text-[10px] text-gray-500 font-medium">
+                                      ({room.session.program})
+                                    </span>
+                                  )}
+                                  {room.session.exam_type?.toLowerCase().includes('oral') && (
+                                    <span className="text-[9px] font-bold uppercase bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded">
+                                      Oral
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                  <span className="font-bold text-gray-800 flex items-center gap-1">
+                                    <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                                    {room.roomName}
+                                  </span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roomZoneConfig.badgeBg}`}>
+                                    {roomZoneConfig.name}
+                                  </span>
+                                  <span>·</span>
+                                  <span>{room.session.student_count} students</span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
+                                  {room.assignedCount} / {room.requiredCount} Staff
+                                </span>
+                                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800">
+                                  Needs {room.vacantSlots} more
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Runners Selection Area: BOTH ZONES SHOWN & HIGHLIGHTED */}
+                            <div className="space-y-2.5">
+                              {/* 1. Zone 1 (M / P / E) Runners */}
+                              {zone1Candidates.length > 0 && (
                                 <div>
-                                  <div className="flex items-center gap-2">
-                                    <h5 className="font-bold text-sm text-gray-900 leading-tight">
-                                      {room.session.subject_name}
-                                    </h5>
-                                    {room.session.exam_type?.toLowerCase().includes('oral') && (
-                                      <span className="text-[9px] font-bold uppercase bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded">
-                                        Oral
+                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-blue-800">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                    <span>Zone 1 Staff (M / P / E)</span>
+                                    {roomZone === 0 && (
+                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-semibold ml-1">
+                                        ★ Same Zone (Near)
                                       </span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                                    <span className="font-medium text-gray-700 flex items-center gap-1">
-                                      <Building2 className="w-3 h-3 text-gray-400" />
-                                      {room.roomName}
-                                    </span>
-                                    <span>·</span>
-                                    <span>{room.session.student_count} students</span>
-                                    <span>·</span>
-                                    <span className="text-red-600 font-semibold">
-                                      Needs {room.vacantSlots} more staff
-                                    </span>
+                                  <div className="flex flex-wrap gap-2">
+                                    {zone1Candidates.map(c => {
+                                      const alreadyAssigned = room.session.assignments?.some(
+                                        (a: any) => a.staff_id === c.staff.id
+                                      );
+                                      if (alreadyAssigned) return null;
+
+                                      const isSameZone = roomZone === 0;
+
+                                      return (
+                                        <button
+                                          key={c.staff.id}
+                                          onClick={() => handleAssignSingle(c.staff, room)}
+                                          disabled={isLoading}
+                                          className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                            isSameZone
+                                              ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
+                                              : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
+                                          }`}
+                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nZone: 1 (M/P/E)`}
+                                        >
+                                          <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
+                                          <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] text-blue-600 font-medium">
+                                            (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
+                                          </span>
+                                          {isSameZone && (
+                                            <span className="text-[9px] font-bold text-blue-800 bg-blue-200/80 px-1 py-0.2 rounded">
+                                              Optimal
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
                                   </div>
                                 </div>
+                              )}
 
-                                <span className="text-xs font-bold px-2 py-1 rounded-md bg-red-50 text-red-700 border border-red-200 flex-shrink-0">
-                                  {room.assignedCount} / {room.requiredCount} Staff
-                                </span>
-                              </div>
-
-                              {/* Candidate Runner Chips */}
-                              <div className="mt-2.5">
-                                <p className="text-[10px] uppercase font-bold text-gray-400 mb-1.5">
-                                  Assign Runner From Previous Period:
-                                </p>
-                                {zoneCandidates.length > 0 ? (
+                              {/* 2. Zone 2 (S / F / A) Runners */}
+                              {zone2Candidates.length > 0 && (
+                                <div className={zone1Candidates.length > 0 ? 'pt-2 border-t border-gray-100' : ''}>
+                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-emerald-800">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                    <span>Zone 2 Staff (S / F / A)</span>
+                                    {roomZone === 1 && (
+                                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.2 rounded font-semibold ml-1">
+                                        ★ Same Zone (Near)
+                                      </span>
+                                    )}
+                                  </div>
                                   <div className="flex flex-wrap gap-2">
-                                    {zoneCandidates.map(c => {
+                                    {zone2Candidates.map(c => {
+                                      const alreadyAssigned = room.session.assignments?.some(
+                                        (a: any) => a.staff_id === c.staff.id
+                                      );
+                                      if (alreadyAssigned) return null;
+
+                                      const isSameZone = roomZone === 1;
+
+                                      return (
+                                        <button
+                                          key={c.staff.id}
+                                          onClick={() => handleAssignSingle(c.staff, room)}
+                                          disabled={isLoading}
+                                          className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                            isSameZone
+                                              ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
+                                              : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
+                                          }`}
+                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nZone: 2 (S/F/A)`}
+                                        >
+                                          <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
+                                          <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] text-emerald-600 font-medium">
+                                            (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
+                                          </span>
+                                          {isSameZone && (
+                                            <span className="text-[9px] font-bold text-emerald-800 bg-emerald-200/80 px-1 py-0.2 rounded">
+                                              Optimal
+                                            </span>
+                                          )}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* 3. Other Building Runners */}
+                              {otherCandidates.length > 0 && (
+                                <div className="pt-2 border-t border-gray-100">
+                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-gray-700">
+                                    <span className="w-2 h-2 rounded-full bg-gray-400" />
+                                    <span>Other Building Staff</span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {otherCandidates.map(c => {
                                       const alreadyAssigned = room.session.assignments?.some(
                                         (a: any) => a.staff_id === c.staff.id
                                       );
@@ -548,37 +746,41 @@ export function AddRunningStaffModal({
                                           key={c.staff.id}
                                           onClick={() => handleAssignSingle(c.staff, room)}
                                           disabled={isLoading}
-                                          className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-orange-50 hover:border-orange-300 hover:text-orange-900 text-gray-700 transition-all shadow-xs disabled:opacity-50"
+                                          className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
                                           title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}`}
                                         >
-                                          <Plus className="w-3.5 h-3.5 text-gray-400 group-hover:text-orange-600" />
-                                          <span className="font-semibold">{c.staff.name}</span>
-                                          <span className="text-[10px] text-gray-400 group-hover:text-orange-600">
+                                          <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
+                                          <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] text-gray-500 font-medium">
                                             (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
                                           </span>
                                         </button>
                                       );
                                     })}
                                   </div>
-                                ) : (
-                                  <p className="text-xs text-gray-400 italic">
-                                    No runners available from nearby buildings ({meta.label})
-                                  </p>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* ── Footer ──────────────────────────────────────────── */}
-                <div className="px-6 py-3.5 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex items-center justify-between">
-                  <p className="text-xs text-gray-500">
-                    Only vacant slots are assigned · Filled rooms remain untouched
-                  </p>
+                <div className="px-6 py-3.5 border-t border-gray-200 bg-gray-50 rounded-b-2xl flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 text-xs text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" />
+                      <strong>Zone 1:</strong> M, P, E buildings
+                    </span>
+                    <span className="text-gray-300">|</span>
+                    <span className="flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
+                      <strong>Zone 2:</strong> S, F, A buildings
+                    </span>
+                  </div>
                   <button
                     onClick={onClose}
                     className="px-5 py-2 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-gray-800 transition-colors shadow-sm"
