@@ -433,6 +433,36 @@ export function ConstraintsEditor({ config, onChange, disabled }: ConstraintsEdi
             <span className="text-sm text-slate-700 font-extrabold whitespace-nowrap">shifts / day</span>
           </div>
         </div>
+
+        {/* Room & Building Proximity for Contiguous Periods */}
+        <div className="p-5 bg-indigo-50/70 border border-indigo-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <Building2 className="w-4 h-4 text-indigo-600" />
+              <label className="text-sm font-extrabold text-slate-900">
+                Prioritize Same Room & Building for Contiguous Periods (No Cross-Campus Transit)
+              </label>
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                Zero-Gap Smart Affinity
+              </span>
+            </div>
+            <p className="text-xs text-slate-600 font-medium leading-relaxed">
+              When examination periods start immediately after previous ones (zero or tight gap ≤ 15 min), the engine prioritizes keeping supervisors in the <strong>exact same room</strong> or within the <strong>same building</strong>. Eliminates cross-campus sprinting between distant buildings and removes alphabetical bias.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={config.prioritize_room_continuity !== false}
+                onChange={(e) => updateConstraint('prioritize_room_continuity', e.target.checked)}
+                className="sr-only peer"
+                disabled={disabled}
+              />
+              <div className="w-11 h-6 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* ── 3. Standby Reserve Staff (Period Free Staff) Roster ── */}

@@ -325,6 +325,7 @@ export interface SchedulingConstraintsConfig {
   max_days_per_week_pt?: number; // Max days per week for Part-time staff (Default 3, allowed 1-3)
   max_daily_shifts?: number; // Max daily room shifts / periods per staff member (Default 2)
   max_weekly_reserves?: number; // Max standby reserve duties per week per staff member (Default 2)
+  prioritize_room_continuity?: boolean; // Default true (Keep supervisors in same room or building if no time gap between periods)
 }
 
 // Form types

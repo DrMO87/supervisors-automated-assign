@@ -13,7 +13,7 @@ import type {
   CalendarRule,
   StaffAvailabilityPolicy,
 } from '@/types/database.types';
-import { parseRoomCode, getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, getDayUniquePeriods, getDurationInMinutes, timesOverlap, DayPeriodInfo } from '@/types/database.types';
+import { parseRoomCode, getPeriodFromTime, getSessionPeriod, areSessionsInSamePeriod, getDayUniquePeriods, getDurationInMinutes, timesOverlap, DayPeriodInfo, normalizeTimeString } from '@/types/database.types';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
@@ -136,6 +136,152 @@ export function calculateRequiredStaff(
  */
 export function isNearPharmacy(roomName: string): boolean {
   return parseRoomCode(roomName).is_near_pharmacy;
+}
+
+/**
+ * Resolves the building identifier for a room.
+ */
+export function getRoomBuilding(room?: Room | null, roomName?: string): string {
+  if (room?.building_code && room.building_code.trim()) {
+    return room.building_code.trim().toUpperCase();
+  }
+  if (room?.building && room.building.trim()) {
+    return room.building.trim().toUpperCase();
+  }
+  const name = room?.room_name || roomName || '';
+  if (name) {
+    const parsed = parseRoomCode(name);
+    if (parsed.building_code && parsed.building_code.trim()) {
+      return parsed.building_code.trim().toUpperCase();
+    }
+  }
+  return 'UNKNOWN';
+}
+
+/**
+ * Calculates transition gap in minutes between two sessions on the same date.
+ * If sessions overlap, returns 0.
+ * If s1 precedes s2, returns start(s2) - end(s1).
+ * If s2 precedes s1, returns start(s1) - end(s2).
+ */
+export function getSessionGapMinutes(
+  s1: { start_time: string; end_time?: string | null },
+  s2: { start_time: string; end_time?: string | null }
+): number {
+  const toMins = (t: string) => {
+    const clean = normalizeTimeString(t);
+    const [h, m] = clean.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const s1Start = toMins(s1.start_time);
+  const s1End = s1.end_time ? toMins(s1.end_time) : s1Start + 120;
+
+  const s2Start = toMins(s2.start_time);
+  const s2End = s2.end_time ? toMins(s2.end_time) : s2Start + 120;
+
+  if (s1Start < s2End && s2Start < s1End) {
+    return 0; // Overlapping
+  }
+
+  if (s1End <= s2Start) {
+    return s2Start - s1End;
+  } else {
+    return s1Start - s2End;
+  }
+}
+
+/**
+ * Computes proximity and continuity affinity score for a candidate staff member
+ * when being assigned to a room and session.
+ * 
+ * Hierarchy:
+ * - SAME_ROOM_CONTIGUOUS (4): Same room in an adjacent/contiguous period (gap <= 15m) -> 0m transit.
+ * - SAME_ROOM_SPACIOUS (3.5): Same room with a comfortable gap (> 15m).
+ * - SAME_BUILDING_CONTIGUOUS (3): Same building in an adjacent period (gap <= 15m) -> hallway walk.
+ * - SAME_BUILDING_SPACIOUS (2.5): Same building with a comfortable gap (> 15m).
+ * - FRESH (2): Candidate has 0 other sessions today -> fresh on campus, can reach any building easily.
+ * - DIFF_BUILDING_SPACIOUS (2): Different building with ample gap (> 15m, e.g. 1h+).
+ * - DIFF_BUILDING_TIGHT (0): Different building with tight/no gap (<= 15m) -> cross-campus sprint! (Heavily avoided).
+ */
+export function getStaffRoomAffinity(
+  staffId: string,
+  targetRoom: Room | null | undefined,
+  currentSession: ExamSession | null | undefined,
+  existingAssignments: Assignment[],
+  allSessions: ExamSession[],
+  rooms?: Room[]
+): { affinityScore: number; reason: string } {
+  if (!targetRoom || !currentSession) {
+    return { affinityScore: 2, reason: 'FRESH' };
+  }
+
+  const targetDate = currentSession.exam_date;
+  const targetBuilding = getRoomBuilding(targetRoom, targetRoom.room_name);
+  const sessionMap = (allSessions as any)?._sessionMap || new Map(allSessions.map(s => [s.id, s]));
+
+  // Find all distinct sessions this staff member is assigned to on this date
+  const assignedSessionsOnDate: ExamSession[] = [];
+  for (const a of existingAssignments) {
+    if (a.staff_id === staffId) {
+      const s = sessionMap.get(a.exam_session_id);
+      if (s && s.exam_date === targetDate && s.id !== currentSession.id) {
+        if (!assignedSessionsOnDate.some(x => x.id === s.id)) {
+          assignedSessionsOnDate.push(s);
+        }
+      }
+    }
+  }
+
+  if (assignedSessionsOnDate.length === 0) {
+    return { affinityScore: 2, reason: 'FRESH' };
+  }
+
+  // Find the closest adjacent session in time on this date
+  let minGap = Infinity;
+  let closestSession: ExamSession | null = null;
+
+  for (const s of assignedSessionsOnDate) {
+    const gap = getSessionGapMinutes(s, currentSession);
+    if (gap < minGap) {
+      minGap = gap;
+      closestSession = s;
+    }
+  }
+
+  if (!closestSession) {
+    return { affinityScore: 2, reason: 'FRESH' };
+  }
+
+  const closestRoom = rooms?.find(r => r.id === closestSession!.room_id);
+  const closestBuilding = getRoomBuilding(closestRoom, (closestSession as any).room_name);
+  const isSameRoom = Boolean(
+    (targetRoom.id && closestSession.room_id === targetRoom.id) ||
+    (targetRoom.room_name && closestRoom?.room_name && targetRoom.room_name.trim().toLowerCase() === closestRoom.room_name.trim().toLowerCase())
+  );
+  const isSameBuilding = (targetBuilding !== 'UNKNOWN' && closestBuilding !== 'UNKNOWN' && targetBuilding === closestBuilding);
+
+  // If the time gap between periods is tight (<= 15 minutes, or 0 minutes):
+  if (minGap <= 15) {
+    if (isSameRoom) {
+      return { affinityScore: 4, reason: 'SAME_ROOM_CONTIGUOUS' };
+    }
+    if (isSameBuilding) {
+      return { affinityScore: 3, reason: 'SAME_BUILDING_CONTIGUOUS' };
+    }
+    // Cross-building sprint with tight or 0 gap!
+    return { affinityScore: 0, reason: 'DIFF_BUILDING_TIGHT' };
+  }
+
+  // If gap > 15 minutes (comfortable break, e.g. 30m, 1h, 2h):
+  if (isSameRoom) {
+    return { affinityScore: 3.5, reason: 'SAME_ROOM_SPACIOUS' };
+  }
+  if (isSameBuilding) {
+    return { affinityScore: 2.5, reason: 'SAME_BUILDING_SPACIOUS' };
+  }
+
+  return { affinityScore: 2, reason: 'DIFF_BUILDING_SPACIOUS' };
 }
 
 /**
@@ -431,6 +577,27 @@ export function isStaffAvailable(
         });
       }
     }
+
+    // 4a. Cross-Building Distance Warning for tight/no-gap shifts
+    if (targetRoom) {
+      const targetBuilding = getRoomBuilding(targetRoom, targetRoom.room_name);
+      for (const a of sameDayOther) {
+        const s = sessionLookup.get(a.exam_session_id);
+        if (!s) continue;
+        const gap = getSessionGapMinutes(s, examSession);
+        if (gap <= 15) {
+          const sBuilding = getRoomBuilding(undefined, (s as any).room?.room_name || (s as any).room_name);
+          if (targetBuilding !== 'UNKNOWN' && sBuilding !== 'UNKNOWN' && targetBuilding !== sBuilding) {
+            softViolations.push({
+              type: 'capacity',
+              message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min)`,
+              staff_id: staff.id,
+              exam_session_id: examSession.id,
+            });
+          }
+        }
+      }
+    }
   }
 
   // 4b. Max Working Days per week (Strict ceiling configured in Settings)
@@ -568,8 +735,18 @@ export function isStaffAvailable(
     }
   }
 
-  // 7. Health issue -> prefer M/P rooms (Soft warning removed to prevent score decrease)
-  // Health issue staff will simply be prioritized in sorting when the room is near pharmacy.
+  // 7. Health issue: Staff with health issues must only be assigned to pharmacy rooms (M and P buildings)
+  if (staff.has_health_issue && targetRoom) {
+    const roomName = targetRoom.room_name || '';
+    if (roomName && !isNearPharmacy(roomName)) {
+      hardViolations.push({
+        type: 'health_room',
+        message: `${staff.name} has a medical condition and is restricted from non-pharmacy room (${roomName})`,
+        staff_id: staff.id,
+        exam_session_id: examSession.id,
+      });
+    }
+  }
 
   // 8. Peer Workload Spread Cap (Fairness)
   if (constraints.max_score_delta_from_average !== undefined && peerMinScore !== undefined) {
@@ -652,6 +829,9 @@ export function sortStaffByPriority(
     existingAssignments?: Assignment[];
     allExamSessions?: ExamSession[];
     maxDailyShifts?: number;
+    targetRoom?: Room | null;
+    currentSession?: ExamSession | null;
+    rooms?: Room[];
   }
 ): Staff[] {
   const jobTitlePriority: Record<JobTitle, number> = {
@@ -694,6 +874,30 @@ export function sortStaffByPriority(
   const maxDaily = schedulingContext?.maxDailyShifts ?? 2;
 
   return [...staff].sort((a, b) => {
+    // 0. Proximity & Continuity Affinity (Top Priority for contiguous periods with no/tight gap)
+    if (schedulingContext?.targetRoom && schedulingContext.currentSession) {
+      const affA = getStaffRoomAffinity(
+        a.id,
+        schedulingContext.targetRoom,
+        schedulingContext.currentSession,
+        schedulingContext.existingAssignments || [],
+        schedulingContext.allExamSessions || [],
+        schedulingContext.rooms
+      );
+      const affB = getStaffRoomAffinity(
+        b.id,
+        schedulingContext.targetRoom,
+        schedulingContext.currentSession,
+        schedulingContext.existingAssignments || [],
+        schedulingContext.allExamSessions || [],
+        schedulingContext.rooms
+      );
+
+      if (affA.affinityScore !== affB.affinityScore) {
+        return affB.affinityScore - affA.affinityScore;
+      }
+    }
+
     // Health-room preference: near-pharmacy staff first when flag is set
     if (preferNearPharmacy) {
       // Prioritize staff with health issues for pharmacy rooms (P and M buildings)
@@ -746,7 +950,13 @@ export function sortStaffByPriority(
     const bPriority = jobTitlePriority[b.job_title] || 0;
     if (aPriority !== bPriority) return bPriority - aPriority;
 
-    return a.name.localeCompare(b.name);
+    // Rotational deterministic tie-breaker instead of alphabetical name to prevent alphabetical bias
+    const seed = (schedulingContext?.examDate || '').split('-').reduce((acc, part) => acc + Number(part), 0);
+    const hashA = (a.id.charCodeAt(0) * 31 + a.id.charCodeAt(a.id.length - 1) + seed) % 1000;
+    const hashB = (b.id.charCodeAt(0) * 31 + b.id.charCodeAt(b.id.length - 1) + seed) % 1000;
+    if (hashA !== hashB) return hashA - hashB;
+
+    return a.id.localeCompare(b.id);
   });
 }
 
@@ -800,7 +1010,8 @@ export function assignStaffToSession(
   /** If this session shares a room, pass the Committees Supervisor already assigned to that room-slot */
   sharedCommitteeSupervisorId?: string | null,
   periodFreeStaff: PeriodFreeStaff[] = [],
-  roleToAssign: 'Both' | 'Head_Supervisor' | 'Assistant' = 'Both'
+  roleToAssign: 'Both' | 'Head_Supervisor' | 'Assistant' = 'Both',
+  rooms?: Room[]
 ): AssignmentResult {
   const violations: AssignmentConstraintViolation[] = [];
   const newAssignments: Assignment[] = [];
@@ -830,14 +1041,13 @@ export function assignStaffToSession(
 
   // Health Status Balancing:
   // For pharmacy rooms (P and M buildings): health-issue staff are prioritized first so they get convenient rooms.
-  // For other rooms: keep all available staff in a unified pool so they are ranked fairly by their workload score (aScore - bScore).
-  // This guarantees staff with health issues (like Engy Atta) maintain an equal total workload with their peers.
+  // For non-pharmacy rooms: staff with health issues are completely removed from the candidate pool.
   const healthStaff = availableAll.filter((s) => s.staff.has_health_issue);
   const normalStaff = availableAll.filter((s) => !s.staff.has_health_issue);
 
   const orderedPool = nearPharmacy
     ? [...healthStaff, ...normalStaff]
-    : availableAll;
+    : normalStaff;
 
   const pickBest = (
     candidates: typeof availableAll,
@@ -856,6 +1066,9 @@ export function assignStaffToSession(
         existingAssignments: [...existingAssignments, ...newAssignments],
         allExamSessions,
         maxDailyShifts: configuredMaxDaily,
+        targetRoom,
+        currentSession: examSession,
+        rooms,
       }
     );
     return sorted.find((s) => !excluded.some((e) => e.id === s.id));
@@ -971,6 +1184,9 @@ export function assignStaffToSession(
       existingAssignments: [...existingAssignments, ...newAssignments],
       allExamSessions,
       maxDailyShifts: configuredMaxDaily,
+      targetRoom,
+      currentSession: examSession,
+      rooms,
     };
     const allSortedAssistants = sortStaffByPriority(
       assistantPool.map((s) => s.staff),
@@ -1406,6 +1622,43 @@ export function batchAssign(
             const staffA = a.staff;
             const staffB = b.staff;
 
+            // 0. Building Continuity Affinity for Committees Supervisors:
+            // If candidate had a duty today in adjacent period, keep them in the same building!
+            const getCSAffinity = (candidateId: string) => {
+              const prevAssigned = currentAssignments.filter(asg => {
+                if (asg.staff_id !== candidateId) return false;
+                const s = sessions.find(x => x.id === asg.exam_session_id);
+                return s && s.exam_date === examDate;
+              });
+              if (prevAssigned.length === 0) return 2; // Fresh today
+
+              let minGap = Infinity;
+              let closestSession: ExamSession | null = null;
+              for (const pa of prevAssigned) {
+                const s = sessions.find(x => x.id === pa.exam_session_id);
+                if (!s) continue;
+                const gap = getSessionGapMinutes(s, dpSessions[0]);
+                if (gap < minGap) {
+                  minGap = gap;
+                  closestSession = s;
+                }
+              }
+              if (!closestSession) return 2;
+
+              const cRoom = rooms?.find(r => r.id === closestSession!.room_id);
+              const cBld = getRoomBuilding(cRoom, (closestSession as any).room_name);
+              if (minGap <= 15) {
+                return cBld === building ? 3 : 0; // 3 if same building contiguous, 0 if different building sprint
+              }
+              return cBld === building ? 2.5 : 2;
+            };
+
+            const csAffA = getCSAffinity(staffA.id);
+            const csAffB = getCSAffinity(staffB.id);
+            if (csAffA !== csAffB) {
+              return csAffB - csAffA; // Same building first, different building tight gap penalized!
+            }
+
             // 1. Shift Consolidation / Day-off Preservation:
             // If candidate is ALREADY on campus today (has duties today) and is below max_daily_shifts:
             // Assigning them today costs 0 new working days! Use them first to preserve full days off for peers!
@@ -1444,8 +1697,12 @@ export function batchAssign(
               return a.softViolations.length - b.softViolations.length;
             }
 
-            // 6. Deterministic tie-breaker by name
-            return staffA.name.localeCompare(staffB.name);
+            // 6. Deterministic rotational tie-breaker to avoid alphabetical bias
+            const csSeed = (examDate || '').split('-').reduce((acc, part) => acc + Number(part), 0);
+            const csHashA = (staffA.id.charCodeAt(0) * 31 + csSeed) % 1000;
+            const csHashB = (staffB.id.charCodeAt(0) * 31 + csSeed) % 1000;
+            if (csHashA !== csHashB) return csHashA - csHashB;
+            return staffA.id.localeCompare(staffB.id);
           });
           
           const chosen = candidateStatus[0].staff;
@@ -1529,24 +1786,24 @@ export function batchAssign(
   for (const date of uniqueExamDates) {
     const dayGroups = roomGroups.filter(rg => rg.exam_date === date);
 
-    // Precalculate period demand counts for this day
-    const dayPeriodCounts = new Map<number, number>();
-    for (const rg of dayGroups) {
-      const sample = sortedSessions.find(s => s.id === rg.session_ids[0]);
-      const p = sample ? getSessionPeriod(sample, sessions) : 0;
-      dayPeriodCounts.set(p, (dayPeriodCounts.get(p) || 0) + 1);
-    }
-
-    // Sort day groups: peak period first, then period chronological, then largest student count
+    // Sort day groups strictly chronologically by period, and within each period by building and room.
+    // This allows period 1 to complete first, so period 2 can detect exactly who is in which room/building
+    // and preserve room and building continuity when periods start right after one another!
     const sortedDayGroups = [...dayGroups].sort((a, b) => {
       const sampleA = sortedSessions.find(s => s.id === a.session_ids[0]);
       const sampleB = sortedSessions.find(s => s.id === b.session_ids[0]);
       const pA = sampleA ? getSessionPeriod(sampleA, sessions) : 0;
       const pB = sampleB ? getSessionPeriod(sampleB, sessions) : 0;
-      const countA = dayPeriodCounts.get(pA) || 0;
-      const countB = dayPeriodCounts.get(pB) || 0;
-      if (countA !== countB) return countB - countA; // Peak period first
-      if (pA !== pB) return pA - pB;
+      if (pA !== pB) return pA - pB; // Chronological period order (Period 1, then Period 2, etc.)
+
+      // Within the same period: group by building to concentrate staffing geographically
+      const roomA = rooms?.find(r => r.id === a.room_id);
+      const roomB = rooms?.find(r => r.id === b.room_id);
+      const bldA = getRoomBuilding(roomA, roomA?.room_name);
+      const bldB = getRoomBuilding(roomB, roomB?.room_name);
+      if (bldA !== bldB) return bldA.localeCompare(bldB);
+
+      // Within same building: largest room first
       return b.total_students - a.total_students;
     });
 
@@ -1570,7 +1827,8 @@ export function batchAssign(
         targetRoom,
         undefined,
         periodFreeStaff,
-        'Head_Supervisor'
+        'Head_Supervisor',
+        rooms
       );
 
       if (result.assignments.length > 0) {
@@ -1610,7 +1868,8 @@ export function batchAssign(
         targetRoom,
         undefined,
         periodFreeStaff,
-        'Assistant'
+        'Assistant',
+        rooms
       );
 
       if (result.assignments.length > 0) {
@@ -1633,7 +1892,7 @@ export function batchAssign(
 
   // --- POST-PASS: WORKLOAD EQUALIZATION REBALANCER ---
   // Strictly enforces max_score_delta_from_average (default: spread <= 3) across each peer cohort
-  equalizeWorkloadPass(allNewAssignments, currentStaff, effectiveSessions, config);
+  equalizeWorkloadPass(allNewAssignments, currentStaff, effectiveSessions, config, rooms);
 
   return { assignments: allNewAssignments, violations: allViolations };
 }
@@ -1651,7 +1910,8 @@ export function equalizeWorkloadPass(
   assignments: Assignment[],
   staffList: Staff[],
   sessions: ExamSession[],
-  config: AutoAssignConfig
+  config: AutoAssignConfig,
+  rooms?: Room[]
 ) {
   const maxSpread = config.constraints?.max_score_delta_from_average ?? 3;
   const sessionMap = new Map<string, ExamSession>(sessions.map(s => [s.id, s]));
@@ -1721,6 +1981,33 @@ export function equalizeWorkloadPass(
           const sessDayName = new Date(`${sess.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
           if (lowest.staff.working_days && lowest.staff.working_days.length > 0 && !lowest.staff.working_days.includes(sessDayName)) {
             continue; // Recipient is designated off on this weekday!
+          }
+
+          // 2c. Building continuity check for tight back-to-back shifts:
+          // Prevent workload equalization from creating a cross-campus sprint with <= 15m gap!
+          const targetRoom = rooms?.find(r => r.id === sess.room_id);
+          const targetBuilding = getRoomBuilding(targetRoom, (sess as any).room_name);
+
+          const lowestHasTightCrossBuildingSprint = assignments.some(x => {
+            if (x.staff_id !== lowest.staff.id) return false;
+            const xs = sessionMap.get(x.exam_session_id);
+            if (!xs || xs.exam_date !== sess.exam_date) return false;
+            const gap = getSessionGapMinutes(xs, sess);
+            if (gap <= 15) {
+              const xRoom = rooms?.find(r => r.id === xs.room_id);
+              const xBuilding = getRoomBuilding(xRoom, (xs as any).room_name);
+              return targetBuilding !== 'UNKNOWN' && xBuilding !== 'UNKNOWN' && targetBuilding !== xBuilding;
+            }
+            return false;
+          });
+          if (lowestHasTightCrossBuildingSprint) continue;
+
+          // 2d. Health issue room check: Staff with health issues cannot receive a non-pharmacy room
+          if (lowest.staff.has_health_issue) {
+            const targetRoomName = targetRoom?.room_name || (sess as any).room?.room_name || (sess as any).room_name || '';
+            if (targetRoomName && !isNearPharmacy(targetRoomName)) {
+              continue; // Do not transfer a non-pharmacy room to staff with health issues
+            }
           }
 
           // 3. Role eligibility check
