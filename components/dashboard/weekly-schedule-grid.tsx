@@ -236,16 +236,19 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           if (isSameRoom) continue;
 
           const gap = getSessionGapMinutes(s1, s2);
-          if (gap > 15) continue;
+          // Only flag zero-gap (overlapping or back-to-back with 0 min between)
+          if (gap > 0) continue;
+
+          const b1 = getBuilding(s1);
+          const b2 = getBuilding(s2);
+          // Only flag cross-building — same building (even different floors) is fine
+          const isCrossBuilding = b1 !== 'UNKNOWN' && b2 !== 'UNKNOWN' && b1 !== b2;
+          if (!isCrossBuilding) continue;
 
           const assignment = (s1.assignments as any[])?.find((a: any) => a.staff_id === staffId);
           const staffMember = assignment?.staff;
           const staffName = staffMember?.name || staffId;
           const staffJob = staffMember?.job_title || '';
-
-          const b1 = getBuilding(s1);
-          const b2 = getBuilding(s2);
-          const isCrossBuilding = b1 !== 'UNKNOWN' && b2 !== 'UNKNOWN' && b1 !== b2;
 
           instances.push({
             staffId, staffName, staffJob,
@@ -260,10 +263,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
       }
     }
 
-    return instances.sort((a, b) => {
-      if (a.isCrossBuilding !== b.isCrossBuilding) return a.isCrossBuilding ? -1 : 1;
-      return a.date < b.date ? -1 : 1;
-    });
+    return instances.sort((a, b) => a.date < b.date ? -1 : 1);
   }, [examSessions]);
 
   // ── Filtered sessions ─────────────────────────────────────────────────────
@@ -386,38 +386,26 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
         {/* ── Running Counter ── */}
         <button
           onClick={() => setIsRunningModalOpen(true)}
-          title="Click to view staff running instances (back-to-back sessions in different rooms with no transit gap)"
+          title="Click to view staff cross-building running instances (0 min gap between sessions in different buildings)"
           className={`rounded-lg border p-3 flex items-center gap-3 transition-all shadow-sm text-left group
             ${runningInstances.length === 0
               ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-md'
-              : runningInstances.some(i => i.isCrossBuilding)
-                ? 'bg-red-50 border-red-300 hover:border-red-500 hover:shadow-md'
-                : 'bg-amber-50 border-amber-300 hover:border-amber-500 hover:shadow-md'
+              : 'bg-red-50 border-red-300 hover:border-red-500 hover:shadow-md'
             }`}
         >
           <div className={`p-2 rounded-lg flex-shrink-0 ${
             runningInstances.length === 0
               ? 'bg-green-100 group-hover:bg-green-200'
-              : runningInstances.some(i => i.isCrossBuilding)
-                ? 'bg-red-100 group-hover:bg-red-200'
-                : 'bg-amber-100 group-hover:bg-amber-200'
+              : 'bg-red-100 group-hover:bg-red-200'
           } transition-colors`}>
             <PersonStanding className={`w-4 h-4 ${
-              runningInstances.length === 0
-                ? 'text-green-600'
-                : runningInstances.some(i => i.isCrossBuilding)
-                  ? 'text-red-600'
-                  : 'text-amber-600'
+              runningInstances.length === 0 ? 'text-green-600' : 'text-red-600'
             }`} />
           </div>
           <div className="min-w-0">
             <p className="text-xs text-gray-500 leading-tight">Staff Running</p>
             <p className={`text-lg font-bold leading-tight ${
-              runningInstances.length === 0
-                ? 'text-green-700'
-                : runningInstances.some(i => i.isCrossBuilding)
-                  ? 'text-red-600'
-                  : 'text-amber-600'
+              runningInstances.length === 0 ? 'text-green-700' : 'text-red-600'
             }`}>
               {runningInstances.length}
             </p>

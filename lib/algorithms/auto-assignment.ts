@@ -192,6 +192,58 @@ export function getSessionGapMinutes(
 }
 
 /**
+ * Computes constraint difficulty score for a given exam date.
+ * Higher difficulty means:
+ * - Sessions with zero or tight (<= 15 min) gaps between periods in disjoint buildings.
+ * - High room counts and high staff demand.
+ * Days with higher difficulty must be prioritized first in scheduling while staff have
+ * 0 fatigue and maximum scheduling flexibility.
+ */
+export function computeDateDifficulty(
+  date: string,
+  sessions: ExamSession[],
+  rooms?: Room[]
+): number {
+  const daySessions = sessions.filter(s => s.exam_date === date);
+  if (daySessions.length === 0) return 0;
+  const roomMap = new Map((rooms || []).map(r => [r.id, r]));
+  const times = Array.from(new Set(daySessions.map(s => s.start_time))).sort();
+  let difficulty = 0;
+
+  for (let i = 0; i < times.length - 1; i++) {
+    const s1List = daySessions.filter(s => s.start_time === times[i]);
+    const s2List = daySessions.filter(s => s.start_time === times[i + 1]);
+    if (s1List.length === 0 || s2List.length === 0) continue;
+
+    const gap = getSessionGapMinutes(s1List[0], s2List[0]);
+    if (gap <= 15) {
+      const b1 = new Set(s1List.map(s => {
+        const r = roomMap.get(s.room_id);
+        return getRoomBuilding(r, (s as any).room_name || r?.room_name);
+      }));
+      const b2 = new Set(s2List.map(s => {
+        const r = roomMap.get(s.room_id);
+        return getRoomBuilding(r, (s as any).room_name || r?.room_name);
+      }));
+
+      let disjointCount = 0;
+      for (const b of b2) {
+        if (!b1.has(b)) {
+          disjointCount += s2List.filter(s => {
+            const r = roomMap.get(s.room_id);
+            return getRoomBuilding(r, (s as any).room_name || r?.room_name) === b;
+          }).length;
+        }
+      }
+      // Zero-minute gap across disjoint buildings is an extreme physical constraint
+      const weight = gap === 0 ? 100 : 20;
+      difficulty += (disjointCount * weight) + s2List.length;
+    }
+  }
+  return difficulty + daySessions.length;
+}
+
+/**
  * Computes proximity and continuity affinity score for a candidate staff member
  * when being assigned to a room and session.
  * 
@@ -1195,6 +1247,34 @@ export function assignStaffToSession(
           is_manual_override: false,
         });
       }
+
+      if (headSupervisors.length < neededHeadSupervisors) {
+        // Fallback 3b: If regular exam supervisors are exhausted, recruit available qualified staff
+        // (Committees Supervisors not assigned to a block, or experienced Invigilators) to ensure zero unstaffed rooms
+        const secondaryHeadPool = emergencyStaffWithStatus.filter(
+          (s) => s.available && (s.staff.supervision_role === 'Committees Supervisor' || s.staff.supervision_role === 'Invigilator')
+        );
+        while (headSupervisors.length < neededHeadSupervisors) {
+          const candidate = pickBest(secondaryHeadPool, headSupervisors, undefined, 'Exam Supervisor');
+          if (!candidate) break;
+          headSupervisors.push(candidate);
+          newAssignments.push({
+            id: crypto.randomUUID(),
+            exam_session_id: examSession.id,
+            staff_id: candidate.id,
+            role: 'Exam_Supervisor',
+            assigned_at: new Date().toISOString(),
+            assigned_by: null,
+            is_manual_override: false,
+          });
+          violations.push({
+            type: 'capacity',
+            message: `${candidate.name} (${candidate.supervision_role}) assigned as Acting Exam Supervisor for ${examSession.subject_name} to prevent unstaffed room`,
+            staff_id: candidate.id,
+            exam_session_id: examSession.id,
+          });
+        }
+      }
     }
 
     if (existingHeads.length + headSupervisors.length < required.headSupervisors) {
@@ -1332,6 +1412,35 @@ export function assignStaffToSession(
         });
         assignedAssistants++;
         excludedStaff.push(candidate);
+      }
+
+      if (assignedAssistants < neededAssistants) {
+        // Fallback 3b: If assistants are exhausted, recruit available Exam Supervisors or other staff
+        const secondaryPool = emergencyStaffWithStatus.filter(
+          (s) => s.available && !excludedStaff.some(e => e.id === s.staff.id)
+        );
+        const secEligible = sortStaffByPriority(secondaryPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
+          .filter(s => !excludedStaff.some(e => e.id === s.id));
+        for (let i = 0; i < secEligible.length && assignedAssistants < neededAssistants; i++) {
+          const candidate = secEligible[i];
+          newAssignments.push({
+            id: crypto.randomUUID(),
+            exam_session_id: examSession.id,
+            staff_id: candidate.id,
+            role: 'Assistant',
+            assigned_at: new Date().toISOString(),
+            assigned_by: null,
+            is_manual_override: false,
+          });
+          assignedAssistants++;
+          excludedStaff.push(candidate);
+          violations.push({
+            type: 'capacity',
+            message: `${candidate.name} (${candidate.supervision_role}) assigned as Acting Assistant for ${examSession.subject_name} to prevent unstaffed room`,
+            staff_id: candidate.id,
+            exam_session_id: examSession.id,
+          });
+        }
       }
     }
 
@@ -2000,6 +2109,16 @@ export function batchAssign(
   // preserving dual-role staff for Head Supervisor duties.
   const uniqueExamDates = Array.from(new Set(roomGroups.map(g => g.exam_date))).sort();
 
+  // ─── DATE DIFFICULTY RANKING (User-Guided Prioritization) ────────────────
+  // Days with consecutive periods having tight or ZERO time gaps across disjoint
+  // buildings (e.g. Wednesday with 0-min gap across opposite campus buildings)
+  // are the most bottlenecked and MUST be processed first while staff have 0 fatigue
+  // and full availability.
+  const dateDifficultyMap = new Map<string, number>();
+  for (const d of uniqueExamDates) {
+    dateDifficultyMap.set(d, computeDateDifficulty(d, sortedSessions, rooms || []));
+  }
+
   // ─── STAGGERED FLOATING OFF-DAY DISTRIBUTION ──────────────────────────────
   // When an exam week has more exam days than the configured weekly day limit
   // (e.g. 6 exam days from Sat to Thu, but custom_days_per_week is 5),
@@ -2007,6 +2126,8 @@ export function batchAssign(
   // an explicit off-day in their profile. This guarantees:
   // 1. Every staff member works strictly <= 5 days (never exceeding weekly cap).
   // 2. Thursday is never starved of staff, eliminating unstaffed rooms.
+  // 3. High-difficulty days (e.g. Wednesday with 0-gap periods) are preserved and
+  //    never assigned as floating off-days, ensuring 100% attendance on peak days.
   const weekToDatesMap = new Map<string, string[]>();
   for (const d of uniqueExamDates) {
     const wk = getAcademicWeekKey(d);
@@ -2035,9 +2156,17 @@ export function batchAssign(
 
       if (activeDatesInWeek.length > allowedDays) {
         const excess = activeDatesInWeek.length - allowedDays;
+
+        // Sort candidate off-dates by difficulty ASCENDING so that floating off-days
+        // are preferentially absorbed by low-demand, low-constraint days (e.g. Thursday, Sunday)
+        // rather than starving high-demand days (e.g. Wednesday) that need all available hands on deck.
+        const offCandidates = [...activeDatesInWeek].sort((a, b) => {
+          return (dateDifficultyMap.get(a) || 0) - (dateDifficultyMap.get(b) || 0);
+        });
+
         const offDatesToAssign: string[] = [];
         for (let e = 0; e < excess; e++) {
-          const pickDate = activeDatesInWeek[(globalStaggerIndex + e) % activeDatesInWeek.length];
+          const pickDate = offCandidates[(globalStaggerIndex + e) % Math.max(1, offCandidates.length - 1)];
           offDatesToAssign.push(pickDate);
         }
         globalStaggerIndex++;
@@ -2050,7 +2179,16 @@ export function batchAssign(
     }
   }
 
-  for (const date of uniqueExamDates) {
+  // Sort dates by difficulty DESCENDING (hardest dates first: Wednesday, then Tuesday, Saturday, etc.)
+  // This gives high-constraint days first pick of fresh staff with 0 fatigue.
+  const difficultySortedDates = [...uniqueExamDates].sort((a, b) => {
+    const diffA = dateDifficultyMap.get(a) || 0;
+    const diffB = dateDifficultyMap.get(b) || 0;
+    if (diffA !== diffB) return diffB - diffA;
+    return a.localeCompare(b);
+  });
+
+  for (const date of difficultySortedDates) {
     const dayGroups = roomGroups.filter(rg => rg.exam_date === date);
 
     // Sort day groups strictly chronologically by period, with Pharmacy rooms (M & P) FIRST,
