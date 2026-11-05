@@ -66,6 +66,13 @@ export const ZONE_CONFIG = {
   },
 };
 
+export function getStaffScore(s: Staff): string | number {
+  const base = s.current_score || 0;
+  const reserves = (s.free_staff_score || 0) * 0.25;
+  const total = base + reserves;
+  return Number.isInteger(total) ? total : total.toFixed(2);
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface RunningCandidate {
@@ -167,7 +174,12 @@ export function AddRunningStaffModal({
       }
     }
 
-    return candidates.sort((a, b) => a.staff.name.localeCompare(b.staff.name));
+    return candidates.sort((a, b) => {
+      const scoreA = (a.staff.current_score || 0) + ((a.staff.free_staff_score || 0) * 0.25);
+      const scoreB = (b.staff.current_score || 0) + ((b.staff.free_staff_score || 0) * 0.25);
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      return a.staff.name.localeCompare(b.staff.name);
+    });
   }, [previousPeriodSessions, currentPeriodSessions, staff]);
 
   // Separate candidates by zone for clear visibility
@@ -658,10 +670,13 @@ export function AddRunningStaffModal({
                                               ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
                                               : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
                                           }`}
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nZone: 1 (M/P/E)`}
+                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}\nZone: 1 (M/P/E)`}
                                         >
                                           <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
                                           <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            Score: {getStaffScore(c.staff)}
+                                          </span>
                                           <span className="text-[10px] text-blue-600 font-medium">
                                             (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
                                           </span>
@@ -708,10 +723,13 @@ export function AddRunningStaffModal({
                                               ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
                                               : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
                                           }`}
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nZone: 2 (S/F/A)`}
+                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}\nZone: 2 (S/F/A)`}
                                         >
                                           <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
                                           <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            Score: {getStaffScore(c.staff)}
+                                          </span>
                                           <span className="text-[10px] text-emerald-600 font-medium">
                                             (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
                                           </span>
@@ -747,10 +765,13 @@ export function AddRunningStaffModal({
                                           onClick={() => handleAssignSingle(c.staff, room)}
                                           disabled={isLoading}
                                           className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}`}
+                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}`}
                                         >
                                           <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
                                           <span className="font-bold">{c.staff.name}</span>
+                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            Score: {getStaffScore(c.staff)}
+                                          </span>
                                           <span className="text-[10px] text-gray-500 font-medium">
                                             (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
                                           </span>
