@@ -422,7 +422,9 @@ export function FairnessReportModal({
                   <tr>
                     <th className="py-2.5 px-3 w-10 text-center">#</th>
                     <th className="py-2.5 px-3">Staff Member</th>
-                    <th className="py-2.5 px-3">Role &amp; Status</th>
+                    <th className="py-2.5 px-3">Job Title</th>
+                    <th className="py-2.5 px-3">Supervision Role</th>
+                    <th className="py-2.5 px-3">Status</th>
                     <th className="py-2.5 px-3 text-center">Total Score</th>
                     <th className="py-2.5 px-3 text-center">Room Periods</th>
                     <th className="py-2.5 px-3 text-center">Reserves</th>
@@ -435,7 +437,7 @@ export function FairnessReportModal({
                 <tbody className="divide-y divide-slate-100">
                   {filteredRecords.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="py-8 text-center text-slate-400">
+                      <td colSpan={12} className="py-8 text-center text-slate-400">
                         No staff members found matching your search.
                       </td>
                     </tr>
@@ -451,18 +453,32 @@ export function FairnessReportModal({
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-600">
-                          <span className="font-medium text-slate-700">{r.cohort}</span>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[10px] text-slate-400">{r.supervision_role}</span>
-                            <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
-                              r.employment_status === 'Part-time' 
-                                ? 'bg-purple-100 text-purple-800 border border-purple-200' 
-                                : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {r.employment_status}
-                            </span>
-                          </div>
+                        <td className="py-2.5 px-3 text-slate-700 font-medium">
+                          <span className="px-2 py-0.5 bg-slate-100 border border-slate-200/80 rounded-md text-[11px]">
+                            {r.job_title || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-700 font-medium">
+                          <span className={`px-2 py-0.5 rounded-md text-[11px] border font-semibold ${
+                            r.supervision_role === 'Committees Supervisor'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
+                              : r.supervision_role === 'Exam Supervisor'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : r.supervision_role === 'Invigilator / Exam Supervisor'
+                              ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          }`}>
+                            {r.supervision_role || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                            r.employment_status === 'Part-time' 
+                              ? 'bg-purple-50 text-purple-700 border-purple-200' 
+                              : 'bg-slate-100 text-slate-600 border-slate-200'
+                          }`}>
+                            {r.employment_status}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3 text-center font-bold text-indigo-700">
                           <span className="px-2 py-0.5 bg-indigo-50 border border-indigo-100 rounded-md">
