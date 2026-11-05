@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils/cn';
+import { OnlineBadge } from '@/components/presence/online-badge';
 
 const navGroups = [
   {
@@ -157,6 +158,9 @@ export function Navigation() {
 
       {/* Bottom section with sign out and version badge */}
       <div className="px-6 py-4 border-t border-white/10 space-y-4">
+        {/* Active Online Status Widget */}
+        <OnlineBadge variant="sidebar" />
+
         {/* Sign Out Button */}
         <button
           onClick={handleSignOut}

@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useState } from 'react';
 import { ToastProvider } from '@/components/ui/toast';
 import { ExamPeriodProvider } from '@/lib/hooks/exam-period-context';
+import { PresenceProvider } from '@/lib/hooks/use-presence';
+import { PresenceTracker } from '@/components/presence/presence-tracker';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -22,7 +24,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <ExamPeriodProvider>
-          {children}
+          <PresenceProvider>
+            {children}
+            <PresenceTracker />
+          </PresenceProvider>
         </ExamPeriodProvider>
       </ToastProvider>
     </QueryClientProvider>

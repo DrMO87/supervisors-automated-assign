@@ -36,12 +36,13 @@ export async function middleware(req: NextRequest) {
     console.log('isHodAccount:', isHodAccount);
     console.log('isStaffAccount:', isStaffAccount);
 
-    // Allow public assets and service worker cleanups to pass directly
+    // Allow public assets, service worker cleanups, and presence heartbeat to pass directly
     const isPublicAsset = 
       req.nextUrl.pathname.startsWith('/images/') ||
       req.nextUrl.pathname === '/manifest.json' ||
       req.nextUrl.pathname === '/sw.js' ||
-      req.nextUrl.pathname.startsWith('/workbox-');
+      req.nextUrl.pathname.startsWith('/workbox-') ||
+      req.nextUrl.pathname.startsWith('/api/presence');
 
     if (isPublicAsset) {
       return res;

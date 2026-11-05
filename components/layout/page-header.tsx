@@ -3,6 +3,7 @@
 import { ReactNode, useState } from 'react';
 import Image from 'next/image';
 import { Undo2, Loader2 } from 'lucide-react';
+import { OnlineBadge } from '@/components/presence/online-badge';
 
 interface PageHeaderProps {
   title: string;
@@ -35,16 +36,17 @@ export function PageHeader({ title, description, actions, badge }: PageHeaderPro
       <div className="flex items-start justify-between gap-6">
         {/* Left Side: Title, Description, and Actions */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-1.5">
+          <div className="flex items-center gap-3 mb-1.5 flex-wrap">
             <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight truncate">
               {title}
             </h1>
             {badge}
+            <OnlineBadge />
             <button
               onClick={handleUndo}
               disabled={isUndoing}
               title="Undo last change to the database"
-              className="ml-4 flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 hover:text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-200"
+              className="ml-2 flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 hover:text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-200"
             >
               {isUndoing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4" />}
               Undo

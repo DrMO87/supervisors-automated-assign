@@ -16,6 +16,7 @@ import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 import { ExamPeriodModal } from '@/components/dashboard/exam-period-modal';
 import { WeeklyBackupModal } from '@/components/dashboard/weekly-backup-modal';
 import { RecentActivityWidget } from '@/components/dashboard/recent-activity-widget';
+import { OnlineBadge } from '@/components/presence/online-badge';
 
 
 export default function HomePage() {
@@ -264,9 +265,12 @@ export default function HomePage() {
           
 
           <div className="relative z-10 max-w-2xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-xs font-medium mb-6 backdrop-blur-md shadow-glow-gold/20">
-              <Zap className="w-3.5 h-3.5 text-gold-400" />
-              Intelligent Exam Supervision Scheduler
+            <div className="flex items-center gap-2 flex-wrap mb-6">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white/80 text-xs font-medium backdrop-blur-md shadow-glow-gold/20">
+                <Zap className="w-3.5 h-3.5 text-gold-400" />
+                Intelligent Exam Supervision Scheduler
+              </div>
+              <OnlineBadge variant="detailed" className="bg-emerald-500/20 text-emerald-300 border-emerald-400/40 hover:bg-emerald-500/30" />
             </div>
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-display font-bold text-white leading-tight tracking-tight mb-4 drop-shadow-sm">
