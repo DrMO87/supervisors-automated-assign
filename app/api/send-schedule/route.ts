@@ -92,14 +92,14 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     const resendApiKey = process.env.RESEND_API_KEY;
-    const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'Horus University Exam System <exams@mtechsquare.com>';
+    const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'Session Master <session.master@mtechsquare.com>';
 
     // SMTP Credentials from environment variables
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
     const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
     const smtpUser = process.env.SMTP_USER;
     const smtpPass = process.env.SMTP_PASS;
-    const smtpFromName = process.env.SMTP_FROM_NAME || 'Horus University Exam System';
+    const smtpFromName = process.env.SMTP_FROM_NAME || 'Session Master';
 
     // Determine email driver:
     // 1. Explicit EMAIL_DRIVER in environment ('resend' | 'outlook' | 'smtp')
