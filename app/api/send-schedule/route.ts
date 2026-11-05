@@ -2,6 +2,7 @@ import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { exec } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -90,6 +91,9 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
       return NextResponse.json({ error: 'Recipient email is required' }, { status: 400 });
     }
 
+    const resendApiKey = process.env.RESEND_API_KEY;
+    const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'Horus University Exam System <onboarding@resend.dev>';
+
     // SMTP Credentials from environment variables
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
     const smtpPort = parseInt(process.env.SMTP_PORT || '465', 10);
@@ -97,19 +101,65 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     const smtpPass = process.env.SMTP_PASS;
     const smtpFromName = process.env.SMTP_FROM_NAME || 'Horus University Exam System';
 
-    // Auto-select outlook driver if on Windows and SMTP is not configured
-    let emailDriver = process.env.EMAIL_DRIVER || 'smtp';
-    if (!process.env.EMAIL_DRIVER && process.platform === 'win32' && (!smtpUser || !smtpPass)) {
-      emailDriver = 'outlook';
+    // Determine email driver:
+    // 1. Explicit EMAIL_DRIVER in environment ('resend' | 'outlook' | 'smtp')
+    // 2. Default to 'resend' if RESEND_API_KEY is configured
+    // 3. Fallback to 'outlook' if on Windows without SMTP credentials
+    // 4. Default to 'smtp'
+    let emailDriver = process.env.EMAIL_DRIVER;
+    if (!emailDriver) {
+      if (resendApiKey) {
+        emailDriver = 'resend';
+      } else if (process.platform === 'win32' && (!smtpUser || !smtpPass)) {
+        emailDriver = 'outlook';
+      } else {
+        emailDriver = 'smtp';
+      }
     }
 
     console.log(`[ESMS Mailer] Routing email to driver [${emailDriver}] for recipient [${toEmail}]`);
 
-    if (emailDriver === 'outlook') {
+    if (emailDriver === 'resend') {
+      if (!resendApiKey) {
+        return NextResponse.json({ 
+          error: 'RESEND_API_KEY is not configured on the server. Please add RESEND_API_KEY to your environment or .env.local file.' 
+        }, { status: 500 });
+      }
+
+      const resend = new Resend(resendApiKey);
+
+      const attachments = pdfBase64 ? [
+        {
+          filename: `schedule_${sanitizeFileName(staffName || 'staff')}.pdf`,
+          content: Buffer.from(pdfBase64, 'base64'),
+          contentType: 'application/pdf'
+        }
+      ] : undefined;
+
+      const { data, error } = await resend.emails.send({
+        from: resendFromEmail,
+        to: [toEmail],
+        subject: subject || `Exam Supervision Schedule - ${staffName || ''}`,
+        html: htmlContent,
+        attachments: attachments
+      });
+
+      if (error) {
+        console.error('[Resend Error]', error);
+        return NextResponse.json({ 
+          error: error.message || 'Resend delivery failed' 
+        }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, messageId: data?.id, driver: 'resend' });
+
+    } else if (emailDriver === 'outlook') {
       if (process.platform !== 'win32') {
         throw new Error('Outlook COM automation driver is only supported on Windows server environments.');
       }
       await sendViaOutlook(toEmail, subject, htmlContent, pdfBase64, staffName);
+      return NextResponse.json({ success: true, driver: 'outlook' });
+
     } else {
       // SMTP Driver using Nodemailer
       if (!smtpUser || !smtpPass) {
@@ -132,7 +182,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         }
       });
 
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: `"${smtpFromName}" <${smtpUser}>`,
         to: toEmail,
         subject: subject || `Exam Supervision Schedule - ${staffName || ''}`,
@@ -145,6 +195,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
           }
         ] : undefined
       });
+
+      return NextResponse.json({ success: true, messageId: info.messageId, driver: 'smtp' });
     }
 
     return NextResponse.json({ success: true });
