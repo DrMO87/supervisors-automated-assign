@@ -6,6 +6,7 @@ import { ExamSessionWithRelations, Staff, getPeriodFromTime, getSessionPeriod, g
 import { SessionDetailModal } from './session-detail-modal';
 import { PeriodReservesModal } from './period-reserves-modal';
 import { StaffRunningModal, RunningInstance } from './staff-running-modal';
+import { AddRunningStaffModal } from './add-running-staff-modal';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
 import {
   Loader2, AlertCircle, AlertTriangle, Filter, ChevronDown,
@@ -81,6 +82,12 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   const [filterStatus, setFilterStatus] = useState<'all' | 'unassigned' | 'conflicts'>('all');
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [isRunningModalOpen, setIsRunningModalOpen] = useState(false);
+  const [selectedPeriodForRunners, setSelectedPeriodForRunners] = useState<{
+    dateStr: string; period: number; startTime: string;
+    currentSessions: ExamSessionWithRelations[];
+    previousSessions: ExamSessionWithRelations[];
+    gapMinutes: number;
+  } | null>(null);
   const { viewMode, toggleViewMode } = useMobileView();
 
   const {
@@ -508,7 +515,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
             {/* Period Groups */}
             {!isDayCollapsed && (
               <div className="divide-y divide-gray-100">
-                {periods.map(({ period, startTime, endTime, timeRange, sessions }) => {
+                {periods.map(({ period, startTime, endTime, timeRange, sessions }, periodIdx) => {
                   const periodInfo = PERIOD_LABELS[period] || { label: `Period ${period}`, time: '', color: 'text-gray-700', bg: 'bg-gray-50', border: 'border-gray-200' };
                   const periodKey = `${dateStr}-${period}`;
                   const isPeriodCollapsed = collapsedPeriods.has(periodKey);
@@ -542,7 +549,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                           </span>
                         </div>
 
-                        {/* Free Staff List */}
+                        {/* Free Staff List & Period Actions */}
                         <div className="flex flex-wrap items-center gap-2 flex-1 ml-2 sm:mx-6 justify-start mt-2 sm:mt-0">
                           <button
                             onClick={(e) => {
@@ -553,6 +560,32 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                             className="flex items-center gap-1 text-[10px] uppercase font-bold text-gray-500 hover:text-primary-600 transition-colors bg-white border border-gray-200 px-2 py-0.5 rounded shadow-sm"
                           >
                             Edit Reserves
+                          </button>
+
+                          {/* Add Running Staff Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const prevPeriod = periodIdx > 0 ? periods[periodIdx - 1] : null;
+                              const prevSessions = prevPeriod ? prevPeriod.sessions : [];
+                              let gap = 0;
+                              if (prevSessions.length > 0 && sessions.length > 0) {
+                                gap = getSessionGapMinutes(prevSessions[0], sessions[0]);
+                              }
+                              setSelectedPeriodForRunners({
+                                dateStr,
+                                period,
+                                startTime: startTime || (sessions.length > 0 ? sessions[0].start_time : '09:00:00'),
+                                currentSessions: sessions,
+                                previousSessions: prevSessions,
+                                gapMinutes: gap,
+                              });
+                            }}
+                            className="flex items-center gap-1 text-[10px] uppercase font-bold text-orange-600 hover:text-orange-700 hover:bg-orange-50 transition-colors bg-white border border-orange-200 hover:border-orange-300 px-2 py-0.5 rounded shadow-sm"
+                            title="Add running staff from previous back-to-back period for vacant rooms in nearby buildings"
+                          >
+                            <PersonStanding className="w-3.5 h-3.5 text-orange-500" />
+                            Add Running Staff
                           </button>
                           {pFreeStaff.length > 0 && (
                             <>
@@ -635,6 +668,20 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           startTime={selectedPeriodForReserves.startTime}
           currentReserves={periodFreeStaff.filter(fs => fs.exam_date === selectedPeriodForReserves.dateStr && fs.period === selectedPeriodForReserves.period)}
           availableStaff={getAvailableStaff(selectedPeriodForReserves.dateStr, selectedPeriodForReserves.period)}
+          onUpdate={loadData}
+        />
+      )}
+
+      {/* ── Add Running Staff Modal ────────────────────────────────────────────── */}
+      {selectedPeriodForRunners && (
+        <AddRunningStaffModal
+          isOpen={!!selectedPeriodForRunners}
+          onClose={() => setSelectedPeriodForRunners(null)}
+          dateStr={selectedPeriodForRunners.dateStr}
+          period={selectedPeriodForRunners.period}
+          currentPeriodSessions={selectedPeriodForRunners.currentSessions}
+          previousPeriodSessions={selectedPeriodForRunners.previousSessions}
+          gapMinutes={selectedPeriodForRunners.gapMinutes}
           onUpdate={loadData}
         />
       )}
