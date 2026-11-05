@@ -11,6 +11,7 @@ import { RoomCSVImportModal } from '@/components/rooms/csv-import-modal';
 import { DeleteConfirmModal } from '@/components/ui/delete-confirm-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { exportRoomsToExcel, downloadFile } from '@/lib/utils/csv-helpers';
+import { logClientActivity } from '@/lib/utils/audit-logger';
 
 export default function RoomsPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -56,8 +57,15 @@ export default function RoomsPage() {
     if (!supabase) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { error } = await supabase.from('rooms').insert([{ ...data, is_active: true }]);
+      const { data: inserted, error } = await supabase.from('rooms').insert([{ ...data, is_active: true }]).select('id').single();
       if (error) throw error;
+      await logClientActivity({
+        action: 'INSERT',
+        tableName: 'rooms',
+        recordId: inserted?.id || 'room-add',
+        summary: `Added room: ${data.room_name} (${data.building})`,
+        newValues: data,
+      });
       setIsAddModalOpen(false);
       loadRooms();
     } catch (error: any) {
@@ -74,6 +82,14 @@ export default function RoomsPage() {
     try {
       const { error } = await supabase.from('rooms').update(data).eq('id', selectedRoom.id);
       if (error) throw error;
+      await logClientActivity({
+        action: 'UPDATE',
+        tableName: 'rooms',
+        recordId: selectedRoom.id,
+        summary: `Updated room: ${data.room_name || selectedRoom.room_name}`,
+        oldValues: selectedRoom,
+        newValues: data,
+      });
       setIsEditModalOpen(false);
       setSelectedRoom(null);
       loadRooms();
@@ -91,6 +107,13 @@ export default function RoomsPage() {
     try {
       const { error } = await supabase.from('rooms').delete().eq('id', selectedRoom.id);
       if (error) throw error;
+      await logClientActivity({
+        action: 'DELETE',
+        tableName: 'rooms',
+        recordId: selectedRoom.id,
+        summary: `Deleted room: ${selectedRoom.room_name}`,
+        oldValues: selectedRoom,
+      });
       setIsDeleteModalOpen(false);
       setSelectedRoom(null);
       loadRooms();
@@ -107,8 +130,15 @@ export default function RoomsPage() {
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
       const roomsToInsert = data.map(r => ({ ...r, is_active: true }));
-      const { error } = await supabase.from('rooms').insert(roomsToInsert);
+      const { data: insertedList, error } = await supabase.from('rooms').insert(roomsToInsert).select('id');
       if (error) throw error;
+      await logClientActivity({
+        action: 'INSERT',
+        tableName: 'rooms',
+        recordId: insertedList?.[0]?.id || 'bulk-import',
+        summary: `Imported ${data.length} exam rooms via Excel/CSV`,
+        newValues: { count: data.length, sampleRoom: data[0]?.room_name },
+      });
       setIsImportModalOpen(false);
       loadRooms();
     } catch (error: any) {

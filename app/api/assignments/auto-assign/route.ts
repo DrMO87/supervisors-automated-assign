@@ -44,10 +44,21 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     const startDate = new Date(weekStart);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 7);
-    const startStr = startDate.toISOString().split('T')[0];
-    const endStr = endDate.toISOString().split('T')[0];
+    const startStr = weekStart.includes('T')
+      ? startDate.toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' })
+      : weekStart.split('T')[0];
+
+    const [sYear, sMonth, sDay] = startStr.split('-').map(Number);
+    const calEndDate = new Date(Date.UTC(sYear, sMonth - 1, sDay + 7));
+    const endStr = calEndDate.toISOString().split('T')[0];
+
+    const formattedWeekLabel = startDate.toLocaleDateString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'Africa/Cairo',
+    });
 
     // ── Fetch all required data in parallel ──────────────────────────────
     const [staffResult, periodFreeStaffResult, sessionsResult, existingAssignmentsResult, roomsResult, ratiosSettingResult, constraintsSettingResult, calendarRulesResult, activePeriodResult, activePeriodSettingResult] =
@@ -298,8 +309,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         action: 'AUTO_ASSIGN',
         tableName: 'assignments',
         recordId: allNewAssignments[0]?.exam_session_id || 'auto-assign',
-        summary: `Auto-assigned ${allNewAssignments.length} supervisors for week starting ${weekStart}`,
-        userEmail: email,
+        summary: `Auto-assigned ${allNewAssignments.length} supervisors for week of ${formattedWeekLabel}`,
+        userEmail: email || 'melkhodary@horus.edu.eg',
         userRole: 'Super Admin',
       });
     }
@@ -370,8 +381,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
               action: 'AUTO_ASSIGN',
               tableName: 'period_free_staff',
               recordId: reserveAssignments[0]?.id || 'auto-assign-reserves',
-              summary: `Auto-assigned ${reserveAssignments.length} reserve staff for week starting ${weekStart}`,
-              userEmail: email,
+              summary: `Auto-assigned ${reserveAssignments.length} reserve staff for week of ${formattedWeekLabel}`,
+              userEmail: email || 'melkhodary@horus.edu.eg',
               userRole: 'Super Admin',
             });
           }

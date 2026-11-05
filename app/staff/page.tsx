@@ -13,6 +13,7 @@ import { CSVImportModal } from '@/components/staff/csv-import-modal';
 import { SetupRequired } from '@/components/setup-required';
 import { StaffBulkEditModal } from '@/components/staff/staff-bulk-edit-modal';
 import { exportStaffToExcel, downloadFile } from '@/lib/utils/csv-helpers';
+import { logClientActivity } from '@/lib/utils/audit-logger';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
 
 export default function StaffPage() {
@@ -79,8 +80,15 @@ export default function StaffPage() {
     if (!supabase) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { error } = await supabase.from('staff').insert([{ ...data, current_score: 0 }]);
+      const { data: inserted, error } = await supabase.from('staff').insert([{ ...data, current_score: 0 }]).select('id').single();
       if (error) throw error;
+      await logClientActivity({
+        action: 'INSERT',
+        tableName: 'staff',
+        recordId: inserted?.id || 'staff-add',
+        summary: `Added staff member: ${data.name} (${data.job_title})`,
+        newValues: data,
+      });
       setIsAddModalOpen(false);
       loadStaff();
     } catch (error: any) {
@@ -97,6 +105,14 @@ export default function StaffPage() {
     try {
       const { error } = await supabase.from('staff').update(data).eq('id', selectedStaff.id);
       if (error) throw error;
+      await logClientActivity({
+        action: 'UPDATE',
+        tableName: 'staff',
+        recordId: selectedStaff.id,
+        summary: `Updated staff member: ${data.name || selectedStaff.name}`,
+        oldValues: selectedStaff,
+        newValues: data,
+      });
       setIsEditModalOpen(false);
       setSelectedStaff(null);
       loadStaff();
@@ -114,6 +130,13 @@ export default function StaffPage() {
     try {
       const { error } = await supabase.from('staff').delete().eq('id', selectedStaff.id);
       if (error) throw error;
+      await logClientActivity({
+        action: 'DELETE',
+        tableName: 'staff',
+        recordId: selectedStaff.id,
+        summary: `Deleted staff member: ${selectedStaff.name}`,
+        oldValues: selectedStaff,
+      });
       setIsDeleteModalOpen(false);
       setSelectedStaff(null);
       loadStaff();
@@ -130,8 +153,15 @@ export default function StaffPage() {
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
       const staffToInsert = data.map(s => ({ ...s, current_score: 0 }));
-      const { error } = await supabase.from('staff').insert(staffToInsert);
+      const { data: insertedList, error } = await supabase.from('staff').insert(staffToInsert).select('id');
       if (error) throw error;
+      await logClientActivity({
+        action: 'INSERT',
+        tableName: 'staff',
+        recordId: insertedList?.[0]?.id || 'bulk-import',
+        summary: `Imported ${data.length} staff members via Excel/CSV`,
+        newValues: { count: data.length, sampleName: data[0]?.name },
+      });
       setIsImportModalOpen(false);
       loadStaff();
     } catch (error: any) {

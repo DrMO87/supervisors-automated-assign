@@ -108,7 +108,7 @@ export default function DashboardPage() {
     try {
       const endpoint = '/api/assignments/auto-assign';
       const payload = {
-        weekStart: currentWeekStart.toISOString(),
+        weekStart: weekDates[0] || currentWeekStart.toISOString(),
         assignmentScope: isMidterm ? 'midterm' : 'all',
         availabilityPolicy: activePeriod?.availability_policy,
         oralExamAssignmentMode: activePeriod?.oral_exam_assignment_mode,
@@ -154,7 +154,7 @@ export default function DashboardPage() {
       const response = await fetch('/api/assignments/reset-week', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ weekStart: currentWeekStart.toISOString() }),
+        body: JSON.stringify({ weekStart: weekDates[0] || currentWeekStart.toISOString() }),
       });
 
       const result = await response.json();

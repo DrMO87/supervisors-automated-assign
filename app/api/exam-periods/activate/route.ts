@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { supabaseAdmin } from '@/lib/supabase/client';
+import { logActivity } from '@/lib/utils/audit-logger';
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,7 +60,6 @@ export async function POST(req: NextRequest) {
           const date = (a.exam_session as any)?.exam_date;
           return a.staff_id === s.id && date >= targetPeriod.start_date && date <= targetPeriod.end_date;
         });
-
         const uniquePeriods = new Set(staffAssignments.map(a => `${(a.exam_session as any).exam_date}_${(a.exam_session as any).start_time}`));
         const staffReserves = (reserves || []).filter(r => r.staff_id === s.id && r.exam_date >= targetPeriod.start_date && r.exam_date <= targetPeriod.end_date);
 
@@ -69,6 +71,25 @@ export async function POST(req: NextRequest) {
           })
           .eq('id', s.id);
       }
+    }
+
+    // 5. Log audit activity
+    try {
+      const supabaseAuth = createRouteHandlerClient({ cookies });
+      const { data: { session } } = await supabaseAuth.auth.getSession();
+      const userEmail = session?.user?.email || 'melkhodary@horus.edu.eg';
+
+      await logActivity(supabaseAdmin, {
+        action: 'PERIOD_CHANGE',
+        tableName: 'exam_periods',
+        recordId: targetPeriod.id,
+        summary: `Activated Exam Period "${targetPeriod.name}" (${targetPeriod.start_date} → ${targetPeriod.end_date})`,
+        newValues: updatedPeriod,
+        userEmail,
+        userRole: 'Super Admin',
+      });
+    } catch (logErr) {
+      console.warn('Failed to log period activation activity:', logErr);
     }
 
     return NextResponse.json({ success: true, period: updatedPeriod });

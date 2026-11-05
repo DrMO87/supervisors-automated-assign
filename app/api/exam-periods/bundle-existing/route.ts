@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { supabaseAdmin } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/utils/audit-logger';
 
@@ -77,6 +79,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let userEmail = 'melkhodary@horus.edu.eg';
+    try {
+      const supabaseAuth = createRouteHandlerClient({ cookies });
+      const { data: { session } } = await supabaseAuth.auth.getSession();
+      if (session?.user?.email) userEmail = session.user.email;
+    } catch (e) {}
+
     // 1. Fetch min and max dates if not explicitly provided
     let hStart = historical_start_date;
     let hEnd = historical_end_date;
@@ -136,6 +145,8 @@ export async function POST(req: NextRequest) {
       recordId: historicalPeriod.id,
       summary: `Bundled existing database exams into Historical Period "${historical_name}" (${hStart} → ${hEnd})`,
       newValues: historicalPeriod,
+      userEmail,
+      userRole: 'Super Admin',
     });
 
     // 4. Deactivate all periods
@@ -172,8 +183,9 @@ export async function POST(req: NextRequest) {
       recordId: summerPeriod.id,
       summary: `Created & Activated new Summer Exam Period "${summer_name}" (${summer_start_date} → ${summer_end_date})`,
       newValues: summerPeriod,
+      userEmail,
+      userRole: 'Super Admin',
     });
-
 
     // 6. Handle Staff Scoring for Summer Period
     if (summer_score_mode === 'fresh') {

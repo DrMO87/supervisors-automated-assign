@@ -92,7 +92,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     }
 
     const resendApiKey = process.env.RESEND_API_KEY;
-    const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'Horus University Exam System <onboarding@resend.dev>';
+    const resendFromEmail = process.env.RESEND_FROM_EMAIL || 'Horus University Exam System <exams@mtechsquare.com>';
 
     // SMTP Credentials from environment variables
     const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';

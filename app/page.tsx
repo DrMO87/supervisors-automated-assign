@@ -107,7 +107,7 @@ export default function HomePage() {
         // Secondary non-blocking calls (user & audit logs)
         Promise.all([
           supabase.auth.getUser().catch(() => ({ data: { user: null } })),
-          Promise.resolve(supabase.from('audit_log').select('*').order('changed_at', { ascending: false }).limit(5)).catch(() => ({ data: [] }))
+          Promise.resolve(supabase.from('audit_log').select('*').order('changed_at', { ascending: false }).limit(6)).catch(() => ({ data: [] }))
         ]).then(([userRes, logsRes]: [any, any]) => {
           if (!isMounted) return;
           const email = userRes.data?.user?.email || null;

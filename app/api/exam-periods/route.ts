@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { supabaseAdmin } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/utils/audit-logger';
 
@@ -317,6 +319,25 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Log audit activity
+    try {
+      const supabaseAuth = createRouteHandlerClient({ cookies });
+      const { data: { session } } = await supabaseAuth.auth.getSession();
+      const userEmail = session?.user?.email || 'melkhodary@horus.edu.eg';
+
+      await logActivity(supabaseAdmin, {
+        action: 'PERIOD_CHANGE',
+        tableName: 'exam_periods',
+        recordId: newPeriod.id,
+        summary: `Created Exam Period "${newPeriod.name}" (${newPeriod.start_date} → ${newPeriod.end_date})`,
+        newValues: newPeriod,
+        userEmail,
+        userRole: 'Super Admin',
+      });
+    } catch (logErr) {
+      console.warn('Failed to log period creation activity:', logErr);
+    }
+
     return NextResponse.json({ success: true, period: newPeriod });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
@@ -496,13 +517,23 @@ export async function PATCH(req: NextRequest) {
     }
 
     // 4. Log audit activity
-    await logActivity(supabaseAdmin, {
-      action: 'PERIOD_CHANGE',
-      tableName: 'exam_periods',
-      recordId: id,
-      summary: `Updated Exam Period details for "${updatedPeriod.name}"`,
-      newValues: updatedPeriod,
-    });
+    try {
+      const supabaseAuth = createRouteHandlerClient({ cookies });
+      const { data: { session } } = await supabaseAuth.auth.getSession();
+      const userEmail = session?.user?.email || 'melkhodary@horus.edu.eg';
+
+      await logActivity(supabaseAdmin, {
+        action: 'PERIOD_CHANGE',
+        tableName: 'exam_periods',
+        recordId: id,
+        summary: `Updated Exam Period details for "${updatedPeriod.name}"`,
+        newValues: updatedPeriod,
+        userEmail,
+        userRole: 'Super Admin',
+      });
+    } catch (logErr) {
+      console.warn('Failed to log period update activity:', logErr);
+    }
 
     return NextResponse.json({ success: true, period: updatedPeriod });
   } catch (err: any) {

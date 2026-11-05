@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { supabaseAdmin } from '@/lib/supabase/client';
 import { logActivity } from '@/lib/utils/audit-logger';
+import { HOD_EMAILS } from '@/lib/config/hod-accounts';
 
 export async function GET(req: NextRequest) {
   try {
@@ -34,7 +37,35 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    await logActivity(supabaseAdmin, body);
+    let userEmail = body.userEmail;
+    let userRole = body.userRole;
+
+    if (!userEmail || userEmail === 'System Engine') {
+      try {
+        const supabaseAuth = createRouteHandlerClient({ cookies });
+        const { data: { session } } = await supabaseAuth.auth.getSession();
+        if (session?.user?.email) {
+          userEmail = session.user.email;
+          userRole = userRole || session.user.user_metadata?.role ||
+            (userEmail.toLowerCase().includes('melkhodary') ? 'Super Admin' :
+             userEmail.toLowerCase().includes('admin') ? 'Super Admin' :
+             HOD_EMAILS.includes(userEmail.toLowerCase()) ? 'Head of Department' : 'Coordinator');
+        }
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    if (!userEmail || userEmail === 'System Engine') {
+      userEmail = 'melkhodary@horus.edu.eg';
+      userRole = userRole || 'Super Admin';
+    }
+
+    await logActivity(supabaseAdmin, {
+      ...body,
+      userEmail,
+      userRole,
+    });
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('Error logging audit activity:', err);
