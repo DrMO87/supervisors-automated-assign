@@ -1105,8 +1105,14 @@ export function assignStaffToSession(
   // Precompute the lowest effective score for each peer group among active colleagues
   const peerMinScores = getPeerMinScores(allStaff);
 
+  // HARD CONSTRAINT: Committees Supervisors are strictly university lecturers / faculty members.
+  // Their exclusive role is supervising entire room blocks / floors (Committees_Supervisor).
+  // They MUST NEVER be assigned to individual rooms as Exam_Supervisor or Assistant,
+  // and must never participate inside parallel rooms as invigilator or head supervisor.
+  const eligibleRoomStaff = allStaff.filter(s => s.supervision_role !== 'Committees Supervisor');
+
   // Evaluate each staff member's availability (workload cap is a soft constraint during room assignment, strictly equalized at post-pass)
-  const staffWithStatus = allStaff.map((staff) => {
+  const staffWithStatus = eligibleRoomStaff.map((staff) => {
     const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
     const { available, hardViolations, softViolations } = isStaffAvailable(
       staff, examSession, existingAssignments, allExamSessions, config.constraints,
@@ -1187,7 +1193,7 @@ export function assignStaffToSession(
     }
     if (headSupervisors.length < neededHeadSupervisors) {
       // Tier 2 Fallback: Relax workload cap to prevent room deficiency
-      const fallbackStaffWithStatus = allStaff.map((staff) => {
+      const fallbackStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
@@ -1219,7 +1225,7 @@ export function assignStaffToSession(
 
     if (headSupervisors.length < neededHeadSupervisors) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
-      const emergencyStaffWithStatus = allStaff.map((staff) => {
+      const emergencyStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
@@ -1249,10 +1255,10 @@ export function assignStaffToSession(
       }
 
       if (headSupervisors.length < neededHeadSupervisors) {
-        // Fallback 3b: If regular exam supervisors are exhausted, recruit available qualified staff
-        // (Committees Supervisors not assigned to a block, or experienced Invigilators) to ensure zero unstaffed rooms
+        // Fallback 3b: If regular exam supervisors are exhausted, recruit available Demonstrators (Invigilator)
+        // Committees Supervisors (Lecturers) are STRICTLY excluded from entering rooms!
         const secondaryHeadPool = emergencyStaffWithStatus.filter(
-          (s) => s.available && (s.staff.supervision_role === 'Committees Supervisor' || s.staff.supervision_role === 'Invigilator')
+          (s) => s.available && s.staff.supervision_role === 'Invigilator'
         );
         while (headSupervisors.length < neededHeadSupervisors) {
           const candidate = pickBest(secondaryHeadPool, headSupervisors, undefined, 'Exam Supervisor');
@@ -1343,7 +1349,7 @@ export function assignStaffToSession(
 
     if (assignedAssistants < neededAssistants) {
       // Tier 2 Fallback: Relax workload cap to prevent assistant deficiency
-      const fallbackStaffWithStatus = allStaff.map((staff) => {
+      const fallbackStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
@@ -1380,7 +1386,7 @@ export function assignStaffToSession(
 
     if (assignedAssistants < neededAssistants) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
-      const emergencyStaffWithStatus = allStaff.map((staff) => {
+      const emergencyStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
           staff,
@@ -1415,9 +1421,9 @@ export function assignStaffToSession(
       }
 
       if (assignedAssistants < neededAssistants) {
-        // Fallback 3b: If assistants are exhausted, recruit available Exam Supervisors or other staff
+        // Fallback 3b: If assistants are exhausted, recruit available Exam Supervisors (never Committees Supervisors!)
         const secondaryPool = emergencyStaffWithStatus.filter(
-          (s) => s.available && !excludedStaff.some(e => e.id === s.staff.id)
+          (s) => s.available && s.staff.supervision_role !== 'Committees Supervisor' && !excludedStaff.some(e => e.id === s.staff.id)
         );
         const secEligible = sortStaffByPriority(secondaryPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
           .filter(s => !excludedStaff.some(e => e.id === s.id));
@@ -2156,17 +2162,9 @@ export function batchAssign(
 
       if (activeDatesInWeek.length > allowedDays) {
         const excess = activeDatesInWeek.length - allowedDays;
-
-        // Sort candidate off-dates by difficulty ASCENDING so that floating off-days
-        // are preferentially absorbed by low-demand, low-constraint days (e.g. Thursday, Sunday)
-        // rather than starving high-demand days (e.g. Wednesday) that need all available hands on deck.
-        const offCandidates = [...activeDatesInWeek].sort((a, b) => {
-          return (dateDifficultyMap.get(a) || 0) - (dateDifficultyMap.get(b) || 0);
-        });
-
         const offDatesToAssign: string[] = [];
         for (let e = 0; e < excess; e++) {
-          const pickDate = offCandidates[(globalStaggerIndex + e) % Math.max(1, offCandidates.length - 1)];
+          const pickDate = activeDatesInWeek[(globalStaggerIndex + e) % activeDatesInWeek.length];
           offDatesToAssign.push(pickDate);
         }
         globalStaggerIndex++;
