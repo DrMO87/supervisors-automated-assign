@@ -591,7 +591,8 @@ export function isStaffAvailable(
           const sRoom = rooms?.find(r => r.id === s.room_id);
           const sBuilding = getRoomBuilding(sRoom, (s as any).room?.room_name || (s as any).room_name || sRoom?.room_name);
           if (targetBuilding !== 'UNKNOWN' && sBuilding !== 'UNKNOWN' && targetBuilding !== sBuilding) {
-            if (allowRelaxCrossBuilding) {
+            // If gap is strictly 0 minutes (no gap between periods), cross-building is physically impossible and strictly banned
+            if (gap > 0 && allowRelaxCrossBuilding) {
               softViolations.push({
                 type: 'capacity',
                 message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min) - allowed as emergency fallback`,
@@ -601,7 +602,7 @@ export function isStaffAvailable(
             } else {
               hardViolations.push({
                 type: 'capacity',
-                message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min)`,
+                message: `${staff.name} has a zero/tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min)`,
                 staff_id: staff.id,
                 exam_session_id: examSession.id,
               });

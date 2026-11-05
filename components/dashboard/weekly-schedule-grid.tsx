@@ -5,18 +5,19 @@ import { format, addDays } from 'date-fns';
 import { ExamSessionWithRelations, Staff, getPeriodFromTime, getSessionPeriod, getDayUniquePeriods, normalizeTimeString } from '@/types/database.types';
 import { SessionDetailModal } from './session-detail-modal';
 import { PeriodReservesModal } from './period-reserves-modal';
+import { StaffRunningModal, RunningInstance } from './staff-running-modal';
 import { supabase, isSupabaseConfigured, getSupabaseConfigStatus } from '@/lib/supabase/client';
 import {
   Loader2, AlertCircle, AlertTriangle, Filter, ChevronDown,
   ChevronRight, Users, BookOpen, Clock, Building2, CheckCircle2,
-  XCircle, Search, X, LayoutGrid, List
+  XCircle, Search, X, LayoutGrid, List, PersonStanding
 } from 'lucide-react';
 import { useMobileView } from '@/lib/hooks/use-mobile-view';
 import { useDroppable } from '@dnd-kit/core';
 import { SetupRequired } from '@/components/setup-required';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { cn } from '@/lib/utils/cn';
-import { calculateRequiredStaff } from '@/lib/algorithms/auto-assignment';
+import { calculateRequiredStaff, getSessionGapMinutes } from '@/lib/algorithms/auto-assignment';
 
 import type { CalendarRule } from '@/types/database.types';
 
@@ -79,6 +80,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'unassigned' | 'conflicts'>('all');
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
+  const [isRunningModalOpen, setIsRunningModalOpen] = useState(false);
   const { viewMode, toggleViewMode } = useMobileView();
 
   const {
@@ -190,6 +192,80 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
     return { total, fullyStaffed, needsStaff, totalConflicts, errorConflicts, buildings };
   }, [examSessions, conflicts, staffingRatios, systemSettings]);
 
+  // ── Running instances: staff in back-to-back sessions (gap ≤ 15 min) in different rooms ──
+  const runningInstances = useMemo<RunningInstance[]>(() => {
+    const instances: RunningInstance[] = [];
+
+    // Build a map: staffId → all sessions they are assigned to this week
+    const staffSessionMap = new Map<string, ExamSessionWithRelations[]>();
+
+    for (const session of examSessions) {
+      if (!session.assignments) continue;
+      for (const assignment of session.assignments as any[]) {
+        const sid = assignment.staff_id;
+        if (!sid) continue;
+        if (!staffSessionMap.has(sid)) staffSessionMap.set(sid, []);
+        staffSessionMap.get(sid)!.push(session);
+      }
+    }
+
+    const getBuilding = (session: ExamSessionWithRelations): string =>
+      (session.room as any)?.building_code
+      || (session.room as any)?.building
+      || 'UNKNOWN';
+
+    for (const [staffId, sessions] of staffSessionMap.entries()) {
+      const sorted = [...sessions].sort((a, b) => {
+        if (a.exam_date !== b.exam_date) return a.exam_date < b.exam_date ? -1 : 1;
+        return a.start_time < b.start_time ? -1 : 1;
+      });
+
+      for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+          const s1 = sorted[i];
+          const s2 = sorted[j];
+          if (s1.exam_date !== s2.exam_date) break;
+
+          const r1 = s1.room_id || (s1.room as any)?.id;
+          const r2 = s2.room_id || (s2.room as any)?.id;
+          const name1 = (s1.room as any)?.room_name || '';
+          const name2 = (s2.room as any)?.room_name || '';
+          const isSameRoom =
+            (r1 && r2 && r1 === r2) ||
+            (name1 && name2 && name1.trim().toLowerCase() === name2.trim().toLowerCase());
+          if (isSameRoom) continue;
+
+          const gap = getSessionGapMinutes(s1, s2);
+          if (gap > 15) continue;
+
+          const assignment = (s1.assignments as any[])?.find((a: any) => a.staff_id === staffId);
+          const staffMember = assignment?.staff;
+          const staffName = staffMember?.name || staffId;
+          const staffJob = staffMember?.job_title || '';
+
+          const b1 = getBuilding(s1);
+          const b2 = getBuilding(s2);
+          const isCrossBuilding = b1 !== 'UNKNOWN' && b2 !== 'UNKNOWN' && b1 !== b2;
+
+          instances.push({
+            staffId, staffName, staffJob,
+            fromSession: s1, toSession: s2,
+            gapMinutes: gap,
+            fromRoom: name1 || 'Unknown Room',
+            toRoom: name2 || 'Unknown Room',
+            fromBuilding: b1, toBuilding: b2,
+            date: s1.exam_date, isCrossBuilding,
+          });
+        }
+      }
+    }
+
+    return instances.sort((a, b) => {
+      if (a.isCrossBuilding !== b.isCrossBuilding) return a.isCrossBuilding ? -1 : 1;
+      return a.date < b.date ? -1 : 1;
+    });
+  }, [examSessions]);
+
   // ── Filtered sessions ─────────────────────────────────────────────────────
   const filteredSessions = useMemo(() => {
     return examSessions.filter(s => {
@@ -290,7 +366,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   return (
     <div className="space-y-4">
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="bg-white rounded-lg border border-gray-200 p-3 flex items-center gap-3">
           <div className="p-2 bg-blue-50 rounded-lg"><BookOpen className="w-4 h-4 text-blue-600" /></div>
           <div><p className="text-xs text-gray-500">Total Exams</p><p className="text-lg font-bold text-gray-900">{stats.total}</p></div>
@@ -307,6 +383,49 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           <div className="p-2 bg-red-50 rounded-lg"><AlertTriangle className="w-4 h-4 text-red-500" /></div>
           <div><p className="text-xs text-gray-500">Conflicts</p><p className="text-lg font-bold text-red-600">{stats.totalConflicts}</p></div>
         </div>
+        {/* ── Running Counter ── */}
+        <button
+          onClick={() => setIsRunningModalOpen(true)}
+          title="Click to view staff running instances (back-to-back sessions in different rooms with no transit gap)"
+          className={`rounded-lg border p-3 flex items-center gap-3 transition-all shadow-sm text-left group
+            ${runningInstances.length === 0
+              ? 'bg-white border-gray-200 hover:border-green-400 hover:shadow-md'
+              : runningInstances.some(i => i.isCrossBuilding)
+                ? 'bg-red-50 border-red-300 hover:border-red-500 hover:shadow-md'
+                : 'bg-amber-50 border-amber-300 hover:border-amber-500 hover:shadow-md'
+            }`}
+        >
+          <div className={`p-2 rounded-lg flex-shrink-0 ${
+            runningInstances.length === 0
+              ? 'bg-green-100 group-hover:bg-green-200'
+              : runningInstances.some(i => i.isCrossBuilding)
+                ? 'bg-red-100 group-hover:bg-red-200'
+                : 'bg-amber-100 group-hover:bg-amber-200'
+          } transition-colors`}>
+            <PersonStanding className={`w-4 h-4 ${
+              runningInstances.length === 0
+                ? 'text-green-600'
+                : runningInstances.some(i => i.isCrossBuilding)
+                  ? 'text-red-600'
+                  : 'text-amber-600'
+            }`} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-gray-500 leading-tight">Staff Running</p>
+            <p className={`text-lg font-bold leading-tight ${
+              runningInstances.length === 0
+                ? 'text-green-700'
+                : runningInstances.some(i => i.isCrossBuilding)
+                  ? 'text-red-600'
+                  : 'text-amber-600'
+            }`}>
+              {runningInstances.length}
+            </p>
+            <p className="text-[10px] text-gray-400 leading-tight group-hover:underline">
+              {runningInstances.length === 0 ? 'All clear ✓' : 'View details ↗'}
+            </p>
+          </div>
+        </button>
       </div>
 
       {/* ── Filter Bar ─────────────────────────────────────────────────────── */}
@@ -531,6 +650,13 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           onUpdate={loadData}
         />
       )}
+
+      {/* ── Staff Running Modal ───────────────────────────────────────────────── */}
+      <StaffRunningModal
+        isOpen={isRunningModalOpen}
+        onClose={() => setIsRunningModalOpen(false)}
+        instances={runningInstances}
+      />
     </div>
   );
 }
