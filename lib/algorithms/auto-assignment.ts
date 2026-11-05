@@ -269,8 +269,8 @@ export function getStaffRoomAffinity(
     if (isSameBuilding) {
       return { affinityScore: 3, reason: 'SAME_BUILDING_CONTIGUOUS' };
     }
-    // Cross-building sprint with tight or 0 gap!
-    return { affinityScore: 0, reason: 'DIFF_BUILDING_TIGHT' };
+    // Cross-building sprint with tight or 0 gap! (Heavily avoided and prohibited)
+    return { affinityScore: -100, reason: 'DIFF_BUILDING_TIGHT' };
   }
 
   // If gap > 15 minutes (comfortable break, e.g. 30m, 1h, 2h):
@@ -399,7 +399,9 @@ export function isStaffAvailable(
   peerMinScore?: number,
   strictOffDays: boolean = false,
   allowWorkloadCapRelax: boolean = false,
-  allowDayCapRelax: boolean = false
+  allowDayCapRelax: boolean = false,
+  rooms?: Room[],
+  allowRelaxCrossBuilding: boolean = false
 ): {
   available: boolean;
   hardViolations: AssignmentConstraintViolation[];
@@ -578,7 +580,7 @@ export function isStaffAvailable(
       }
     }
 
-    // 4a. Cross-Building Distance Warning for tight/no-gap shifts
+    // 4a. Cross-Building Distance Warning / Strict Prevention for tight/no-gap shifts
     if (targetRoom) {
       const targetBuilding = getRoomBuilding(targetRoom, targetRoom.room_name);
       for (const a of sameDayOther) {
@@ -586,14 +588,24 @@ export function isStaffAvailable(
         if (!s) continue;
         const gap = getSessionGapMinutes(s, examSession);
         if (gap <= 15) {
-          const sBuilding = getRoomBuilding(undefined, (s as any).room?.room_name || (s as any).room_name);
+          const sRoom = rooms?.find(r => r.id === s.room_id);
+          const sBuilding = getRoomBuilding(sRoom, (s as any).room?.room_name || (s as any).room_name || sRoom?.room_name);
           if (targetBuilding !== 'UNKNOWN' && sBuilding !== 'UNKNOWN' && targetBuilding !== sBuilding) {
-            softViolations.push({
-              type: 'capacity',
-              message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min)`,
-              staff_id: staff.id,
-              exam_session_id: examSession.id,
-            });
+            if (allowRelaxCrossBuilding) {
+              softViolations.push({
+                type: 'capacity',
+                message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min) - allowed as emergency fallback`,
+                staff_id: staff.id,
+                exam_session_id: examSession.id,
+              });
+            } else {
+              hardViolations.push({
+                type: 'capacity',
+                message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min)`,
+                staff_id: staff.id,
+                exam_session_id: examSession.id,
+              });
+            }
           }
         }
       }
@@ -630,15 +642,24 @@ export function isStaffAvailable(
   }
 
   // If this examSession is on a NEW date, check if they are already at their weekly limit.
-  // This is a strict, non-relaxable hard prohibition.
+  // This is a strict prohibition unless in emergency fallback (allowDayCapRelax).
   if (!datesAssignedInWeek.has(examSession.exam_date)) {
     if (datesAssignedInWeek.size >= maxAllowedDaysInWeek) {
-      hardViolations.push({
-        type: 'unavailable',
-        message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week as configured in Settings)`,
-        staff_id: staff.id,
-        exam_session_id: examSession.id,
-      });
+      if (allowDayCapRelax) {
+        softViolations.push({
+          type: 'unavailable',
+          message: `${staff.name} (${staff.employment_status}) exceeds weekly working days cap (${maxAllowedDaysInWeek} days this week as configured in Settings) - allowed as emergency fallback to prevent unstaffed room`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      } else {
+        hardViolations.push({
+          type: 'unavailable',
+          message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week as configured in Settings)`,
+          staff_id: staff.id,
+          exam_session_id: examSession.id,
+        });
+      }
     }
   }
 
@@ -1037,7 +1058,8 @@ export function assignStaffToSession(
     const { available, hardViolations, softViolations } = isStaffAvailable(
       staff, examSession, existingAssignments, allExamSessions, config.constraints,
       Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom,
-      periodFreeStaff, config.calendarRules, peerMinScore, false, true, false
+      periodFreeStaff, config.calendarRules, peerMinScore, false, true, false,
+      rooms, false
     );
     return { staff, available, hardViolations, softViolations };
   });
@@ -1119,7 +1141,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, false
+            config.calendarRules, peerMinScore, false, true, false, rooms, false
           )
         };
       });
@@ -1143,7 +1165,7 @@ export function assignStaffToSession(
     }
 
     if (headSupervisors.length < neededHeadSupervisors) {
-      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
       const emergencyStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
@@ -1151,7 +1173,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, true
+            config.calendarRules, peerMinScore, false, true, true, rooms, true
           )
         };
       });
@@ -1247,7 +1269,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, false
+            config.calendarRules, peerMinScore, false, true, false, rooms, false
           )
         };
       });
@@ -1276,7 +1298,7 @@ export function assignStaffToSession(
     }
 
     if (assignedAssistants < neededAssistants) {
-      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
       const emergencyStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
@@ -1284,7 +1306,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, true
+            config.calendarRules, peerMinScore, false, true, true, rooms, true
           )
         };
       });
@@ -1381,7 +1403,11 @@ export function batchAssign(
   });
 
   let currentAssignments = [...existingAssignments];
-  let currentStaff = staff.map((s) => ({ ...s }));
+  let currentStaff = staff.map((s) => ({
+    ...s,
+    specific_standard_off_dates: [...(s.specific_standard_off_dates || [])],
+    specific_off_dates: [...(s.specific_off_dates || [])]
+  }));
   const allNewAssignments: Assignment[] = [];
   const allViolations: AssignmentConstraintViolation[] = [];
   const allExamDates = Array.from(new Set(effectiveSessions.map(s => s.exam_date)));
@@ -1972,6 +1998,56 @@ export function batchAssign(
   // Within each date, Head Supervisors are assigned first across all rooms, followed by Assistants,
   // preserving dual-role staff for Head Supervisor duties.
   const uniqueExamDates = Array.from(new Set(roomGroups.map(g => g.exam_date))).sort();
+
+  // ─── STAGGERED FLOATING OFF-DAY DISTRIBUTION ──────────────────────────────
+  // When an exam week has more exam days than the configured weekly day limit
+  // (e.g. 6 exam days from Sat to Thu, but custom_days_per_week is 5),
+  // distribute the floating off-day evenly across the week for staff without
+  // an explicit off-day in their profile. This guarantees:
+  // 1. Every staff member works strictly <= 5 days (never exceeding weekly cap).
+  // 2. Thursday is never starved of staff, eliminating unstaffed rooms.
+  const weekToDatesMap = new Map<string, string[]>();
+  for (const d of uniqueExamDates) {
+    const wk = getAcademicWeekKey(d);
+    if (!weekToDatesMap.has(wk)) weekToDatesMap.set(wk, []);
+    weekToDatesMap.get(wk)!.push(d);
+  }
+
+  const configuredFT = config.constraints.custom_days_per_week ?? 5;
+  const configuredPT = Math.min(3, Math.max(1, config.constraints.max_days_per_week_pt ?? 3));
+
+  let globalStaggerIndex = 0;
+  for (const [, wDates] of weekToDatesMap.entries()) {
+    wDates.sort();
+
+    for (const st of currentStaff) {
+      if (st.availability_status !== 'Available') continue;
+      const allowedDays = st.employment_status === 'Part-time' ? configuredPT : configuredFT;
+
+      // Check which exam dates in this week this staff member is currently active on
+      const activeDatesInWeek = wDates.filter(d => {
+        if (st.specific_off_dates?.includes(d)) return false;
+        const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        if (st.working_days && st.working_days.length > 0 && !st.working_days.includes(dayName)) return false;
+        return true;
+      });
+
+      if (activeDatesInWeek.length > allowedDays) {
+        const excess = activeDatesInWeek.length - allowedDays;
+        const offDatesToAssign: string[] = [];
+        for (let e = 0; e < excess; e++) {
+          const pickDate = activeDatesInWeek[(globalStaggerIndex + e) % activeDatesInWeek.length];
+          offDatesToAssign.push(pickDate);
+        }
+        globalStaggerIndex++;
+
+        st.specific_standard_off_dates = [
+          ...(st.specific_standard_off_dates || []),
+          ...offDatesToAssign
+        ];
+      }
+    }
+  }
 
   for (const date of uniqueExamDates) {
     const dayGroups = roomGroups.filter(rg => rg.exam_date === date);
