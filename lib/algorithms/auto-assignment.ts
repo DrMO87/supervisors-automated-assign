@@ -898,11 +898,17 @@ export function sortStaffByPriority(
       }
     }
 
-    // Health-room preference: near-pharmacy staff first when flag is set
+    // Health-room preference: near-pharmacy staff prioritized first for pharmacy rooms,
+    // provided they have not already exceeded the peer workload (to prevent overloading them)
     if (preferNearPharmacy) {
-      // Prioritize staff with health issues for pharmacy rooms (P and M buildings)
-      if (a.has_health_issue && !b.has_health_issue) return -1;
-      if (!a.has_health_issue && b.has_health_issue) return 1;
+      const aScore = getEffectiveScore(a);
+      const bScore = getEffectiveScore(b);
+      if (a.has_health_issue && !b.has_health_issue) {
+        if (aScore <= bScore + 1) return -1;
+      }
+      if (!a.has_health_issue && b.has_health_issue) {
+        if (bScore <= aScore + 1) return 1;
+      }
     }
 
     if (staffStats.size > 0) {
@@ -1076,13 +1082,18 @@ export function assignStaffToSession(
 
   // ── 1. Exam Supervisor (Per Room) ──
   // ONLY exam supervisor or Invigilator / Exam Supervisor are allowed to be exam supervisor.
+  const existingHeads = existingAssignments.filter(
+    (a) => a.exam_session_id === examSession.id && a.role === 'Exam_Supervisor'
+  );
+  const neededHeadSupervisors = Math.max(0, required.headSupervisors - existingHeads.length);
+
   const headPool = orderedPool.filter(
     (s) => s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'
   );
 
   const headSupervisors: Staff[] = [];
   if (roleToAssign === 'Both' || roleToAssign === 'Head_Supervisor') {
-    for (let i = 0; i < required.headSupervisors; i++) {
+    for (let i = 0; i < neededHeadSupervisors; i++) {
       const candidate = pickBest(headPool, headSupervisors, undefined, 'Exam Supervisor');
       if (candidate) {
         headSupervisors.push(candidate);
@@ -1099,7 +1110,7 @@ export function assignStaffToSession(
         if (status?.softViolations.length) violations.push(...status.softViolations);
       }
     }
-    if (headSupervisors.length < required.headSupervisors) {
+    if (headSupervisors.length < neededHeadSupervisors) {
       // Tier 2 Fallback: Relax workload cap to prevent room deficiency
       const fallbackStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
@@ -1115,7 +1126,7 @@ export function assignStaffToSession(
       const fallbackHeadPool = fallbackStaffWithStatus.filter(
         (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       );
-      while (headSupervisors.length < required.headSupervisors) {
+      while (headSupervisors.length < neededHeadSupervisors) {
         const candidate = pickBest(fallbackHeadPool, headSupervisors, undefined, 'Exam Supervisor');
         if (!candidate) break;
         headSupervisors.push(candidate);
@@ -1131,7 +1142,7 @@ export function assignStaffToSession(
       }
     }
 
-    if (headSupervisors.length < required.headSupervisors) {
+    if (headSupervisors.length < neededHeadSupervisors) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
       const emergencyStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
@@ -1147,7 +1158,7 @@ export function assignStaffToSession(
       const emergencyHeadPool = emergencyStaffWithStatus.filter(
         (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       );
-      while (headSupervisors.length < required.headSupervisors) {
+      while (headSupervisors.length < neededHeadSupervisors) {
         const candidate = pickBest(emergencyHeadPool, headSupervisors, undefined, 'Exam Supervisor');
         if (!candidate) break;
         headSupervisors.push(candidate);
@@ -1163,10 +1174,10 @@ export function assignStaffToSession(
       }
     }
 
-    if (headSupervisors.length < required.headSupervisors) {
+    if (existingHeads.length + headSupervisors.length < required.headSupervisors) {
       violations.push({
         type: 'capacity',
-        message: `Not enough Exam Supervisors for ${examSession.subject_name}. Required: ${required.headSupervisors}, Found: ${headSupervisors.length}`,
+        message: `Not enough Exam Supervisors for ${examSession.subject_name}. Required: ${required.headSupervisors}, Found: ${existingHeads.length + headSupervisors.length}`,
         exam_session_id: examSession.id,
       });
     }
@@ -1174,6 +1185,11 @@ export function assignStaffToSession(
 
   // ── 2. Invigilators (Assistants) ──
   if (roleToAssign === 'Both' || roleToAssign === 'Assistant') {
+    const existingAssistants = existingAssignments.filter(
+      (a) => a.exam_session_id === examSession.id && a.role === 'Assistant'
+    );
+    const neededAssistants = Math.max(0, required.assistants - existingAssistants.length);
+
     const assistantPool = strictRoles
       ? orderedPool.filter((s) => s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
       : orderedPool.filter((s) => s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
@@ -1196,12 +1212,16 @@ export function assignStaffToSession(
       assistantSortContext
     );
 
-    const excludedFromAssistants = [...headSupervisors];
+    const excludedFromAssistants = [
+      ...headSupervisors,
+      ...existingHeads.map(h => allStaff.find(s => s.id === h.staff_id)).filter(Boolean) as Staff[],
+      ...existingAssistants.map(ast => allStaff.find(s => s.id === ast.staff_id)).filter(Boolean) as Staff[]
+    ];
     const finalAssistantPool = allSortedAssistants.filter(
       (s) => !excludedFromAssistants.some((e) => e.id === s.id)
     );
 
-    for (let i = 0; i < required.assistants && i < finalAssistantPool.length; i++) {
+    for (let i = 0; i < neededAssistants && i < finalAssistantPool.length; i++) {
       const candidate = finalAssistantPool[i];
       newAssignments.push({
         id: crypto.randomUUID(),
@@ -1218,7 +1238,7 @@ export function assignStaffToSession(
 
     let assignedAssistants = newAssignments.filter((a) => a.role === 'Assistant').length;
 
-    if (assignedAssistants < required.assistants) {
+    if (assignedAssistants < neededAssistants) {
       // Tier 2 Fallback: Relax workload cap to prevent assistant deficiency
       const fallbackStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
@@ -1235,11 +1255,11 @@ export function assignStaffToSession(
         ? fallbackStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
         : fallbackStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
       
-      const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
+      const excludedStaff = [...excludedFromAssistants, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
       const eligible = sortStaffByPriority(fallbackPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
         .filter(s => !excludedStaff.some(e => e.id === s.id));
 
-      for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
+      for (let i = 0; i < eligible.length && assignedAssistants < neededAssistants; i++) {
         const candidate = eligible[i];
         newAssignments.push({
           id: crypto.randomUUID(),
@@ -1255,7 +1275,7 @@ export function assignStaffToSession(
       }
     }
 
-    if (assignedAssistants < required.assistants) {
+    if (assignedAssistants < neededAssistants) {
       // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap
       const emergencyStaffWithStatus = allStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
@@ -1272,11 +1292,11 @@ export function assignStaffToSession(
         ? emergencyStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
         : emergencyStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
       
-      const excludedStaff = [...headSupervisors, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
+      const excludedStaff = [...excludedFromAssistants, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
       const eligible = sortStaffByPriority(emergencyPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
         .filter(s => !excludedStaff.some(e => e.id === s.id));
 
-      for (let i = 0; i < eligible.length && assignedAssistants < required.assistants; i++) {
+      for (let i = 0; i < eligible.length && assignedAssistants < neededAssistants; i++) {
         const candidate = eligible[i];
         newAssignments.push({
           id: crypto.randomUUID(),
@@ -1292,10 +1312,10 @@ export function assignStaffToSession(
       }
     }
 
-    if (assignedAssistants < required.assistants) {
+    if (existingAssistants.length + assignedAssistants < required.assistants) {
       violations.push({
         type: 'capacity',
-        message: `Not enough Invigilators for ${examSession.subject_name}. Required: ${required.assistants}, Found: ${assignedAssistants}`,
+        message: `Not enough Invigilators for ${examSession.subject_name}. Required: ${required.assistants}, Found: ${existingAssistants.length + assignedAssistants}`,
         exam_session_id: examSession.id,
       });
     }
@@ -1776,6 +1796,176 @@ export function batchAssign(
     return b.total_students - a.total_students;
   });
 
+  // ─── MEDICAL STAFF PRIORITY PRE-PASS ──────────────────────────────────────────
+  // Assign staff with medical issues (has_health_issue) in the beginning to fulfill
+  // their 5 days rule (respecting any approved off-day/leave), placing them into
+  // pharmacy-adjacent rooms (Buildings M and P) to ensure they achieve workload parity
+  // with their colleagues within ±1, 2, or 3 delta.
+  const medicalStaffMembers = currentStaff.filter(
+    (s) => s.has_health_issue && s.availability_status === 'Available'
+  );
+
+  if (medicalStaffMembers.length > 0) {
+    // 1. Identify peer cohorts and compute target workloads
+    const peerCohorts = ['Teaching Assistant', 'Demonstrator', 'Chemist', 'Lecturer'];
+    const cohortTargets = new Map<string, number>();
+
+    for (const c of peerCohorts) {
+      const peers = currentStaff.filter(
+        (s) => (s.job_title || s.supervision_role) === c && s.availability_status === 'Available'
+      );
+      if (peers.length > 0) {
+        let totalSlots = 0;
+        for (const rg of roomGroups) {
+          const sample = sortedSessions.find(sess => sess.id === rg.session_ids[0]);
+          const isOral = !!sample?.exam_type?.toLowerCase().includes('oral');
+          const req = calculateRequiredStaff(rg.total_students, config.ratios, isOral, rg.exam_date, config.calendarRules);
+          totalSlots += (c === 'Lecturer' || c === 'Exam Supervisor') ? req.headSupervisors : req.assistants;
+        }
+        const avg = Math.round(totalSlots / peers.length);
+        cohortTargets.set(c, Math.max(10, Math.min(16, avg)));
+      }
+    }
+
+    // 2. Collect all pharmacy room groups
+    const pharmacyGroups = roomGroups.filter((rg) => {
+      const room = rooms?.find((r) => r.id === rg.room_id);
+      const sample = sortedSessions.find((s) => s.id === rg.session_ids[0]);
+      return isNearPharmacy(room?.room_name || (sample as any)?.room_name || '');
+    });
+
+    const uniqueDatesWithPharmacy = Array.from(new Set(pharmacyGroups.map(g => g.exam_date))).sort();
+
+    for (const mStaff of medicalStaffMembers) {
+      const cohortKey = mStaff.job_title || mStaff.supervision_role || 'General';
+      const targetScore = cohortTargets.get(cohortKey) || 14;
+      const isFT = mStaff.employment_status === 'Full-time';
+      const weeklyDayLimit = isFT
+        ? (config.constraints?.custom_days_per_week ?? 5)
+        : Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
+      const maxDaily = config.constraints?.max_daily_shifts ?? 2;
+
+      // Track assigned dates per academic week
+      const weekDatesMap = new Map<string, Set<string>>();
+      for (const a of currentAssignments) {
+        if (a.staff_id === mStaff.id) {
+          const s = sortedSessions.find(sess => sess.id === a.exam_session_id);
+          if (s) {
+            const wk = getAcademicWeekKey(s.exam_date);
+            if (!weekDatesMap.has(wk)) weekDatesMap.set(wk, new Set());
+            weekDatesMap.get(wk)!.add(s.exam_date);
+          }
+        }
+      }
+
+      for (const date of uniqueDatesWithPharmacy) {
+        if (mStaff.current_score >= targetScore) break;
+
+        const wk = getAcademicWeekKey(date);
+        if (!weekDatesMap.has(wk)) weekDatesMap.set(wk, new Set());
+        const weekDates = weekDatesMap.get(wk)!;
+
+        // Respect weekly day cap
+        if (!weekDates.has(date) && weekDates.size >= weeklyDayLimit) {
+          continue;
+        }
+
+        // Respect approved individual leaves (medical, emergency, vacation)
+        if (mStaff.specific_off_dates?.includes(date)) continue;
+
+        // Respect profile working days if specified (preserving designated off-day)
+        const dateObj = new Date(`${date}T12:00:00Z`);
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        if (mStaff.working_days && mStaff.working_days.length > 0) {
+          if (!mStaff.working_days.includes(dayName)) {
+            // Respect designated off-day if they already have 5+ days on
+            if (!isFT || mStaff.working_days.length >= 5) {
+              continue;
+            }
+          }
+        }
+
+        // Check daily shift count
+        let dailyCount = currentAssignments.filter(a => {
+          if (a.staff_id !== mStaff.id) return false;
+          const s = sortedSessions.find(sess => sess.id === a.exam_session_id);
+          return s && s.exam_date === date;
+        }).length;
+
+        if (dailyCount >= maxDaily) continue;
+
+        const dayPharmGroups = pharmacyGroups.filter(g => g.exam_date === date);
+
+        for (const rg of dayPharmGroups) {
+          if (dailyCount >= maxDaily || mStaff.current_score >= targetScore) break;
+
+          const sample = sortedSessions.find(s => s.id === rg.session_ids[0]);
+          if (!sample) continue;
+
+          // Check if staff already assigned at this time/period
+          const alreadyAssignedSlot = currentAssignments.some(a => {
+            if (a.staff_id !== mStaff.id) return false;
+            const s = sortedSessions.find(sess => sess.id === a.exam_session_id);
+            return s && s.exam_date === date && (s.start_time === sample.start_time || timesOverlap(s.start_time, s.end_time, sample.start_time, sample.end_time));
+          });
+          if (alreadyAssignedSlot) continue;
+
+          const isOral = !!sample.exam_type?.toLowerCase().includes('oral');
+          const req = calculateRequiredStaff(rg.total_students, config.ratios, isOral, date, config.calendarRules);
+
+          const canBeHead = (mStaff.supervision_role === 'Exam Supervisor' || mStaff.supervision_role === 'Invigilator / Exam Supervisor') && !isOral;
+          const canBeAssist = mStaff.supervision_role === 'Invigilator' || mStaff.supervision_role === 'Invigilator / Exam Supervisor';
+
+          const rgAssigns = currentAssignments.filter(a => rg.session_ids.includes(a.exam_session_id));
+          const currHeads = rgAssigns.filter(a => a.role === 'Exam_Supervisor').length;
+          const currAssists = rgAssigns.filter(a => a.role === 'Assistant').length;
+
+          let roleToAssign: 'Exam_Supervisor' | 'Assistant' | null = null;
+          if (canBeHead && currHeads < req.headSupervisors) {
+            roleToAssign = 'Exam_Supervisor';
+          } else if (canBeAssist && currAssists < req.assistants) {
+            roleToAssign = 'Assistant';
+          }
+
+          if (!roleToAssign) continue;
+
+          const targetRoom = rooms?.find(r => r.id === rg.room_id) ?? null;
+          const { available } = isStaffAvailable(
+            mStaff,
+            sample,
+            currentAssignments,
+            sessions,
+            config.constraints,
+            roomGroups.map(g => g.exam_date),
+            targetRoom,
+            periodFreeStaff,
+            config.calendarRules
+          );
+
+          if (available) {
+            const multiplied: Assignment[] = [];
+            for (const sid of rg.session_ids) {
+              multiplied.push({
+                id: crypto.randomUUID(),
+                exam_session_id: sid,
+                staff_id: mStaff.id,
+                role: roleToAssign,
+                assigned_at: new Date().toISOString(),
+                assigned_by: null,
+                is_manual_override: false,
+              });
+            }
+            allNewAssignments.push(...multiplied);
+            currentAssignments.push(...multiplied);
+            mStaff.current_score += 1;
+            dailyCount++;
+            weekDates.add(date);
+          }
+        }
+      }
+    }
+  }
+
   // Assign room supervisors date-by-date (chronologically).
   // On each date, prioritize peak periods first so that high-demand time slots (e.g. 27 rooms)
   // get first pick of supervisors before staff hit daily shift limits in smaller periods.
@@ -1786,9 +1976,8 @@ export function batchAssign(
   for (const date of uniqueExamDates) {
     const dayGroups = roomGroups.filter(rg => rg.exam_date === date);
 
-    // Sort day groups strictly chronologically by period, and within each period by building and room.
-    // This allows period 1 to complete first, so period 2 can detect exactly who is in which room/building
-    // and preserve room and building continuity when periods start right after one another!
+    // Sort day groups strictly chronologically by period, with Pharmacy rooms (M & P) FIRST,
+    // and within each period by building and room.
     const sortedDayGroups = [...dayGroups].sort((a, b) => {
       const sampleA = sortedSessions.find(s => s.id === a.session_ids[0]);
       const sampleB = sortedSessions.find(s => s.id === b.session_ids[0]);
@@ -1796,9 +1985,15 @@ export function batchAssign(
       const pB = sampleB ? getSessionPeriod(sampleB, sessions) : 0;
       if (pA !== pB) return pA - pB; // Chronological period order (Period 1, then Period 2, etc.)
 
-      // Within the same period: group by building to concentrate staffing geographically
+      // Pharmacy rooms (Buildings M & P) FIRST
       const roomA = rooms?.find(r => r.id === a.room_id);
       const roomB = rooms?.find(r => r.id === b.room_id);
+      const isPharmA = isNearPharmacy(roomA?.room_name || (sampleA as any)?.room_name || '');
+      const isPharmB = isNearPharmacy(roomB?.room_name || (sampleB as any)?.room_name || '');
+      if (isPharmA !== isPharmB) {
+        return isPharmA ? -1 : 1;
+      }
+
       const bldA = getRoomBuilding(roomA, roomA?.room_name);
       const bldB = getRoomBuilding(roomB, roomB?.room_name);
       if (bldA !== bldB) return bldA.localeCompare(bldB);
@@ -1954,113 +2149,127 @@ export function equalizeWorkloadPass(
         const lowest = members[lIdx];
         if (highest.periods.size - lowest.periods.size <= maxSpread) break;
 
-        // Find an assignment in highest that lowest can safely take
-        for (const a of highest.assigns) {
-          const sess = sessionMap.get(a.exam_session_id);
-          if (!sess) continue;
+        // If lowest has a health issue, look across ANY peer with surplus shifts (not just highest)
+        // who currently holds an assignment in a pharmacy room (M or P building)
+        const donorPool = lowest.staff.has_health_issue
+          ? members.filter((m) => m.periods.size > lowest.periods.size + 1)
+          : [highest];
 
-          // 1. Slot check: lowest must not already be assigned in this period/slot
-          const slotKey = `${sess.exam_date}_${sess.start_time}`;
-          if (lowest.periods.has(slotKey)) continue;
+        for (const donor of donorPool) {
+          // Find an assignment in donor that lowest can safely take
+          for (const a of donor.assigns) {
+            const sess = sessionMap.get(a.exam_session_id);
+            if (!sess) continue;
 
-          // Also check all other assignments in general for lowest at this time
-          const hasClash = assignments.some(x => {
-            if (x.staff_id !== lowest.staff.id) return false;
-            const xs = sessionMap.get(x.exam_session_id);
-            return xs && xs.exam_date === sess.exam_date && (
-              xs.start_time === sess.start_time ||
-              timesOverlap(xs.start_time, xs.end_time, sess.start_time, sess.end_time)
-            );
-          });
-          if (hasClash) continue;
+            // 1. Slot check: lowest must not already be assigned in this period/slot
+            const slotKey = `${sess.exam_date}_${sess.start_time}`;
+            if (lowest.periods.has(slotKey)) continue;
 
-          // 2. Off-date check: lowest must not have an approved specific off-date on this date
-          if (lowest.staff.specific_off_dates?.includes(sess.exam_date)) continue;
+            // Also check all other assignments in general for lowest at this time
+            const hasClash = assignments.some(x => {
+              if (x.staff_id !== lowest.staff.id) return false;
+              const xs = sessionMap.get(x.exam_session_id);
+              return xs && xs.exam_date === sess.exam_date && (
+                xs.start_time === sess.start_time ||
+                timesOverlap(xs.start_time, xs.end_time, sess.start_time, sess.end_time)
+              );
+            });
+            if (hasClash) continue;
 
-          // 2b. Mandatory staff designated off-day check (from staff.working_days)
-          const sessDayName = new Date(`${sess.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-          if (lowest.staff.working_days && lowest.staff.working_days.length > 0 && !lowest.staff.working_days.includes(sessDayName)) {
-            continue; // Recipient is designated off on this weekday!
-          }
+            // 2. Off-date check: lowest must not have an approved specific off-date on this date
+            if (lowest.staff.specific_off_dates?.includes(sess.exam_date)) continue;
 
-          // 2c. Building continuity check for tight back-to-back shifts:
-          // Prevent workload equalization from creating a cross-campus sprint with <= 15m gap!
-          const targetRoom = rooms?.find(r => r.id === sess.room_id);
-          const targetBuilding = getRoomBuilding(targetRoom, (sess as any).room_name);
-
-          const lowestHasTightCrossBuildingSprint = assignments.some(x => {
-            if (x.staff_id !== lowest.staff.id) return false;
-            const xs = sessionMap.get(x.exam_session_id);
-            if (!xs || xs.exam_date !== sess.exam_date) return false;
-            const gap = getSessionGapMinutes(xs, sess);
-            if (gap <= 15) {
-              const xRoom = rooms?.find(r => r.id === xs.room_id);
-              const xBuilding = getRoomBuilding(xRoom, (xs as any).room_name);
-              return targetBuilding !== 'UNKNOWN' && xBuilding !== 'UNKNOWN' && targetBuilding !== xBuilding;
+            // 2b. Mandatory staff designated off-day check (from staff.working_days)
+            const sessDayName = new Date(`${sess.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+            if (lowest.staff.working_days && lowest.staff.working_days.length > 0) {
+              if (!lowest.staff.working_days.includes(sessDayName)) {
+                // If they are FT and have 5+ days, respect the off-day
+                if (lowest.staff.employment_status !== 'Full-time' || lowest.staff.working_days.length >= 5) {
+                  continue; // Recipient is designated off on this weekday!
+                }
+              }
             }
-            return false;
-          });
-          if (lowestHasTightCrossBuildingSprint) continue;
 
-          // 2d. Health issue room check: Staff with health issues cannot receive a non-pharmacy room
-          if (lowest.staff.has_health_issue) {
-            const targetRoomName = targetRoom?.room_name || (sess as any).room?.room_name || (sess as any).room_name || '';
-            if (targetRoomName && !isNearPharmacy(targetRoomName)) {
-              continue; // Do not transfer a non-pharmacy room to staff with health issues
+            // 2c. Building continuity check for tight back-to-back shifts:
+            // Prevent workload equalization from creating a cross-campus sprint with <= 15m gap!
+            const targetRoom = rooms?.find(r => r.id === sess.room_id);
+            const targetBuilding = getRoomBuilding(targetRoom, (sess as any).room_name);
+
+            const lowestHasTightCrossBuildingSprint = assignments.some(x => {
+              if (x.staff_id !== lowest.staff.id) return false;
+              const xs = sessionMap.get(x.exam_session_id);
+              if (!xs || xs.exam_date !== sess.exam_date) return false;
+              const gap = getSessionGapMinutes(xs, sess);
+              if (gap <= 15) {
+                const xRoom = rooms?.find(r => r.id === xs.room_id);
+                const xBuilding = getRoomBuilding(xRoom, (xs as any).room_name);
+                return targetBuilding !== 'UNKNOWN' && xBuilding !== 'UNKNOWN' && targetBuilding !== xBuilding;
+              }
+              return false;
+            });
+            if (lowestHasTightCrossBuildingSprint) continue;
+
+            // 2d. Health issue room check: Staff with health issues cannot receive a non-pharmacy room
+            if (lowest.staff.has_health_issue) {
+              const targetRoomName = targetRoom?.room_name || (sess as any).room?.room_name || (sess as any).room_name || '';
+              if (targetRoomName && !isNearPharmacy(targetRoomName)) {
+                continue; // Do not transfer a non-pharmacy room to staff with health issues
+              }
             }
-          }
 
-          // 3. Role eligibility check
-          if (a.role === 'Exam_Supervisor') {
-            const role = lowest.staff.supervision_role;
-            if (role !== 'Exam Supervisor' && role !== 'Invigilator / Exam Supervisor') {
-              continue;
+            // 3. Role eligibility check
+            if (a.role === 'Exam_Supervisor') {
+              const role = lowest.staff.supervision_role;
+              if (role !== 'Exam Supervisor' && role !== 'Invigilator / Exam Supervisor') {
+                continue;
+              }
+            } else if (a.role === 'Committees_Supervisor') {
+              if (lowest.staff.supervision_role !== 'Committees Supervisor') {
+                continue;
+              }
             }
-          } else if (a.role === 'Committees_Supervisor') {
-            if (lowest.staff.supervision_role !== 'Committees Supervisor') {
-              continue;
+
+            // 4. Daily shifts check: respect max daily shifts
+            const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 2;
+            let lowestDailyCount = 0;
+            for (const p of lowest.periods) {
+              if (p.startsWith(sess.exam_date)) lowestDailyCount++;
             }
-          }
+            if (lowestDailyCount >= configuredMaxDaily + 1) continue;
 
-          // 4. Daily shifts check: respect max daily shifts
-          const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 2;
-          let lowestDailyCount = 0;
-          for (const p of lowest.periods) {
-            if (p.startsWith(sess.exam_date)) lowestDailyCount++;
-          }
-          if (lowestDailyCount >= configuredMaxDaily + 1) continue;
+            // 4b. Weekly days check: lowest must not exceed weekly day cap configured in Settings
+            const sessionWeekKey = getAcademicWeekKey(sess.exam_date);
+            const configuredPT = Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
+            const configuredFT = config.constraints?.custom_days_per_week ?? 5;
+            const baseLimit = lowest.staff.employment_status === 'Part-time' ? configuredPT : configuredFT;
+            const maxAllowedWeeklyDays = Math.min(baseLimit, (lowest.staff.employment_status === 'Full-time' ? 5 : (lowest.staff.working_days?.length || baseLimit)));
 
-          // 4b. Weekly days check: lowest must not exceed weekly day cap configured in Settings
-          const sessionWeekKey = getAcademicWeekKey(sess.exam_date);
-          const configuredPT = Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
-          const configuredFT = config.constraints?.custom_days_per_week ?? 5;
-          const baseLimit = lowest.staff.employment_status === 'Part-time' ? configuredPT : configuredFT;
-          const maxAllowedWeeklyDays = Math.min(baseLimit, lowest.staff.working_days?.length || baseLimit);
-
-          const lowestDatesThisWeek = new Set<string>();
-          for (const p of lowest.periods) {
-            const pDate = p.split('_')[0];
-            if (getAcademicWeekKey(pDate) === sessionWeekKey) {
-              lowestDatesThisWeek.add(pDate);
+            const lowestDatesThisWeek = new Set<string>();
+            for (const p of lowest.periods) {
+              const pDate = p.split('_')[0];
+              if (getAcademicWeekKey(pDate) === sessionWeekKey) {
+                lowestDatesThisWeek.add(pDate);
+              }
             }
-          }
-          if (!lowestDatesThisWeek.has(sess.exam_date) && lowestDatesThisWeek.size >= maxAllowedWeeklyDays) {
-            continue; // Cannot swap to recipient because it would add a day exceeding their weekly cap!
-          }
+            if (!lowestDatesThisWeek.has(sess.exam_date) && lowestDatesThisWeek.size >= maxAllowedWeeklyDays) {
+              continue; // Cannot swap to recipient because it would add a day exceeding their weekly cap!
+            }
 
-          // Perform swap: If this room session is shared, swap all assignments for this room-slot together
-          const sameSlotAssigns = highest.assigns.filter(x => {
-            const xs = sessionMap.get(x.exam_session_id);
-            return xs && xs.exam_date === sess.exam_date && xs.start_time === sess.start_time && xs.room_id === sess.room_id;
-          });
+            // Perform swap: If this room session is shared, swap all assignments for this room-slot together
+            const sameSlotAssigns = donor.assigns.filter(x => {
+              const xs = sessionMap.get(x.exam_session_id);
+              return xs && xs.exam_date === sess.exam_date && xs.start_time === sess.start_time && xs.room_id === sess.room_id;
+            });
 
-          for (const sa of sameSlotAssigns) {
-            sa.staff_id = lowest.staff.id;
+            for (const sa of sameSlotAssigns) {
+              sa.staff_id = lowest.staff.id;
+            }
+
+            swapped = true;
+            swaps++;
+            break;
           }
-
-          swapped = true;
-          swaps++;
-          break;
+          if (swapped) break;
         }
 
         if (swapped) break;
