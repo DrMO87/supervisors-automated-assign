@@ -4,15 +4,18 @@ import { Fragment, useState, useEffect, useMemo } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import {
   X, Users, Calendar, Clock, Plus, Loader2, AlertCircle,
-  CheckCircle, Building2, PersonStanding, Zap, ShieldCheck, Sparkles, Filter
+  CheckCircle, Building2, PersonStanding, Zap, ShieldCheck,
+  Check, AlertTriangle
 } from 'lucide-react';
 import { format } from 'date-fns';
-import type { Staff, ExamSessionWithRelations, AssignmentRole } from '@/types/database.types';
+import type { Staff, ExamSessionWithRelations, AssignmentRole, CalendarRule } from '@/types/database.types';
+import { getSessionPeriod, getDayUniquePeriods, timesOverlap } from '@/types/database.types';
 import { supabase } from '@/lib/supabase/client';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import {
   calculateRequiredStaff,
   getRoomBuilding,
+  getSessionGapMinutes,
 } from '@/lib/algorithms/auto-assignment';
 
 // ── Building Proximity Groups ────────────────────────────────────────────────
@@ -66,6 +69,28 @@ export const ZONE_CONFIG = {
   },
 };
 
+// Check if a staff member is on an off-day on dateStr
+const isOffDay = (dateStr: string, staffMember?: Staff, calendarRules: CalendarRule[] = []) => {
+  if (!staffMember) return false;
+  if (staffMember.specific_off_dates?.includes(dateStr)) return true;
+
+  const isUniversalRaw = calendarRules.some(
+    r => r.is_universal_working_day && r.start_date <= dateStr && r.end_date >= dateStr
+  );
+  const isUniversal = isUniversalRaw && staffMember.supervision_role !== 'Committees Supervisor';
+  if (isUniversal) return false;
+
+  if (staffMember.specific_standard_off_dates?.includes(dateStr)) return true;
+
+  const dayOfWeek = new Date(`${dateStr}T12:00:00Z`).toLocaleDateString('en-US', {
+    weekday: 'long',
+    timeZone: 'UTC',
+  });
+  if (staffMember.working_days && !staffMember.working_days.includes(dayOfWeek)) return true;
+
+  return false;
+};
+
 export function getStaffScore(s: Staff): string | number {
   const base = s.current_score || 0;
   const reserves = (s.free_staff_score || 0) * 0.25;
@@ -89,8 +114,45 @@ export interface VacantRoom {
   roomName: string;
   assignedCount: number;
   requiredCount: number;
+  neededExamSupervisors: number;
+  neededAssistants: number;
   vacantSlots: number;
   group: number;
+  isOral: boolean;
+}
+
+/**
+ * Checks which role the staff member can fulfill in this vacant room.
+ * Returns null if the staff member cannot fulfill any of the room's missing roles.
+ */
+export function getTargetRoleForStaff(staffMember: Staff, room: VacantRoom): AssignmentRole | null {
+  if (room.isOral) {
+    if (room.neededAssistants <= 0) return null;
+    // Oral exams require can_supervise_oral privilege
+    if (!staffMember.can_supervise_oral) return null;
+    // Oral exams only allow Invigilator or Invigilator / Exam Supervisor
+    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
+      return 'Assistant';
+    }
+    return null;
+  }
+
+  // Written Exams:
+  // 1. If Exam Supervisor is needed, check if staff is qualified
+  if (room.neededExamSupervisors > 0) {
+    if (staffMember.supervision_role === 'Exam Supervisor' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
+      return 'Exam_Supervisor';
+    }
+  }
+
+  // 2. If Invigilator is needed, check if staff is qualified
+  if (room.neededAssistants > 0) {
+    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
+      return 'Assistant';
+    }
+  }
+
+  return null;
 }
 
 export interface AddRunningStaffModalProps {
@@ -98,9 +160,6 @@ export interface AddRunningStaffModalProps {
   onClose: () => void;
   dateStr: string;
   period: number;
-  currentPeriodSessions: ExamSessionWithRelations[];
-  previousPeriodSessions: ExamSessionWithRelations[];
-  gapMinutes: number;
   onUpdate: () => void;
 }
 
@@ -109,15 +168,13 @@ export function AddRunningStaffModal({
   onClose,
   dateStr,
   period,
-  currentPeriodSessions,
-  previousPeriodSessions,
-  gapMinutes,
   onUpdate,
 }: AddRunningStaffModalProps) {
-  const { staff, systemSettings, staffingRatios } = useSchedulingStore();
+  const { staff, examSessions, periodFreeStaff, systemSettings, staffingRatios } = useSchedulingStore();
   const [isLoading, setIsLoading] = useState(false);
-  const [filterZone, setFilterZone] = useState<'all' | '0' | '1'>('all');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const globalDayPeriodsMap = useMemo(() => getDayUniquePeriods(examSessions), [examSessions]);
 
   const calendarRules = useMemo(() => {
     const cr = systemSettings?.find((s: any) => s.setting_key === 'calendar_rules');
@@ -136,18 +193,72 @@ export function AddRunningStaffModal({
     }
   }, [message]);
 
-  // ── 1. Running Candidates: staff assigned in previous period who are free now ──
+  // ── 1. Unfiltered sessions for the current period ──────────────────────────
+  const currentPeriodSessions = useMemo(() => {
+    return examSessions.filter(s =>
+      s.exam_date === dateStr &&
+      getSessionPeriod(s, examSessions, globalDayPeriodsMap) === period
+    );
+  }, [examSessions, dateStr, period, globalDayPeriodsMap]);
+
+  // ── 2. Unfiltered sessions for the immediately preceding period ────────────
+  const previousPeriodSessions = useMemo(() => {
+    const dayUniquePeriods = globalDayPeriodsMap.get(dateStr) || [];
+    const currentIdx = dayUniquePeriods.findIndex(dp => dp.period === period);
+    if (currentIdx <= 0) return [];
+    const prevPeriodInfo = dayUniquePeriods[currentIdx - 1];
+    return examSessions.filter(s =>
+      s.exam_date === dateStr &&
+      getSessionPeriod(s, examSessions, globalDayPeriodsMap) === prevPeriodInfo.period
+    );
+  }, [examSessions, dateStr, period, globalDayPeriodsMap]);
+
+  // Transition gap in minutes between previous and current period
+  const gapMinutes = useMemo(() => {
+    if (previousPeriodSessions.length === 0 || currentPeriodSessions.length === 0) return 0;
+    return getSessionGapMinutes(previousPeriodSessions[0], currentPeriodSessions[0]);
+  }, [previousPeriodSessions, currentPeriodSessions]);
+
+  // ── 3. Exact set of staff busy/assigned anywhere in CURRENT period ─────────
+  const busyStaffInCurrentPeriod = useMemo(() => {
+    const busy = new Set<string>();
+
+    // A. Anyone assigned to an exam session in this period (or overlapping in time on this date)
+    for (const s of currentPeriodSessions) {
+      s.assignments?.forEach((a: any) => {
+        if (a.staff_id) busy.add(a.staff_id);
+      });
+    }
+
+    // Also check any session on this date that overlaps with current period
+    if (currentPeriodSessions.length > 0) {
+      const curStart = currentPeriodSessions[0].start_time;
+      const curEnd = currentPeriodSessions[0].end_time || curStart;
+      for (const s of examSessions) {
+        if (s.exam_date !== dateStr) continue;
+        if (timesOverlap(s.start_time, s.end_time || s.start_time, curStart, curEnd)) {
+          s.assignments?.forEach((a: any) => {
+            if (a.staff_id) busy.add(a.staff_id);
+          });
+        }
+      }
+    }
+
+    // B. Anyone assigned as reserve/standby in period_free_staff for this date and period
+    for (const fs of periodFreeStaff) {
+      const fsDate = fs.exam_date?.slice(0, 10);
+      if (fsDate === dateStr && fs.period === period && fs.staff_id) {
+        busy.add(fs.staff_id);
+      }
+    }
+
+    return busy;
+  }, [currentPeriodSessions, examSessions, dateStr, period, periodFreeStaff]);
+
+  // ── 4. Running Candidates: staff assigned in previous period who are 100% FREE in current period ──
   const runningCandidates = useMemo<RunningCandidate[]>(() => {
     const candidates: RunningCandidate[] = [];
     const seenStaffIds = new Set<string>();
-
-    // Staff already assigned anywhere in the current period cannot be runners
-    const currentlyAssignedStaffIds = new Set<string>();
-    currentPeriodSessions.forEach(s => {
-      s.assignments?.forEach((a: any) => {
-        if (a.staff_id) currentlyAssignedStaffIds.add(a.staff_id);
-      });
-    });
 
     for (const session of previousPeriodSessions) {
       if (!session.assignments) continue;
@@ -157,11 +268,21 @@ export function AddRunningStaffModal({
       for (const assignment of session.assignments as any[]) {
         const staffId = assignment.staff_id;
         if (!staffId || seenStaffIds.has(staffId)) continue;
-        if (currentlyAssignedStaffIds.has(staffId)) continue;
+
+        // 1. Must NOT be busy in the current period (assigned to a room or on reserve)
+        if (busyStaffInCurrentPeriod.has(staffId)) continue;
 
         const staffMember = assignment.staff || staff.find(s => s.id === staffId);
         if (!staffMember) continue;
+
+        // 2. Must be Available
         if (staffMember.availability_status !== 'Available') continue;
+
+        // 3. Must NOT be a Committees Supervisor (they are not room proctors)
+        if (staffMember.supervision_role === 'Committees Supervisor') continue;
+
+        // 4. Must NOT be on an off-day today
+        if (isOffDay(dateStr, staffMember, calendarRules)) continue;
 
         seenStaffIds.add(staffId);
         candidates.push({
@@ -174,20 +295,21 @@ export function AddRunningStaffModal({
       }
     }
 
+    // Sort by lowest score first for fairness, then by name
     return candidates.sort((a, b) => {
       const scoreA = (a.staff.current_score || 0) + ((a.staff.free_staff_score || 0) * 0.25);
       const scoreB = (b.staff.current_score || 0) + ((b.staff.free_staff_score || 0) * 0.25);
       if (scoreA !== scoreB) return scoreA - scoreB;
       return a.staff.name.localeCompare(b.staff.name);
     });
-  }, [previousPeriodSessions, currentPeriodSessions, staff]);
+  }, [previousPeriodSessions, busyStaffInCurrentPeriod, staff, dateStr, calendarRules]);
 
-  // Separate candidates by zone for clear visibility
+  // Separate candidates by zone
   const zone1Candidates = useMemo(() => runningCandidates.filter(c => c.fromGroup === 0), [runningCandidates]);
   const zone2Candidates = useMemo(() => runningCandidates.filter(c => c.fromGroup === 1), [runningCandidates]);
   const otherCandidates = useMemo(() => runningCandidates.filter(c => c.fromGroup !== 0 && c.fromGroup !== 1), [runningCandidates]);
 
-  // ── 2. Only rooms that have VACANT places ──
+  // ── 5. Vacant rooms with role breakdown (only rooms that actually need staff) ──
   const vacantRooms = useMemo<VacantRoom[]>(() => {
     return currentPeriodSessions
       .map(session => {
@@ -199,9 +321,23 @@ export function AddRunningStaffModal({
           session.exam_date,
           calendarRules
         );
+
+        const examSupervisorsCount = session.assignments?.filter((a: any) => a.role === 'Exam_Supervisor').length ?? 0;
+        const assistantCount = session.assignments?.filter((a: any) => a.role === 'Assistant' || a.role === 'Invigilator').length ?? 0;
+
+        let neededExamSupervisors = 0;
+        let neededAssistants = 0;
+
+        if (isOral) {
+          neededAssistants = Math.max(0, 1 - assistantCount);
+        } else {
+          neededExamSupervisors = Math.max(0, 1 - examSupervisorsCount);
+          neededAssistants = Math.max(0, req.assistants - assistantCount);
+        }
+
+        const vacantSlots = neededExamSupervisors + neededAssistants;
         const requiredCount = isOral ? 1 : (req.headSupervisors + req.assistants + 1);
         const assignedCount = session.assignments?.length ?? 0;
-        const vacantSlots = Math.max(0, requiredCount - assignedCount);
         const roomName = (session.room as any)?.room_name || '';
         const building = getRoomBuilding(session.room as any, roomName);
 
@@ -211,49 +347,38 @@ export function AddRunningStaffModal({
           roomName,
           assignedCount,
           requiredCount,
+          neededExamSupervisors,
+          neededAssistants,
           vacantSlots,
           group: getBuildingGroup(building),
+          isOral,
         };
       })
       .filter(r => r.vacantSlots > 0)
       .sort((a, b) => b.vacantSlots - a.vacantSlots);
   }, [currentPeriodSessions, fullStaffingRatiosConfig, calendarRules]);
 
-  // Group vacant rooms by proximity zone
-  const vacantByGroup = useMemo(() => {
-    const map = new Map<number, VacantRoom[]>();
-    vacantRooms.forEach(r => {
-      const g = r.group;
-      if (!map.has(g)) map.set(g, []);
-      map.get(g)!.push(r);
-    });
-    return map;
-  }, [vacantRooms]);
-
-  // Filtered rooms based on user selection
-  const filteredRooms = useMemo(() => {
-    if (filterZone === 'all') return vacantRooms;
-    return vacantRooms.filter(r => r.group === Number(filterZone));
-  }, [vacantRooms, filterZone]);
-
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  // Single runner assignment
+  // Single runner assignment with exact role matching
   const handleAssignSingle = async (staffMember: Staff, room: VacantRoom) => {
     if (!supabase) return;
+
+    const targetRole = getTargetRoleForStaff(staffMember, room);
+    if (!targetRole) {
+      setMessage({
+        type: 'error',
+        text: `${staffMember.name.split(' ')[0]} cannot fulfill the role needed in ${room.roomName}.`,
+      });
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const isOral = !!room.session.exam_type?.toLowerCase().includes('oral');
-      const examSupervisorsCount = room.session.assignments?.filter((a: any) => a.role === 'Exam_Supervisor').length ?? 0;
-      let role: AssignmentRole = 'Assistant';
-      if (!isOral && examSupervisorsCount < 1 && (staffMember.supervision_role === 'Exam Supervisor' || staffMember.supervision_role === 'Invigilator / Exam Supervisor')) {
-        role = 'Exam_Supervisor';
-      }
-
       const { error: insertError } = await supabase.from('assignments').insert({
         exam_session_id: room.session.id,
         staff_id: staffMember.id,
-        role,
+        role: targetRole,
         is_manual_override: true,
       });
 
@@ -265,7 +390,11 @@ export function AddRunningStaffModal({
         .update({ current_score: (staffMember.current_score || 0) + 1 })
         .eq('id', staffMember.id);
 
-      setMessage({ type: 'success', text: `${staffMember.name.split(' ')[0]} assigned as runner to ${room.roomName}!` });
+      const roleLabel = targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator';
+      setMessage({
+        type: 'success',
+        text: `${staffMember.name.split(' ')[0]} assigned as ${roleLabel} to ${room.roomName}!`,
+      });
       onUpdate();
     } catch (error: any) {
       console.error('Error assigning running staff:', error);
@@ -275,11 +404,11 @@ export function AddRunningStaffModal({
     }
   };
 
-  // Auto-fill all vacant rooms: prioritizes same-zone runners first, then cross-zone runners so rooms are filled!
-  const handleAutoFill = async (sameZoneOnly: boolean = false) => {
+  // Auto-fill all vacant rooms respecting needed roles and proximity
+  const handleAutoFill = async () => {
     if (!supabase) return;
     if (vacantRooms.length === 0 || runningCandidates.length === 0) {
-      setMessage({ type: 'error', text: 'No vacant rooms or runners available' });
+      setMessage({ type: 'error', text: 'No vacant rooms or free runners available' });
       return;
     }
 
@@ -290,78 +419,119 @@ export function AddRunningStaffModal({
       const updatedStaffScores = new Map<string, number>();
       const availableRunners = [...runningCandidates];
 
-      // Pass 1: Try to match each room with runners from the SAME zone
-      for (const room of vacantRooms) {
-        let remainingVacancies = room.vacantSlots;
-        const alreadyAssigned = new Set((room.session.assignments || []).map((a: any) => a.staff_id));
+      // Clone room state to track vacancies during iteration
+      const roomStates = vacantRooms.map(r => ({
+        ...r,
+        neededExam: r.neededExamSupervisors,
+        neededInvig: r.neededAssistants,
+        currentStaffIds: new Set((r.session.assignments || []).map((a: any) => a.staff_id)),
+      }));
 
-        while (remainingVacancies > 0) {
-          const runnerIdx = availableRunners.findIndex(
-            r => !alreadyAssigned.has(r.staff.id) && r.fromGroup === room.group
+      // Pass 1: Same Zone matching first (strict role qualification)
+      for (const room of roomStates) {
+        // A. Match Exam Supervisor first if needed
+        while (room.neededExam > 0) {
+          const runnerIdx = availableRunners.findIndex(r =>
+            !room.currentStaffIds.has(r.staff.id) &&
+            r.fromGroup === room.group &&
+            (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor')
           );
           if (runnerIdx === -1) break;
 
           const runner = availableRunners.splice(runnerIdx, 1)[0];
-          alreadyAssigned.add(runner.staff.id);
-
-          const isOral = !!room.session.exam_type?.toLowerCase().includes('oral');
-          let role: AssignmentRole = 'Assistant';
-          if (!isOral && (runner.staff.supervision_role === 'Exam Supervisor' || runner.staff.supervision_role === 'Invigilator / Exam Supervisor')) {
-            role = 'Exam_Supervisor';
-          }
-
+          room.currentStaffIds.add(runner.staff.id);
           assignmentsToInsert.push({
             exam_session_id: room.session.id,
             staff_id: runner.staff.id,
-            role,
+            role: 'Exam_Supervisor' as AssignmentRole,
             is_manual_override: true,
           });
-
           updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
-          remainingVacancies--;
+          room.neededExam--;
+          assignedCount++;
+        }
+
+        // B. Match Invigilators next if needed
+        while (room.neededInvig > 0) {
+          const runnerIdx = availableRunners.findIndex(r => {
+            if (room.currentStaffIds.has(r.staff.id)) return false;
+            if (r.fromGroup !== room.group) return false;
+            if (room.isOral) {
+              return r.staff.can_supervise_oral &&
+                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
+            }
+            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor';
+          });
+          if (runnerIdx === -1) break;
+
+          const runner = availableRunners.splice(runnerIdx, 1)[0];
+          room.currentStaffIds.add(runner.staff.id);
+          assignmentsToInsert.push({
+            exam_session_id: room.session.id,
+            staff_id: runner.staff.id,
+            role: 'Assistant' as AssignmentRole,
+            is_manual_override: true,
+          });
+          updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
+          room.neededInvig--;
           assignedCount++;
         }
       }
 
-      // Pass 2: If not sameZoneOnly, fill remaining vacancies with runners from ANY zone
-      if (!sameZoneOnly) {
-        for (const room of vacantRooms) {
-          const newlyAssigned = assignmentsToInsert.filter(a => a.exam_session_id === room.session.id).length;
-          let remainingVacancies = room.vacantSlots - newlyAssigned;
-          const alreadyAssigned = new Set([
-            ...(room.session.assignments || []).map((a: any) => a.staff_id),
-            ...assignmentsToInsert.filter(a => a.exam_session_id === room.session.id).map(a => a.staff_id),
-          ]);
+      // Pass 2: Cross Zone matching for remaining vacancies (still strict role qualification!)
+      for (const room of roomStates) {
+        // A. Match Exam Supervisor
+        while (room.neededExam > 0) {
+          const runnerIdx = availableRunners.findIndex(r =>
+            !room.currentStaffIds.has(r.staff.id) &&
+            (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor')
+          );
+          if (runnerIdx === -1) break;
 
-          while (remainingVacancies > 0 && availableRunners.length > 0) {
-            const runnerIdx = availableRunners.findIndex(r => !alreadyAssigned.has(r.staff.id));
-            if (runnerIdx === -1) break;
+          const runner = availableRunners.splice(runnerIdx, 1)[0];
+          room.currentStaffIds.add(runner.staff.id);
+          assignmentsToInsert.push({
+            exam_session_id: room.session.id,
+            staff_id: runner.staff.id,
+            role: 'Exam_Supervisor' as AssignmentRole,
+            is_manual_override: true,
+          });
+          updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
+          room.neededExam--;
+          assignedCount++;
+        }
 
-            const runner = availableRunners.splice(runnerIdx, 1)[0];
-            alreadyAssigned.add(runner.staff.id);
-
-            const isOral = !!room.session.exam_type?.toLowerCase().includes('oral');
-            let role: AssignmentRole = 'Assistant';
-            if (!isOral && (runner.staff.supervision_role === 'Exam Supervisor' || runner.staff.supervision_role === 'Invigilator / Exam Supervisor')) {
-              role = 'Exam_Supervisor';
+        // B. Match Invigilators
+        while (room.neededInvig > 0) {
+          const runnerIdx = availableRunners.findIndex(r => {
+            if (room.currentStaffIds.has(r.staff.id)) return false;
+            if (room.isOral) {
+              return r.staff.can_supervise_oral &&
+                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
             }
+            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor';
+          });
+          if (runnerIdx === -1) break;
 
-            assignmentsToInsert.push({
-              exam_session_id: room.session.id,
-              staff_id: runner.staff.id,
-              role,
-              is_manual_override: true,
-            });
-
-            updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
-            remainingVacancies--;
-            assignedCount++;
-          }
+          const runner = availableRunners.splice(runnerIdx, 1)[0];
+          room.currentStaffIds.add(runner.staff.id);
+          assignmentsToInsert.push({
+            exam_session_id: room.session.id,
+            staff_id: runner.staff.id,
+            role: 'Assistant' as AssignmentRole,
+            is_manual_override: true,
+          });
+          updatedStaffScores.set(runner.staff.id, (runner.staff.current_score || 0) + 1);
+          room.neededInvig--;
+          assignedCount++;
         }
       }
 
       if (assignmentsToInsert.length === 0) {
-        setMessage({ type: 'error', text: 'No eligible runners could be assigned.' });
+        setMessage({
+          type: 'error',
+          text: 'No qualified runners could be matched to the missing roles.',
+        });
         setIsLoading(false);
         return;
       }
@@ -374,7 +544,7 @@ export function AddRunningStaffModal({
         await supabase.from('staff').update({ current_score: newScore }).eq('id', staffId);
       }
 
-      setMessage({ type: 'success', text: `Successfully filled ${assignedCount} vacancy slots!` });
+      setMessage({ type: 'success', text: `Successfully filled ${assignedCount} vacant slots with qualified runners!` });
       onUpdate();
     } catch (err: any) {
       console.error('Error auto-filling runners:', err);
@@ -460,7 +630,7 @@ export function AddRunningStaffModal({
                         {totalVacancies} Vacant Spot{totalVacancies !== 1 ? 's' : ''} ({vacantRooms.length} rooms)
                       </span>
                       <span className="font-bold px-2.5 py-1 rounded-full bg-gray-200 text-gray-800">
-                        {runningCandidates.length} Total Runners
+                        {runningCandidates.length} Free Runners
                       </span>
                     </div>
                   </div>
@@ -468,10 +638,10 @@ export function AddRunningStaffModal({
                   {/* ── Highlighted Zone Pools ── */}
                   <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-200/60">
                     <span className="text-[11px] font-bold text-gray-500 uppercase mr-1">Available Runners Pool:</span>
-                    
+
                     {/* Zone 1 Pool Badge */}
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 font-semibold shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
                       <span>Zone 1 (M / P / E):</span>
                       <span className="bg-blue-600 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
                         {zone1Candidates.length} staff
@@ -480,7 +650,7 @@ export function AddRunningStaffModal({
 
                     {/* Zone 2 Pool Badge */}
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 font-semibold shadow-xs">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
                       <span>Zone 2 (S / F / A):</span>
                       <span className="bg-emerald-600 text-white text-[11px] font-bold px-1.5 py-0.2 rounded-full ml-0.5">
                         {zone2Candidates.length} staff
@@ -493,14 +663,14 @@ export function AddRunningStaffModal({
                       </div>
                     )}
 
-                    {/* Quick Auto-Fill Buttons */}
+                    {/* Quick Auto-Fill Button */}
                     {runningCandidates.length > 0 && vacantRooms.length > 0 && (
                       <div className="ml-auto flex items-center gap-2">
                         <button
-                          onClick={() => handleAutoFill(false)}
+                          onClick={handleAutoFill}
                           disabled={isLoading}
-                          className="flex items-center gap-1.5 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 px-3 py-1.5 rounded-lg shadow-sm transition-all disabled:opacity-50"
-                          title="Fills all vacancies: matches same-zone runners first, then cross-zone runners if needed"
+                          className="flex items-center gap-1.5 text-xs font-bold text-white bg-primary-600 hover:bg-primary-700 px-3.5 py-1.5 rounded-lg shadow-sm transition-all disabled:opacity-50"
+                          title="Fills vacancies strictly matching needed roles, prioritizing same-zone runners first"
                         >
                           <Zap className="w-3.5 h-3.5" />
                           Auto-Fill All Vacancies
@@ -558,14 +728,14 @@ export function AddRunningStaffModal({
                       <div className="p-4 bg-amber-100 rounded-full mb-3">
                         <Users className="w-8 h-8 text-amber-600" />
                       </div>
-                      <h4 className="text-base font-bold text-gray-700">No Eligible Runners Available</h4>
+                      <h4 className="text-base font-bold text-gray-700">No Free Runners Available</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        All staff who supervised in the previous period are already scheduled in Period {period}.
+                        All staff who supervised in the previous period are already scheduled in Period {period}, on reserve duty, or on their off-day.
                       </p>
                     </div>
                   )}
 
-                  {/* ── Vacant Rooms List with Both Zone Runners Highlighted ── */}
+                  {/* ── Vacant Rooms List with Qualified Runners Highlighted ── */}
                   {vacantRooms.length > 0 && runningCandidates.length > 0 && (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
@@ -574,7 +744,7 @@ export function AddRunningStaffModal({
                           Rooms With Vacant Slots ({vacantRooms.length})
                         </h4>
                         <span className="text-[11px] text-gray-400">
-                          Click any runner chip below a room to assign them immediately
+                          Only candidates qualified for the room&apos;s missing roles are shown
                         </span>
                       </div>
 
@@ -582,14 +752,11 @@ export function AddRunningStaffModal({
                         const roomZone = room.group;
                         const roomZoneConfig = roomZone === 0 ? ZONE_CONFIG[0] : roomZone === 1 ? ZONE_CONFIG[1] : ZONE_CONFIG.other;
 
-                        // Sort running candidates so that same-zone candidates appear first, but BOTH zones are shown!
-                        const sortedCandidates = [...runningCandidates].sort((a, b) => {
-                          const aIsSame = a.fromGroup === roomZone;
-                          const bIsSame = b.fromGroup === roomZone;
-                          if (aIsSame && !bIsSame) return -1;
-                          if (!aIsSame && bIsSame) return 1;
-                          return a.fromGroup - b.fromGroup;
-                        });
+                        // Filter runners who are qualified for what THIS room needs
+                        const qualifiedZone1 = zone1Candidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
+                        const qualifiedZone2 = zone2Candidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
+                        const qualifiedOther = otherCandidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
+                        const totalQualified = qualifiedZone1.length + qualifiedZone2.length + qualifiedOther.length;
 
                         return (
                           <div
@@ -608,9 +775,9 @@ export function AddRunningStaffModal({
                                       ({room.session.program})
                                     </span>
                                   )}
-                                  {room.session.exam_type?.toLowerCase().includes('oral') && (
-                                    <span className="text-[9px] font-bold uppercase bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded">
-                                      Oral
+                                  {room.isOral && (
+                                    <span className="text-[9px] font-bold uppercase bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded border border-orange-200">
+                                      Oral Exam
                                     </span>
                                   )}
                                 </div>
@@ -627,161 +794,218 @@ export function AddRunningStaffModal({
                                 </div>
                               </div>
 
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-red-50 text-red-700 border border-red-200">
+                              {/* Exact Role Deficiencies */}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700">
                                   {room.assignedCount} / {room.requiredCount} Staff
                                 </span>
-                                <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800">
-                                  Needs {room.vacantSlots} more
-                                </span>
+
+                                {room.neededExamSupervisors > 0 && (
+                                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                    Needs: Exam Sprv
+                                  </span>
+                                )}
+
+                                {room.neededAssistants > 0 && (
+                                  <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-red-100 text-red-800 border border-red-200">
+                                    Needs: {room.neededAssistants} Invig
+                                  </span>
+                                )}
                               </div>
                             </div>
 
-                            {/* Runners Selection Area: BOTH ZONES SHOWN & HIGHLIGHTED */}
-                            <div className="space-y-2.5">
-                              {/* 1. Zone 1 (M / P / E) Runners */}
-                              {zone1Candidates.length > 0 && (
-                                <div>
-                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-blue-800">
-                                    <span className="w-2 h-2 rounded-full bg-blue-500" />
-                                    <span>Zone 1 Staff (M / P / E)</span>
-                                    {roomZone === 0 && (
-                                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-semibold ml-1">
-                                        ★ Same Zone (Near)
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {zone1Candidates.map(c => {
-                                      const alreadyAssigned = room.session.assignments?.some(
-                                        (a: any) => a.staff_id === c.staff.id
-                                      );
-                                      if (alreadyAssigned) return null;
+                            {/* Runners Selection Area */}
+                            {totalQualified === 0 ? (
+                              <p className="text-xs text-amber-600 italic py-2 flex items-center gap-1.5">
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                No available runners currently qualified for this room&apos;s needed roles ({room.neededExamSupervisors > 0 ? 'Exam Supervisor' : ''}{room.neededExamSupervisors > 0 && room.neededAssistants > 0 ? ' & ' : ''}{room.neededAssistants > 0 ? 'Invigilator' : ''}).
+                              </p>
+                            ) : (
+                              <div className="space-y-2.5">
+                                {/* Zone 1 (M / P / E) Qualified Runners */}
+                                {qualifiedZone1.length > 0 && (
+                                  <div>
+                                    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-blue-800">
+                                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                                      <span>Zone 1 Staff (M / P / E)</span>
+                                      {roomZone === 0 && (
+                                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-semibold ml-1">
+                                          ★ Same Zone (Near)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {qualifiedZone1.map(c => {
+                                        const alreadyAssigned = room.session.assignments?.some(
+                                          (a: any) => a.staff_id === c.staff.id
+                                        );
+                                        if (alreadyAssigned) return null;
 
-                                      const isSameZone = roomZone === 0;
+                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+                                        const isSameZone = roomZone === 0;
 
-                                      return (
-                                        <button
-                                          key={c.staff.id}
-                                          onClick={() => handleAssignSingle(c.staff, room)}
-                                          disabled={isLoading}
-                                          className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
-                                            isSameZone
-                                              ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
-                                              : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
-                                          }`}
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}\nZone: 1 (M/P/E)`}
-                                        >
-                                          <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
-                                          <span className="font-bold">{c.staff.name}</span>
-                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                                            Score: {getStaffScore(c.staff)}
-                                          </span>
-                                          <span className="text-[10px] text-blue-600 font-medium">
-                                            (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
-                                          </span>
-                                          {isSameZone && (
-                                            <span className="text-[9px] font-bold text-blue-800 bg-blue-200/80 px-1 py-0.2 rounded">
-                                              Optimal
+                                        return (
+                                          <button
+                                            key={c.staff.id}
+                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            disabled={isLoading}
+                                            className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                              isSameZone
+                                                ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
+                                                : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
+                                            }`}
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                          >
+                                            <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
+                                            <span className="font-bold">{c.staff.name}</span>
+
+                                            {/* Role badge */}
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                              targetRole === 'Exam_Supervisor'
+                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                                : 'bg-blue-100 text-blue-800 border border-blue-200'
+                                            }`}>
+                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
                                             </span>
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
 
-                              {/* 2. Zone 2 (S / F / A) Runners */}
-                              {zone2Candidates.length > 0 && (
-                                <div className={zone1Candidates.length > 0 ? 'pt-2 border-t border-gray-100' : ''}>
-                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-emerald-800">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                                    <span>Zone 2 Staff (S / F / A)</span>
-                                    {roomZone === 1 && (
-                                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.2 rounded font-semibold ml-1">
-                                        ★ Same Zone (Near)
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {zone2Candidates.map(c => {
-                                      const alreadyAssigned = room.session.assignments?.some(
-                                        (a: any) => a.staff_id === c.staff.id
-                                      );
-                                      if (alreadyAssigned) return null;
-
-                                      const isSameZone = roomZone === 1;
-
-                                      return (
-                                        <button
-                                          key={c.staff.id}
-                                          onClick={() => handleAssignSingle(c.staff, room)}
-                                          disabled={isLoading}
-                                          className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
-                                            isSameZone
-                                              ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
-                                              : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
-                                          }`}
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}\nZone: 2 (S/F/A)`}
-                                        >
-                                          <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
-                                          <span className="font-bold">{c.staff.name}</span>
-                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                                            Score: {getStaffScore(c.staff)}
-                                          </span>
-                                          <span className="text-[10px] text-emerald-600 font-medium">
-                                            (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
-                                          </span>
-                                          {isSameZone && (
-                                            <span className="text-[9px] font-bold text-emerald-800 bg-emerald-200/80 px-1 py-0.2 rounded">
-                                              Optimal
+                                            {/* Score */}
+                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                              Score: {getStaffScore(c.staff)}
                                             </span>
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              )}
 
-                              {/* 3. Other Building Runners */}
-                              {otherCandidates.length > 0 && (
-                                <div className="pt-2 border-t border-gray-100">
-                                  <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-gray-700">
-                                    <span className="w-2 h-2 rounded-full bg-gray-400" />
-                                    <span>Other Building Staff</span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {otherCandidates.map(c => {
-                                      const alreadyAssigned = room.session.assignments?.some(
-                                        (a: any) => a.staff_id === c.staff.id
-                                      );
-                                      if (alreadyAssigned) return null;
+                                            <span className="text-[10px] text-blue-600 font-medium">
+                                              (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
+                                            </span>
 
-                                      return (
-                                        <button
-                                          key={c.staff.id}
-                                          onClick={() => handleAssignSingle(c.staff, room)}
-                                          disabled={isLoading}
-                                          className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
-                                          title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nScore: ${getStaffScore(c.staff)}`}
-                                        >
-                                          <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
-                                          <span className="font-bold">{c.staff.name}</span>
-                                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
-                                            Score: {getStaffScore(c.staff)}
-                                          </span>
-                                          <span className="text-[10px] text-gray-500 font-medium">
-                                            (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
-                                          </span>
-                                        </button>
-                                      );
-                                    })}
+                                            {isSameZone && (
+                                              <span className="text-[9px] font-bold text-blue-800 bg-blue-200/80 px-1 py-0.2 rounded">
+                                                Optimal
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
-                            </div>
+                                )}
+
+                                {/* Zone 2 (S / F / A) Qualified Runners */}
+                                {qualifiedZone2.length > 0 && (
+                                  <div className={qualifiedZone1.length > 0 ? 'pt-2 border-t border-gray-100' : ''}>
+                                    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-emerald-800">
+                                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                                      <span>Zone 2 Staff (S / F / A)</span>
+                                      {roomZone === 1 && (
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.2 rounded font-semibold ml-1">
+                                          ★ Same Zone (Near)
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {qualifiedZone2.map(c => {
+                                        const alreadyAssigned = room.session.assignments?.some(
+                                          (a: any) => a.staff_id === c.staff.id
+                                        );
+                                        if (alreadyAssigned) return null;
+
+                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+                                        const isSameZone = roomZone === 1;
+
+                                        return (
+                                          <button
+                                            key={c.staff.id}
+                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            disabled={isLoading}
+                                            className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                              isSameZone
+                                                ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
+                                                : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
+                                            }`}
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                          >
+                                            <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
+                                            <span className="font-bold">{c.staff.name}</span>
+
+                                            {/* Role badge */}
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                              targetRole === 'Exam_Supervisor'
+                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                            }`}>
+                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                            </span>
+
+                                            {/* Score */}
+                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                              Score: {getStaffScore(c.staff)}
+                                            </span>
+
+                                            <span className="text-[10px] text-emerald-600 font-medium">
+                                              (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
+                                            </span>
+
+                                            {isSameZone && (
+                                              <span className="text-[9px] font-bold text-emerald-800 bg-emerald-200/80 px-1 py-0.2 rounded">
+                                                Optimal
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Other Building Qualified Runners */}
+                                {qualifiedOther.length > 0 && (
+                                  <div className="pt-2 border-t border-gray-100">
+                                    <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-bold text-gray-700">
+                                      <span className="w-2 h-2 rounded-full bg-gray-400" />
+                                      <span>Other Building Staff</span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {qualifiedOther.map(c => {
+                                        const alreadyAssigned = room.session.assignments?.some(
+                                          (a: any) => a.staff_id === c.staff.id
+                                        );
+                                        if (alreadyAssigned) return null;
+
+                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+
+                                        return (
+                                          <button
+                                            key={c.staff.id}
+                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            disabled={isLoading}
+                                            className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                          >
+                                            <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
+                                            <span className="font-bold">{c.staff.name}</span>
+
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
+                                              targetRole === 'Exam_Supervisor'
+                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                                : 'bg-gray-200 text-gray-800 border border-gray-300'
+                                            }`}>
+                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                            </span>
+
+                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                              Score: {getStaffScore(c.staff)}
+                                            </span>
+
+                                            <span className="text-[10px] text-gray-500 font-medium">
+                                              (from {c.fromRoom.split(' ').pop() || c.fromBuilding})
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -800,6 +1024,10 @@ export function AddRunningStaffModal({
                     <span className="flex items-center gap-1">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />
                       <strong>Zone 2:</strong> S, F, A buildings
+                    </span>
+                    <span className="text-gray-300">|</span>
+                    <span className="text-gray-600 font-medium">
+                      Roles and availability strictly verified
                     </span>
                   </div>
                   <button

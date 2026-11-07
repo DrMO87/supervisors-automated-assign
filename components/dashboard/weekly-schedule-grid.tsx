@@ -83,10 +83,8 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [isRunningModalOpen, setIsRunningModalOpen] = useState(false);
   const [selectedPeriodForRunners, setSelectedPeriodForRunners] = useState<{
-    dateStr: string; period: number; startTime: string;
-    currentSessions: ExamSessionWithRelations[];
-    previousSessions: ExamSessionWithRelations[];
-    gapMinutes: number;
+    dateStr: string;
+    period: number;
   } | null>(null);
   const { viewMode, toggleViewMode } = useMobileView();
 
@@ -566,20 +564,7 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const prevPeriod = periodIdx > 0 ? periods[periodIdx - 1] : null;
-                              const prevSessions = prevPeriod ? prevPeriod.sessions : [];
-                              let gap = 0;
-                              if (prevSessions.length > 0 && sessions.length > 0) {
-                                gap = getSessionGapMinutes(prevSessions[0], sessions[0]);
-                              }
-                              setSelectedPeriodForRunners({
-                                dateStr,
-                                period,
-                                startTime: startTime || (sessions.length > 0 ? sessions[0].start_time : '09:00:00'),
-                                currentSessions: sessions,
-                                previousSessions: prevSessions,
-                                gapMinutes: gap,
-                              });
+                              setSelectedPeriodForRunners({ dateStr, period });
                             }}
                             className="flex items-center gap-1 text-[10px] uppercase font-bold text-orange-600 hover:text-orange-700 hover:bg-orange-50 transition-colors bg-white border border-orange-200 hover:border-orange-300 px-2 py-0.5 rounded shadow-sm"
                             title="Add running staff from previous back-to-back period for vacant rooms in nearby buildings"
@@ -679,9 +664,6 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
           onClose={() => setSelectedPeriodForRunners(null)}
           dateStr={selectedPeriodForRunners.dateStr}
           period={selectedPeriodForRunners.period}
-          currentPeriodSessions={selectedPeriodForRunners.currentSessions}
-          previousPeriodSessions={selectedPeriodForRunners.previousSessions}
-          gapMinutes={selectedPeriodForRunners.gapMinutes}
           onUpdate={loadData}
         />
       )}
