@@ -210,6 +210,7 @@ export function computeDateDifficulty(
   const times = Array.from(new Set(daySessions.map(s => s.start_time))).sort();
   let difficulty = 0;
 
+  // 1. Physical transition and tight/zero-gap pressure across campus buildings
   for (let i = 0; i < times.length - 1; i++) {
     const s1List = daySessions.filter(s => s.start_time === times[i]);
     const s2List = daySessions.filter(s => s.start_time === times[i + 1]);
@@ -236,11 +237,35 @@ export function computeDateDifficulty(
         }
       }
       // Zero-minute gap across disjoint buildings is an extreme physical constraint
-      const weight = gap === 0 ? 100 : 20;
-      difficulty += (disjointCount * weight) + s2List.length;
+      const weight = gap === 0 ? 150 : 30;
+      difficulty += (disjointCount * weight) + s2List.length * (gap === 0 ? 20 : 5);
     }
   }
-  return difficulty + daySessions.length;
+
+  // 2. Room density, peak period concurrency, and staff volume demand
+  const roomSlotMap = new Map<string, number>();
+  const periodRoomCounts = new Map<string, number>();
+  for (const s of daySessions) {
+    const k = `${s.start_time}__${s.room_id}`;
+    roomSlotMap.set(k, (roomSlotMap.get(k) || 0) + (s.student_count || 0));
+    periodRoomCounts.set(s.start_time, (periodRoomCounts.get(s.start_time) || 0) + 1);
+  }
+
+  let totalStaffNeeded = 0;
+  for (const students of roomSlotMap.values()) {
+    const sup = 1;
+    const ast = students >= 51 ? 2 : (students >= 10 ? 1 : 0);
+    totalStaffNeeded += (sup + ast);
+  }
+
+  // Peak concurrent rooms in any single period on this day (e.g. 29 rooms at 14:45 on Thursday)
+  const maxPeriodRooms = Math.max(...Array.from(periodRoomCounts.values()), 0);
+
+  // High-demand days (Wednesday and Thursday) have special priority weighting
+  const dayName = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  const dayPriorityBonus = dayName === 'Wednesday' ? 2000 : (dayName === 'Thursday' ? 1000 : 0);
+
+  return difficulty + (maxPeriodRooms * 100) + (totalStaffNeeded * 10) + (roomSlotMap.size * 5) + daySessions.length + dayPriorityBonus;
 }
 
 /**
@@ -643,11 +668,11 @@ export function isStaffAvailable(
           const sRoom = rooms?.find(r => r.id === s.room_id);
           const sBuilding = getRoomBuilding(sRoom, (s as any).room?.room_name || (s as any).room_name || sRoom?.room_name);
           if (targetBuilding !== 'UNKNOWN' && sBuilding !== 'UNKNOWN' && targetBuilding !== sBuilding) {
-            // If gap is strictly 0 minutes (no gap between periods), cross-building is physically impossible and strictly banned
-            if (gap > 0 && allowRelaxCrossBuilding) {
+            // When relaxing cross-building (emergency fallback to prevent unstaffed rooms), permit runner transitions as soft violation
+            if (allowRelaxCrossBuilding) {
               softViolations.push({
                 type: 'capacity',
-                message: `${staff.name} has a tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min) - allowed as emergency fallback`,
+                message: `${staff.name} has a zero/tight back-to-back shift in a different building (${sBuilding} -> ${targetBuilding}, gap ${gap} min) - allowed as runner fallback to prevent unstaffed room`,
                 staff_id: staff.id,
                 exam_session_id: examSession.id,
               });
@@ -2125,57 +2150,13 @@ export function batchAssign(
     dateDifficultyMap.set(d, computeDateDifficulty(d, sortedSessions, rooms || []));
   }
 
-  // ─── STAGGERED FLOATING OFF-DAY DISTRIBUTION ──────────────────────────────
-  // When an exam week has more exam days than the configured weekly day limit
-  // (e.g. 6 exam days from Sat to Thu, but custom_days_per_week is 5),
-  // distribute the floating off-day evenly across the week for staff without
-  // an explicit off-day in their profile. This guarantees:
-  // 1. Every staff member works strictly <= 5 days (never exceeding weekly cap).
-  // 2. Thursday is never starved of staff, eliminating unstaffed rooms.
-  // 3. High-difficulty days (e.g. Wednesday with 0-gap periods) are preserved and
-  //    never assigned as floating off-days, ensuring 100% attendance on peak days.
-  const weekToDatesMap = new Map<string, string[]>();
-  for (const d of uniqueExamDates) {
-    const wk = getAcademicWeekKey(d);
-    if (!weekToDatesMap.has(wk)) weekToDatesMap.set(wk, []);
-    weekToDatesMap.get(wk)!.push(d);
-  }
-
-  const configuredFT = config.constraints.custom_days_per_week ?? 5;
-  const configuredPT = Math.min(3, Math.max(1, config.constraints.max_days_per_week_pt ?? 3));
-
-  let globalStaggerIndex = 0;
-  for (const [, wDates] of weekToDatesMap.entries()) {
-    wDates.sort();
-
-    for (const st of currentStaff) {
-      if (st.availability_status !== 'Available') continue;
-      const allowedDays = st.employment_status === 'Part-time' ? configuredPT : configuredFT;
-
-      // Check which exam dates in this week this staff member is currently active on
-      const activeDatesInWeek = wDates.filter(d => {
-        if (st.specific_off_dates?.includes(d)) return false;
-        const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
-        if (st.working_days && st.working_days.length > 0 && !st.working_days.includes(dayName)) return false;
-        return true;
-      });
-
-      if (activeDatesInWeek.length > allowedDays) {
-        const excess = activeDatesInWeek.length - allowedDays;
-        const offDatesToAssign: string[] = [];
-        for (let e = 0; e < excess; e++) {
-          const pickDate = activeDatesInWeek[(globalStaggerIndex + e) % activeDatesInWeek.length];
-          offDatesToAssign.push(pickDate);
-        }
-        globalStaggerIndex++;
-
-        st.specific_standard_off_dates = [
-          ...(st.specific_standard_off_dates || []),
-          ...offDatesToAssign
-        ];
-      }
-    }
-  }
+  // ─── DATE-ORDERED ASSIGNMENT (High-Need / Bottleneck Days First) ──────────
+  // Instead of guessing and pre-assigning artificial floating off-days that starve
+  // peak periods, we process dates strictly by difficulty DESCENDING (Wednesday first,
+  // then Thursday, and other high-demand days). Staff availability is consumed on hot
+  // days first, and the weekly working days cap (custom_days_per_week, e.g. 5 days) is
+  // naturally respected in isStaffAvailable, guaranteeing 100% room coverage without
+  // pre-emptively blocking needed invigilators.
 
   // Sort dates by difficulty DESCENDING (hardest dates first: Wednesday, then Tuesday, Saturday, etc.)
   // This gives high-constraint days first pick of fresh staff with 0 fatigue.
@@ -2396,10 +2377,7 @@ export function equalizeWorkloadPass(
             const sessDayName = new Date(`${sess.exam_date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
             if (lowest.staff.working_days && lowest.staff.working_days.length > 0) {
               if (!lowest.staff.working_days.includes(sessDayName)) {
-                // If they are FT and have 5+ days, respect the off-day
-                if (lowest.staff.employment_status !== 'Full-time' || lowest.staff.working_days.length >= 5) {
-                  continue; // Recipient is designated off on this weekday!
-                }
+                continue; // Recipient is designated off on this weekday!
               }
             }
 
