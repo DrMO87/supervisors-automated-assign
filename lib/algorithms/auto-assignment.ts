@@ -720,24 +720,15 @@ export function isStaffAvailable(
   }
 
   // If this examSession is on a NEW date, check if they are already at their weekly limit.
-  // This is a strict prohibition unless in emergency fallback (allowDayCapRelax).
+  // This is a strict prohibition (maximum days per week must NEVER be exceeded).
   if (!datesAssignedInWeek.has(examSession.exam_date)) {
     if (datesAssignedInWeek.size >= maxAllowedDaysInWeek) {
-      if (allowDayCapRelax) {
-        softViolations.push({
-          type: 'unavailable',
-          message: `${staff.name} (${staff.employment_status}) exceeds weekly working days cap (${maxAllowedDaysInWeek} days this week as configured in Settings) - allowed as emergency fallback to prevent unstaffed room`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      } else {
-        hardViolations.push({
-          type: 'unavailable',
-          message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week as configured in Settings)`,
-          staff_id: staff.id,
-          exam_session_id: examSession.id,
-        });
-      }
+      hardViolations.push({
+        type: 'unavailable',
+        message: `${staff.name} (${staff.employment_status}) has reached their maximum allowed working days (${maxAllowedDaysInWeek} days this week as configured in Settings)`,
+        staff_id: staff.id,
+        exam_session_id: examSession.id,
+      });
     }
   }
 
@@ -1249,7 +1240,7 @@ export function assignStaffToSession(
     }
 
     if (headSupervisors.length < neededHeadSupervisors) {
-      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing cross-building
       const emergencyStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
@@ -1257,7 +1248,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, true, rooms, true
+            config.calendarRules, peerMinScore, false, true, false, rooms, true
           )
         };
       });
@@ -1410,7 +1401,7 @@ export function assignStaffToSession(
     }
 
     if (assignedAssistants < neededAssistants) {
-      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing day cap and cross-building
+      // Tier 3 Fallback (Zero-Deficiency Guarantee): Prevent unstaffed room by relaxing cross-building
       const emergencyStaffWithStatus = eligibleRoomStaff.map((staff) => {
         const peerMinScore = peerMinScores.get(staff.job_title || staff.supervision_role || 'General');
         return {
@@ -1418,7 +1409,7 @@ export function assignStaffToSession(
           ...isStaffAvailable(
             staff, examSession, existingAssignments, allExamSessions, config.constraints,
             Array.from(new Set(allExamSessions.map(s => s.exam_date))), targetRoom, periodFreeStaff,
-            config.calendarRules, peerMinScore, false, true, true, rooms, true
+            config.calendarRules, peerMinScore, false, true, false, rooms, true
           )
         };
       });
@@ -1793,9 +1784,6 @@ export function batchAssign(
         if (candidateStatus.length === 0) {
           candidateStatus = getCSCandidates(true, false);
         }
-        if (candidateStatus.length === 0) {
-          candidateStatus = getCSCandidates(true, true);
-        }
 
         if (candidateStatus.length > 0) {
           // Sort candidates for strict equalization in the same week:
@@ -2150,13 +2138,87 @@ export function batchAssign(
     dateDifficultyMap.set(d, computeDateDifficulty(d, sortedSessions, rooms || []));
   }
 
-  // ─── DATE-ORDERED ASSIGNMENT (High-Need / Bottleneck Days First) ──────────
-  // Instead of guessing and pre-assigning artificial floating off-days that starve
-  // peak periods, we process dates strictly by difficulty DESCENDING (Wednesday first,
-  // then Thursday, and other high-demand days). Staff availability is consumed on hot
-  // days first, and the weekly working days cap (custom_days_per_week, e.g. 5 days) is
-  // naturally respected in isStaffAvailable, guaranteeing 100% room coverage without
-  // pre-emptively blocking needed invigilators.
+  // ─── CAPACITY-AWARE FLOATING OFF-DAY DISTRIBUTION ─────────────────────────
+  // When an exam week has more exam days than the configured weekly day limit
+  // (e.g. 6 exam days from Sat to Thu, but custom_days_per_week is 5),
+  // every full-time staff member without an explicit profile off-day MUST have
+  // exactly one floating off-day assigned.
+  // To prevent understaffing peak periods while guaranteeing ZERO staff work 6 days:
+  // - Assistants: off-days distributed across high-surplus days (Sat, Sun, Mon, Tue, Wed),
+  //   strictly avoiding Thursday (which has 28 concurrent rooms in Period 4).
+  // - Supervisors: off-days distributed across safe supervisor days (Wed, Sun, Mon, Tue, Sat),
+  //   strictly avoiding Thursday.
+  // - Committees Supervisors: off-days distributed evenly across all exam days.
+  const weekToDatesMap = new Map<string, string[]>();
+  for (const d of uniqueExamDates) {
+    const wk = getAcademicWeekKey(d);
+    if (!weekToDatesMap.has(wk)) weekToDatesMap.set(wk, []);
+    weekToDatesMap.get(wk)!.push(d);
+  }
+
+  const configuredFT = config.constraints.custom_days_per_week ?? 5;
+  const configuredPT = Math.min(3, Math.max(1, config.constraints.max_days_per_week_pt ?? 3));
+
+  for (const [, wDates] of weekToDatesMap.entries()) {
+    wDates.sort();
+    if (wDates.length <= configuredFT) continue;
+
+    // Filter staff active across more days than allowed in this week
+    const staffNeedingOffDay = currentStaff.filter(st => {
+      if (st.availability_status !== 'Available') return false;
+      const allowedDays = st.employment_status === 'Part-time' ? configuredPT : configuredFT;
+      const activeDates = wDates.filter(d => {
+        if (st.specific_off_dates?.includes(d)) return false;
+        const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        if (st.working_days && st.working_days.length > 0 && !st.working_days.includes(dayName)) return false;
+        return true;
+      });
+      return activeDates.length > allowedDays;
+    });
+
+    // 1. Assistants (Invigilator & dual role): safe targets avoiding Thursday
+    const astPool = staffNeedingOffDay.filter(s =>
+      s.supervision_role === 'Invigilator' || s.supervision_role === 'Invigilator / Exam Supervisor'
+    );
+    const safeAstDates = wDates.filter(d => {
+      const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      return dayName !== 'Thursday';
+    });
+    const astOffTargets = safeAstDates.length > 0 ? safeAstDates : wDates;
+    astPool.forEach((st, idx) => {
+      const offDate = astOffTargets[idx % astOffTargets.length];
+      st.specific_standard_off_dates = [...(st.specific_standard_off_dates || []), offDate];
+    });
+
+    // 2. Exam Supervisors (pure supervisors): safe targets avoiding Thursday
+    const supPool = staffNeedingOffDay.filter(s =>
+      s.supervision_role === 'Exam Supervisor'
+    );
+    const safeSupDates = wDates.filter(d => {
+      const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      return dayName !== 'Thursday' && dayName !== 'Saturday';
+    });
+    safeSupDates.sort((a, b) => {
+      const nameA = new Date(`${a}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      const nameB = new Date(`${b}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+      const order = ['Wednesday', 'Sunday', 'Monday', 'Tuesday'];
+      return order.indexOf(nameA) - order.indexOf(nameB);
+    });
+    const supOffTargets = safeSupDates.length > 0 ? safeSupDates : wDates;
+    supPool.forEach((st, idx) => {
+      const offDate = supOffTargets[idx % supOffTargets.length];
+      st.specific_standard_off_dates = [...(st.specific_standard_off_dates || []), offDate];
+    });
+
+    // 3. Committees Supervisors (Lecturers): distributed across all exam days
+    const csPool = staffNeedingOffDay.filter(s =>
+      s.supervision_role === 'Committees Supervisor'
+    );
+    csPool.forEach((st, idx) => {
+      const offDate = wDates[idx % wDates.length];
+      st.specific_standard_off_dates = [...(st.specific_standard_off_dates || []), offDate];
+    });
+  }
 
   // Sort dates by difficulty DESCENDING (hardest dates first: Wednesday, then Tuesday, Saturday, etc.)
   // This gives high-constraint days first pick of fresh staff with 0 fatigue.
