@@ -1179,13 +1179,30 @@ export function assignStaffToSession(
 
   // ── 1. Exam Supervisor (Per Room) ──
   // ONLY exam supervisor or Invigilator / Exam Supervisor are allowed to be exam supervisor.
+  // Rule: If running staff is inevitable (moving to a new room assignment in an adjacent period with gap <= 15 min),
+  // a staff member who was an Exam Supervisor in the previous period MUST ONLY be an Invigilator in the following period,
+  // because the Exam Supervisor must submit papers to and receive files from Control before opening the next room.
+  const sessionLookup = (allExamSessions as any)._sessionMap || new Map(allExamSessions.map(s => [s.id, s]));
+  const isExcludedAsRunningSupervisor = (sId: string) => {
+    return existingAssignments.some(a => {
+      if (a.staff_id !== sId) return false;
+      if (a.role !== 'Exam_Supervisor' && a.role !== 'Head_Supervisor') return false;
+      const s = sessionLookup.get(a.exam_session_id);
+      if (!s || s.exam_date !== examSession.exam_date) return false;
+      if (s.room_id === examSession.room_id) return false;
+      const gap = getSessionGapMinutes(s, examSession);
+      return gap <= 15 && s.start_time < examSession.start_time;
+    });
+  };
+
   const existingHeads = existingAssignments.filter(
     (a) => a.exam_session_id === examSession.id && a.role === 'Exam_Supervisor'
   );
   const neededHeadSupervisors = Math.max(0, required.headSupervisors - existingHeads.length);
 
   const headPool = orderedPool.filter(
-    (s) => s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'
+    (s) => (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor') &&
+      !isExcludedAsRunningSupervisor(s.staff.id)
   );
 
   const headSupervisors: Staff[] = [];
@@ -1221,7 +1238,8 @@ export function assignStaffToSession(
         };
       });
       const fallbackHeadPool = fallbackStaffWithStatus.filter(
-        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
+        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor') &&
+          !isExcludedAsRunningSupervisor(s.staff.id)
       );
       while (headSupervisors.length < neededHeadSupervisors) {
         const candidate = pickBest(fallbackHeadPool, headSupervisors, undefined, 'Exam Supervisor');
@@ -1253,7 +1271,8 @@ export function assignStaffToSession(
         };
       });
       const emergencyHeadPool = emergencyStaffWithStatus.filter(
-        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
+        (s) => s.available && (s.staff.supervision_role === 'Exam Supervisor' || s.staff.supervision_role === 'Invigilator / Exam Supervisor') &&
+          !isExcludedAsRunningSupervisor(s.staff.id)
       );
       while (headSupervisors.length < neededHeadSupervisors) {
         const candidate = pickBest(emergencyHeadPool, headSupervisors, undefined, 'Exam Supervisor');
@@ -1274,7 +1293,8 @@ export function assignStaffToSession(
         // Fallback 3b: If regular exam supervisors are exhausted, recruit available Demonstrators (Invigilator)
         // Committees Supervisors (Lecturers) are STRICTLY excluded from entering rooms!
         const secondaryHeadPool = emergencyStaffWithStatus.filter(
-          (s) => s.available && s.staff.supervision_role === 'Invigilator'
+          (s) => s.available && s.staff.supervision_role === 'Invigilator' &&
+            !isExcludedAsRunningSupervisor(s.staff.id)
         );
         while (headSupervisors.length < neededHeadSupervisors) {
           const candidate = pickBest(secondaryHeadPool, headSupervisors, undefined, 'Exam Supervisor');
@@ -1316,8 +1336,8 @@ export function assignStaffToSession(
     const neededAssistants = Math.max(0, required.assistants - existingAssistants.length);
 
     const assistantPool = strictRoles
-      ? orderedPool.filter((s) => s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor')
-      : orderedPool.filter((s) => s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
+      ? orderedPool.filter((s) => s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor' || isExcludedAsRunningSupervisor(s.staff.id))
+      : orderedPool.filter((s) => (s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor') || isExcludedAsRunningSupervisor(s.staff.id));
 
     const configuredMaxDaily = config.constraints?.max_daily_shifts ?? 3;
     const assistantSortContext = {
@@ -1377,8 +1397,8 @@ export function assignStaffToSession(
         };
       });
       const fallbackPool = strictRoles
-        ? fallbackStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
-        : fallbackStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
+        ? fallbackStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor' || isExcludedAsRunningSupervisor(s.staff.id)))
+        : fallbackStaffWithStatus.filter((s) => s.available && ((s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor') || isExcludedAsRunningSupervisor(s.staff.id)));
       
       const excludedStaff = [...excludedFromAssistants, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
       const eligible = sortStaffByPriority(fallbackPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)
@@ -1414,8 +1434,8 @@ export function assignStaffToSession(
         };
       });
       const emergencyPool = strictRoles
-        ? emergencyStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor'))
-        : emergencyStaffWithStatus.filter((s) => s.available && s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor');
+        ? emergencyStaffWithStatus.filter((s) => s.available && (s.staff.supervision_role === 'Invigilator' || s.staff.supervision_role === 'Invigilator / Exam Supervisor' || isExcludedAsRunningSupervisor(s.staff.id)))
+        : emergencyStaffWithStatus.filter((s) => s.available && ((s.staff.supervision_role !== 'Exam Supervisor' && s.staff.supervision_role !== 'Committees Supervisor') || isExcludedAsRunningSupervisor(s.staff.id)));
       
       const excludedStaff = [...excludedFromAssistants, ...newAssignments.map(a => allStaff.find(s => s.id === a.staff_id)).filter(Boolean) as Staff[]];
       const eligible = sortStaffByPriority(emergencyPool.map(p => p.staff), undefined, nearPharmacy, 'Invigilator', assistantSortContext)

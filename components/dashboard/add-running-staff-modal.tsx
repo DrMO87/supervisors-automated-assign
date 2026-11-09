@@ -106,6 +106,7 @@ export interface RunningCandidate {
   fromRoom: string;
   fromSubject: string;
   fromGroup: number;
+  previousRole?: AssignmentRole | string;
 }
 
 export interface VacantRoom {
@@ -124,30 +125,42 @@ export interface VacantRoom {
 /**
  * Checks which role the staff member can fulfill in this vacant room.
  * Returns null if the staff member cannot fulfill any of the room's missing roles.
+ *
+ * Rule: An Exam Supervisor in the previous period CANNOT be assigned as Exam Supervisor
+ * in the following period because they must deliver files to Control and receive new files
+ * before opening the next room. They can only serve as an Invigilator (Assistant).
  */
-export function getTargetRoleForStaff(staffMember: Staff, room: VacantRoom): AssignmentRole | null {
+export function getTargetRoleForStaff(
+  staffMember: Staff,
+  room: VacantRoom,
+  previousRole?: AssignmentRole | string
+): AssignmentRole | null {
+  const wasPrevSupervisor = previousRole === 'Exam_Supervisor' || previousRole === 'Head_Supervisor';
+
   if (room.isOral) {
     if (room.neededAssistants <= 0) return null;
     // Oral exams require can_supervise_oral privilege
     if (!staffMember.can_supervise_oral) return null;
-    // Oral exams only allow Invigilator or Invigilator / Exam Supervisor
-    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
+    // Oral exams allow Invigilator, Invigilator / Exam Supervisor, or running Exam Supervisor stepping down to invigilate
+    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSupervisor) {
       return 'Assistant';
     }
     return null;
   }
 
   // Written Exams:
-  // 1. If Exam Supervisor is needed, check if staff is qualified
-  if (room.neededExamSupervisors > 0) {
+  // 1. If Exam Supervisor is needed:
+  // Rule: An Exam Supervisor from the previous period CANNOT be Exam Supervisor in the following period
+  if (room.neededExamSupervisors > 0 && !wasPrevSupervisor) {
     if (staffMember.supervision_role === 'Exam Supervisor' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
       return 'Exam_Supervisor';
     }
   }
 
-  // 2. If Invigilator is needed, check if staff is qualified
+  // 2. If Invigilator is needed:
+  // Qualified staff or running Exam Supervisors stepping down to Invigilator
   if (room.neededAssistants > 0) {
-    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor') {
+    if (staffMember.supervision_role === 'Invigilator' || staffMember.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSupervisor) {
       return 'Assistant';
     }
   }
@@ -291,6 +304,7 @@ export function AddRunningStaffModal({
           fromRoom: roomName,
           fromSubject: session.subject_name || '',
           fromGroup: getBuildingGroup(building),
+          previousRole: assignment.role,
         });
       }
     }
@@ -361,10 +375,10 @@ export function AddRunningStaffModal({
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   // Single runner assignment with exact role matching
-  const handleAssignSingle = async (staffMember: Staff, room: VacantRoom) => {
+  const handleAssignSingle = async (staffMember: Staff, room: VacantRoom, previousRole?: AssignmentRole | string) => {
     if (!supabase) return;
 
-    const targetRole = getTargetRoleForStaff(staffMember, room);
+    const targetRole = getTargetRoleForStaff(staffMember, room, previousRole);
     if (!targetRole) {
       setMessage({
         type: 'error',
@@ -431,11 +445,14 @@ export function AddRunningStaffModal({
       for (const room of roomStates) {
         // A. Match Exam Supervisor first if needed
         while (room.neededExam > 0) {
-          const runnerIdx = availableRunners.findIndex(r =>
-            !room.currentStaffIds.has(r.staff.id) &&
-            r.fromGroup === room.group &&
-            (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor')
-          );
+          const runnerIdx = availableRunners.findIndex(r => {
+            if (room.currentStaffIds.has(r.staff.id)) return false;
+            if (r.fromGroup !== room.group) return false;
+            // Staff who were Exam Supervisor in previous period cannot be Exam Supervisor in following period
+            const wasPrevSup = r.previousRole === 'Exam_Supervisor' || r.previousRole === 'Head_Supervisor';
+            if (wasPrevSup) return false;
+            return (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
+          });
           if (runnerIdx === -1) break;
 
           const runner = availableRunners.splice(runnerIdx, 1)[0];
@@ -456,11 +473,12 @@ export function AddRunningStaffModal({
           const runnerIdx = availableRunners.findIndex(r => {
             if (room.currentStaffIds.has(r.staff.id)) return false;
             if (r.fromGroup !== room.group) return false;
+            const wasPrevSup = r.previousRole === 'Exam_Supervisor' || r.previousRole === 'Head_Supervisor';
             if (room.isOral) {
               return r.staff.can_supervise_oral &&
-                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
+                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSup);
             }
-            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor';
+            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSup;
           });
           if (runnerIdx === -1) break;
 
@@ -482,10 +500,12 @@ export function AddRunningStaffModal({
       for (const room of roomStates) {
         // A. Match Exam Supervisor
         while (room.neededExam > 0) {
-          const runnerIdx = availableRunners.findIndex(r =>
-            !room.currentStaffIds.has(r.staff.id) &&
-            (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor')
-          );
+          const runnerIdx = availableRunners.findIndex(r => {
+            if (room.currentStaffIds.has(r.staff.id)) return false;
+            const wasPrevSup = r.previousRole === 'Exam_Supervisor' || r.previousRole === 'Head_Supervisor';
+            if (wasPrevSup) return false;
+            return (r.staff.supervision_role === 'Exam Supervisor' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
+          });
           if (runnerIdx === -1) break;
 
           const runner = availableRunners.splice(runnerIdx, 1)[0];
@@ -505,11 +525,12 @@ export function AddRunningStaffModal({
         while (room.neededInvig > 0) {
           const runnerIdx = availableRunners.findIndex(r => {
             if (room.currentStaffIds.has(r.staff.id)) return false;
+            const wasPrevSup = r.previousRole === 'Exam_Supervisor' || r.previousRole === 'Head_Supervisor';
             if (room.isOral) {
               return r.staff.can_supervise_oral &&
-                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor');
+                (r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSup);
             }
-            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor';
+            return r.staff.supervision_role === 'Invigilator' || r.staff.supervision_role === 'Invigilator / Exam Supervisor' || wasPrevSup;
           });
           if (runnerIdx === -1) break;
 
@@ -753,9 +774,9 @@ export function AddRunningStaffModal({
                         const roomZoneConfig = roomZone === 0 ? ZONE_CONFIG[0] : roomZone === 1 ? ZONE_CONFIG[1] : ZONE_CONFIG.other;
 
                         // Filter runners who are qualified for what THIS room needs
-                        const qualifiedZone1 = zone1Candidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
-                        const qualifiedZone2 = zone2Candidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
-                        const qualifiedOther = otherCandidates.filter(c => getTargetRoleForStaff(c.staff, room) !== null);
+                        const qualifiedZone1 = zone1Candidates.filter(c => getTargetRoleForStaff(c.staff, room, c.previousRole) !== null);
+                        const qualifiedZone2 = zone2Candidates.filter(c => getTargetRoleForStaff(c.staff, room, c.previousRole) !== null);
+                        const qualifiedOther = otherCandidates.filter(c => getTargetRoleForStaff(c.staff, room, c.previousRole) !== null);
                         const totalQualified = qualifiedZone1.length + qualifiedZone2.length + qualifiedOther.length;
 
                         return (
@@ -841,20 +862,21 @@ export function AddRunningStaffModal({
                                         );
                                         if (alreadyAssigned) return null;
 
-                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+                                        const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
                                         const isSameZone = roomZone === 0;
+                                        const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
 
                                         return (
                                           <button
                                             key={c.staff.id}
-                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
                                             className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
                                               isSameZone
                                                 ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
                                                 : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
                                             }`}
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
                                             <span className="font-bold">{c.staff.name}</span>
@@ -908,20 +930,21 @@ export function AddRunningStaffModal({
                                         );
                                         if (alreadyAssigned) return null;
 
-                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+                                        const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
                                         const isSameZone = roomZone === 1;
+                                        const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
 
                                         return (
                                           <button
                                             key={c.staff.id}
-                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
                                             className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
                                               isSameZone
                                                 ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
                                                 : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
                                             }`}
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
                                             <span className="font-bold">{c.staff.name}</span>
@@ -970,15 +993,16 @@ export function AddRunningStaffModal({
                                         );
                                         if (alreadyAssigned) return null;
 
-                                        const targetRole = getTargetRoleForStaff(c.staff, room);
+                                        const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
+                                        const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
 
                                         return (
                                           <button
                                             key={c.staff.id}
-                                            onClick={() => handleAssignSingle(c.staff, room)}
+                                            onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
                                             className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
                                             <span className="font-bold">{c.staff.name}</span>
