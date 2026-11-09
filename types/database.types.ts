@@ -34,8 +34,9 @@ export interface Staff {
   // Feeding mother support
   is_feeding_mother: boolean;
   feeding_mother_days: number; // 0 = N/A. FT: up to 4 days (1h off) or 2 days (2h off). PT: up to 2 days (1h) or 1 day (2h)
-  // Health issue: prefers rooms in M or P buildings
+  // Health issue: prefers rooms in specific allowed buildings (e.g. M, P, S, F)
   has_health_issue: boolean;
+  allowed_buildings?: string[];
   // Overloaded condition support
   is_overloaded: boolean;
   overload_percentage: number; // 0-100%
@@ -345,6 +346,7 @@ export interface StaffFormData {
   is_feeding_mother: boolean;
   feeding_mother_days: number;
   has_health_issue: boolean;
+  allowed_buildings?: string[];
   is_overloaded: boolean;
   overload_percentage: number;
   supervision_role: SupervisionRole;

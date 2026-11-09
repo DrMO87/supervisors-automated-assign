@@ -215,6 +215,13 @@ function processStaffRow(row: any, rowNum: number, errors: string[]): StaffFormD
   const hasHealthIssue = ['yes', 'y', '1', 'true'].includes(
     safeTrim(row.has_health_issue || row['Health Issue'] || '').toLowerCase()
   );
+  const allowedBuildingsRaw = safeTrim(row.allowed_buildings || row['Allowed Buildings'] || row['Medical Buildings'] || row['Buildings'] || '');
+  let allowedBuildings: string[] | undefined = undefined;
+  if (allowedBuildingsRaw) {
+    allowedBuildings = allowedBuildingsRaw.split(/[,/;\s]+/).map(b => b.trim().toUpperCase()).filter(Boolean);
+  } else if (hasHealthIssue) {
+    allowedBuildings = ['M', 'P'];
+  }
   const isOverloaded = ['yes', 'y', '1', 'true'].includes(
     safeTrim(row.is_overloaded || row['Overloaded'] || '').toLowerCase()
   );
@@ -233,6 +240,7 @@ function processStaffRow(row: any, rowNum: number, errors: string[]): StaffFormD
     is_feeding_mother: isFeedingMother,
     feeding_mother_days: feedingMotherDays,
     has_health_issue: hasHealthIssue,
+    allowed_buildings: allowedBuildings,
     is_overloaded: isOverloaded,
     overload_percentage: overloadPercentage,
     supervision_role: supervisionRole,
@@ -316,6 +324,7 @@ export function exportStaffToExcel(staff: Staff[]): Blob {
     is_feeding_mother: s.is_feeding_mother ? 'Yes' : 'No',
     feeding_mother_days: s.feeding_mother_days || 0,
     has_health_issue: s.has_health_issue ? 'Yes' : 'No',
+    allowed_buildings: s.allowed_buildings?.length ? s.allowed_buildings.join(', ') : (s.has_health_issue ? 'M, P' : ''),
     is_overloaded: s.is_overloaded ? 'Yes' : 'No',
     overload_percentage: s.overload_percentage || 0,
     supervision_role: s.supervision_role || 'Invigilator',
@@ -350,6 +359,7 @@ export function getStaffTemplate(): Blob {
       is_feeding_mother: 'No',
       feeding_mother_days: 0,
       has_health_issue: 'No',
+      allowed_buildings: '',
       is_overloaded: 'No',
       overload_percentage: 0,
       supervision_role: 'Exam Supervisor',

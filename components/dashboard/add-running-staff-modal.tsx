@@ -16,6 +16,7 @@ import {
   calculateRequiredStaff,
   getRoomBuilding,
   getSessionGapMinutes,
+  isRoomAllowedForMedicalStaff,
 } from '@/lib/algorithms/auto-assignment';
 
 // ── Building Proximity Groups ────────────────────────────────────────────────
@@ -165,6 +166,13 @@ export function getTargetRoleForStaff(
   room: VacantRoom,
   previousRole?: AssignmentRole | string
 ): AssignmentRole | null {
+  // Medical condition check: ensure room is in staff's allowed buildings
+  if (staffMember.has_health_issue) {
+    if (!isRoomAllowedForMedicalStaff(staffMember, room.session.room, room.roomName)) {
+      return null;
+    }
+  }
+
   const wasPrevSupervisor = previousRole === 'Exam_Supervisor' || previousRole === 'Head_Supervisor';
 
   if (room.isOral) {

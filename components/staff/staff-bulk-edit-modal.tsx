@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { X, Save, AlertCircle, ShieldCheck, CheckSquare, Square } from 'lucide-react';
+import { X, Save, AlertCircle, ShieldCheck, CheckSquare, Square, Building2 } from 'lucide-react';
 import type { Staff } from '@/types/database.types';
+import { ALL_CAMPUS_BUILDINGS } from '@/lib/utils/staff-medical-buildings';
 
 interface StaffBulkEditModalProps {
   isOpen: boolean;
@@ -43,8 +44,18 @@ export function StaffBulkEditModal({
       const next = { ...prev };
       if (next[field] === value) {
         delete next[field];
+        if (field === 'has_health_issue') {
+          delete next.allowed_buildings;
+        }
       } else {
         next[field] = value;
+        if (field === 'has_health_issue') {
+          if (value === true) {
+            next.allowed_buildings = next.allowed_buildings || ['M', 'P'];
+          } else {
+            next.allowed_buildings = [];
+          }
+        }
       }
       return next;
     });
@@ -142,7 +153,71 @@ export function StaffBulkEditModal({
               <h3 className="text-sm font-medium text-gray-900 mb-2">Special Conditions</h3>
               
               {renderCheckboxOption('is_feeding_mother', 'Feeding Mother', 'Gets earlier leaving times')}
-              {renderCheckboxOption('has_health_issue', 'Health Issue', 'Prefers certain buildings near pharmacy')}
+              {renderCheckboxOption('has_health_issue', 'Health Issue', 'Restricts auto-assignment to specific allowed buildings')}
+              {updates.has_health_issue === true && (
+                <div className="ml-4 p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-semibold text-blue-900 flex items-center gap-1">
+                      <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                      Allowed Campus Buildings:
+                    </span>
+                    <div className="flex items-center gap-1 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setUpdates(prev => ({ ...prev, allowed_buildings: ['M', 'P'] }))}
+                        className="px-1.5 py-0.5 text-[10px] bg-white border border-blue-200 text-blue-700 rounded hover:bg-blue-100"
+                      >
+                        Pharmacy (M, P)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUpdates(prev => ({ ...prev, allowed_buildings: ['M', 'P', 'E'] }))}
+                        className="px-1.5 py-0.5 text-[10px] bg-white border border-blue-200 text-blue-700 rounded hover:bg-blue-100"
+                      >
+                        Zone 1
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUpdates(prev => ({ ...prev, allowed_buildings: ['S', 'F', 'A', 'B', 'H'] }))}
+                        className="px-1.5 py-0.5 text-[10px] bg-white border border-blue-200 text-blue-700 rounded hover:bg-blue-100"
+                      >
+                        Zone 2
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUpdates(prev => ({ ...prev, allowed_buildings: ALL_CAMPUS_BUILDINGS.map(b => b.code) }))}
+                        className="px-1.5 py-0.5 text-[10px] bg-white border border-blue-200 text-blue-700 rounded hover:bg-blue-100"
+                      >
+                        All
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {ALL_CAMPUS_BUILDINGS.map(b => {
+                      const currentList = updates.allowed_buildings || ['M', 'P'];
+                      const isChecked = currentList.includes(b.code);
+                      return (
+                        <label key={b.code} className={`flex items-center gap-1.5 p-1.5 rounded border text-xs cursor-pointer ${
+                          isChecked ? 'bg-blue-100 border-blue-300 text-blue-900 font-semibold' : 'bg-white border-gray-200 text-gray-600'
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const nextList = e.target.checked
+                                ? [...currentList, b.code]
+                                : currentList.filter(c => c !== b.code);
+                              setUpdates(prev => ({ ...prev, allowed_buildings: nextList }));
+                            }}
+                            className="w-3.5 h-3.5 text-blue-600 rounded"
+                          />
+                          <span>{b.code}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {renderCheckboxOption('is_overloaded', 'Overloaded', 'Reduced workload priority score')}
               {renderCheckboxOption('can_supervise_oral', 'Can Supervise Oral', 'Eligible for Oral Exam assignments')}
             </div>

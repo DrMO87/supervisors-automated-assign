@@ -159,6 +159,36 @@ export function getRoomBuilding(room?: Room | null, roomName?: string): string {
 }
 
 /**
+ * Checks whether a room's building matches a staff member's allowed medical condition buildings.
+ * If the staff member does not have health issues, any room is allowed (returns true).
+ * If the staff member has a health issue, but has no specific allowed buildings configured (or empty array),
+ * defaults to Pharmacy complex ('M' and 'P') for backward compatibility.
+ * If allowed_buildings is specified (e.g. ['S', 'F'] or ['M', 'P', 'E']), checks if the room's building matches any of them.
+ */
+export function isRoomAllowedForMedicalStaff(
+  staff: Staff,
+  targetRoom?: Room | null,
+  roomName?: string
+): boolean {
+  if (!staff.has_health_issue) return true;
+
+  const allowed = staff.allowed_buildings && staff.allowed_buildings.length > 0
+    ? staff.allowed_buildings
+    : ['M', 'P'];
+
+  const building = getRoomBuilding(targetRoom, roomName || targetRoom?.room_name);
+  if (building === 'UNKNOWN') {
+    const name = targetRoom?.room_name || roomName || '';
+    return allowed.some(b => name.toUpperCase().startsWith(b.toUpperCase()));
+  }
+
+  return allowed.some(b => {
+    const bUp = b.toUpperCase().trim();
+    return building === bUp || building.startsWith(bUp) || bUp.startsWith(building);
+  });
+}
+
+/**
  * Calculates transition gap in minutes between two sessions on the same date.
  * If sessions overlap, returns 0.
  * If s1 precedes s2, returns start(s2) - end(s1).
@@ -825,13 +855,13 @@ export function isStaffAvailable(
     }
   }
 
-  // 7. Health issue: Staff with health issues must only be assigned to pharmacy rooms (M and P buildings)
+  // 7. Health issue: Staff with health issues must only be assigned to their allowed buildings
   if (staff.has_health_issue && targetRoom) {
-    const roomName = targetRoom.room_name || '';
-    if (roomName && !isNearPharmacy(roomName)) {
+    if (!isRoomAllowedForMedicalStaff(staff, targetRoom, targetRoom.room_name)) {
+      const allowedList = (staff.allowed_buildings && staff.allowed_buildings.length > 0 ? staff.allowed_buildings : ['M', 'P']).join(', ');
       hardViolations.push({
         type: 'health_room',
-        message: `${staff.name} has a medical condition and is restricted from non-pharmacy room (${roomName})`,
+        message: `${staff.name} has a medical condition and is restricted to buildings [${allowedList}] (${targetRoom.room_name || 'Room'})`,
         staff_id: staff.id,
         exam_session_id: examSession.id,
       });
@@ -988,17 +1018,15 @@ export function sortStaffByPriority(
       }
     }
 
-    // Health-room preference: near-pharmacy staff prioritized first for pharmacy rooms,
+    // Health-room preference: staff with health issues prioritized first for their allowed rooms,
     // provided they have not already exceeded the peer workload (to prevent overloading them)
-    if (preferNearPharmacy) {
-      const aScore = getEffectiveScore(a);
-      const bScore = getEffectiveScore(b);
-      if (a.has_health_issue && !b.has_health_issue) {
-        if (aScore <= bScore + 1) return -1;
-      }
-      if (!a.has_health_issue && b.has_health_issue) {
-        if (bScore <= aScore + 1) return 1;
-      }
+    const aScore = getEffectiveScore(a);
+    const bScore = getEffectiveScore(b);
+    if (a.has_health_issue && !b.has_health_issue) {
+      if (aScore <= bScore + 1) return -1;
+    }
+    if (!a.has_health_issue && b.has_health_issue) {
+      if (bScore <= aScore + 1) return 1;
     }
 
     if (staffStats.size > 0) {
@@ -1022,8 +1050,6 @@ export function sortStaffByPriority(
     }
 
     // Lowest effective score first (PRIMARY SORT: Strict Fairness & Parity across colleagues)
-    const aScore = getEffectiveScore(a);
-    const bScore = getEffectiveScore(b);
     if (Math.abs(aScore - bScore) > 0.01) return aScore - bScore;
 
     // Prefer specific supervision role ONLY as a tie-breaker when scores are equal
@@ -1115,7 +1141,7 @@ export function assignStaffToSession(
   const isOral = !!examSession.exam_type?.toLowerCase().includes('oral');
   const required = calculateRequiredStaff(examSession.student_count, config.ratios, isOral, examSession.exam_date, config.calendarRules);
 
-  const strictRoles = config.constraints.enforce_strict_roles !== false;
+  const strictRoles = config.constraints?.enforce_strict_roles !== false;
   const nearPharmacy = targetRoom ? isNearPharmacy(targetRoom.room_name) : false;
 
   // Precompute the lowest effective score for each peer group among active colleagues
@@ -1143,12 +1169,12 @@ export function assignStaffToSession(
   const availableAll = staffWithStatus.filter((s) => s.available);
 
   // Health Status Balancing:
-  // For pharmacy rooms (P and M buildings): health-issue staff are prioritized first so they get convenient rooms.
-  // For non-pharmacy rooms: staff with health issues are completely removed from the candidate pool.
+  // For rooms matching health-issue staff allowed buildings: they are prioritized first.
+  // For unallowed rooms: isStaffAvailable has already filtered them out via isRoomAllowedForMedicalStaff.
   const healthStaff = availableAll.filter((s) => s.staff.has_health_issue);
   const normalStaff = availableAll.filter((s) => !s.staff.has_health_issue);
 
-  const orderedPool = nearPharmacy
+  const orderedPool = healthStaff.length > 0
     ? [...healthStaff, ...normalStaff]
     : normalStaff;
 
@@ -2002,15 +2028,6 @@ export function batchAssign(
       }
     }
 
-    // 2. Collect all pharmacy room groups
-    const pharmacyGroups = roomGroups.filter((rg) => {
-      const room = rooms?.find((r) => r.id === rg.room_id);
-      const sample = sortedSessions.find((s) => s.id === rg.session_ids[0]);
-      return isNearPharmacy(room?.room_name || (sample as any)?.room_name || '');
-    });
-
-    const uniqueDatesWithPharmacy = Array.from(new Set(pharmacyGroups.map(g => g.exam_date))).sort();
-
     for (const mStaff of medicalStaffMembers) {
       const cohortKey = mStaff.job_title || mStaff.supervision_role || 'General';
       const targetScore = cohortTargets.get(cohortKey) || 14;
@@ -2019,6 +2036,14 @@ export function batchAssign(
         ? (config.constraints?.custom_days_per_week ?? 5)
         : Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
       const maxDaily = config.constraints?.max_daily_shifts ?? 2;
+
+      // Filter room groups that are in this specific staff member's allowed medical buildings
+      const mStaffAllowedGroups = roomGroups.filter((rg) => {
+        const room = rooms?.find((r) => r.id === rg.room_id);
+        const sample = sortedSessions.find((s) => s.id === rg.session_ids[0]);
+        return isRoomAllowedForMedicalStaff(mStaff, room, (sample as any)?.room_name);
+      });
+      const uniqueDatesWithAllowed = Array.from(new Set(mStaffAllowedGroups.map(g => g.exam_date))).sort();
 
       // Track assigned dates per academic week
       const weekDatesMap = new Map<string, Set<string>>();
@@ -2033,7 +2058,7 @@ export function batchAssign(
         }
       }
 
-      for (const date of uniqueDatesWithPharmacy) {
+      for (const date of uniqueDatesWithAllowed) {
         if (mStaff.current_score >= targetScore) break;
 
         const wk = getAcademicWeekKey(date);
@@ -2069,9 +2094,9 @@ export function batchAssign(
 
         if (dailyCount >= maxDaily) continue;
 
-        const dayPharmGroups = pharmacyGroups.filter(g => g.exam_date === date);
+        const dayAllowedGroups = mStaffAllowedGroups.filter(g => g.exam_date === date);
 
-        for (const rg of dayPharmGroups) {
+        for (const rg of dayAllowedGroups) {
           if (dailyCount >= maxDaily || mStaff.current_score >= targetScore) break;
 
           const sample = sortedSessions.find(s => s.id === rg.session_ids[0]);
@@ -2176,8 +2201,8 @@ export function batchAssign(
     weekToDatesMap.get(wk)!.push(d);
   }
 
-  const configuredFT = config.constraints.custom_days_per_week ?? 5;
-  const configuredPT = Math.min(3, Math.max(1, config.constraints.max_days_per_week_pt ?? 3));
+  const configuredFT = config.constraints?.custom_days_per_week ?? 5;
+  const configuredPT = Math.min(3, Math.max(1, config.constraints?.max_days_per_week_pt ?? 3));
 
   for (const [, wDates] of weekToDatesMap.entries()) {
     wDates.sort();
@@ -2482,11 +2507,11 @@ export function equalizeWorkloadPass(
             });
             if (lowestHasTightCrossBuildingSprint) continue;
 
-            // 2d. Health issue room check: Staff with health issues cannot receive a non-pharmacy room
+            // 2d. Health issue room check: Staff with health issues cannot receive an unallowed room
             if (lowest.staff.has_health_issue) {
               const targetRoomName = targetRoom?.room_name || (sess as any).room?.room_name || (sess as any).room_name || '';
-              if (targetRoomName && !isNearPharmacy(targetRoomName)) {
-                continue; // Do not transfer a non-pharmacy room to staff with health issues
+              if (!isRoomAllowedForMedicalStaff(lowest.staff, targetRoom, targetRoomName)) {
+                continue; // Do not transfer an unallowed room to staff with health issues
               }
             }
 
@@ -2722,7 +2747,7 @@ export function allocateReserveStaff(
         reserveAssignments as any,
         config.calendarRules,
         peerMinScore,
-        !config.constraints.ignore_staff_working_days // Do not force strict off-days if ignoring working days (e.g. Midterm)
+        !config.constraints?.ignore_staff_working_days // Do not force strict off-days if ignoring working days (e.g. Midterm)
       );
       return available;
     });
@@ -2744,7 +2769,7 @@ export function allocateReserveStaff(
           reserveAssignments as any,
           config.calendarRules,
           peerMinScore,
-          !config.constraints.ignore_staff_working_days,
+          !config.constraints?.ignore_staff_working_days,
           true // allowWorkloadCapRelax
         );
         return available;

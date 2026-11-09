@@ -5,7 +5,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import type { Staff, StaffFormData } from '@/types/database.types';
-import { Loader2, Baby, HeartPulse, ShieldCheck } from 'lucide-react';
+import { Loader2, Baby, HeartPulse, ShieldCheck, Building2, Check } from 'lucide-react';
+import { ALL_CAMPUS_BUILDINGS, DEFAULT_MEDICAL_BUILDINGS } from '@/lib/utils/staff-medical-buildings';
 
 const staffSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -19,6 +20,7 @@ const staffSchema = z.object({
   is_feeding_mother: z.boolean().default(false),
   feeding_mother_days: z.number().min(0).max(4).default(0),
   has_health_issue: z.boolean().default(false),
+  allowed_buildings: z.array(z.string()).default(['M', 'P']),
   is_overloaded: z.boolean().default(false),
   overload_percentage: z.number().min(0).max(100).default(0),
   supervision_role: z.enum(['Invigilator', 'Committees Supervisor', 'Exam Supervisor', 'Invigilator / Exam Supervisor']).default('Invigilator'),
@@ -40,6 +42,7 @@ export function StaffForm({ staff, onSubmit, onCancel, isLoading, examDates = []
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<StaffFormData>({
     resolver: zodResolver(staffSchema),
@@ -54,6 +57,9 @@ export function StaffForm({ staff, onSubmit, onCancel, isLoading, examDates = []
       is_feeding_mother: staff.is_feeding_mother ?? false,
       feeding_mother_days: staff.feeding_mother_days ?? 0,
       has_health_issue: staff.has_health_issue ?? false,
+      allowed_buildings: (staff.allowed_buildings && staff.allowed_buildings.length > 0)
+        ? staff.allowed_buildings
+        : (staff.has_health_issue ? ['M', 'P'] : ['M', 'P']),
       is_overloaded: staff.is_overloaded ?? false,
       overload_percentage: staff.overload_percentage ?? 0,
       supervision_role: staff.supervision_role ?? 'Invigilator',
@@ -65,6 +71,7 @@ export function StaffForm({ staff, onSubmit, onCancel, isLoading, examDates = []
       is_feeding_mother: false,
       feeding_mother_days: 0,
       has_health_issue: false,
+      allowed_buildings: ['M', 'P'],
       is_overloaded: false,
       overload_percentage: 0,
       supervision_role: 'Invigilator',
@@ -73,6 +80,8 @@ export function StaffForm({ staff, onSubmit, onCancel, isLoading, examDates = []
   });
 
   const isFeedingMother = watch('is_feeding_mother');
+  const hasHealthIssue = watch('has_health_issue');
+  const allowedBuildings = watch('allowed_buildings') || ['M', 'P'];
   const isOverloaded = watch('is_overloaded');
   const employmentStatus = watch('employment_status');
 
@@ -305,13 +314,104 @@ export function StaffForm({ staff, onSubmit, onCancel, isLoading, examDates = []
         {/* Health Issue */}
         <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" {...register('has_health_issue')} className="w-4 h-4 rounded" />
+            <input type="checkbox" {...register('has_health_issue')} className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500" />
             <HeartPulse className="w-4 h-4 text-blue-600" />
             <span className="text-sm font-medium text-gray-800">Has Health Issue</span>
           </label>
           <p className="text-xs text-blue-700 ml-6 mt-1">
-            Will be preferred for rooms in buildings <strong>M</strong> or <strong>P</strong> (near pharmacy).
+            Restricts auto-assignment strictly to rooms within their designated allowed campus buildings.
           </p>
+
+          {hasHealthIssue && (
+            <div className="ml-6 mt-3 pt-3 border-t border-blue-200/60 space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <label className="text-xs font-semibold text-blue-900 flex items-center gap-1.5">
+                  <Building2 className="w-3.5 h-3.5 text-blue-700" />
+                  Allowed Campus Buildings ({allowedBuildings.length} selected)
+                </label>
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] uppercase font-bold text-blue-600">Presets:</span>
+                  <button
+                    type="button"
+                    onClick={() => setValue('allowed_buildings', ['M', 'P'], { shouldDirty: true })}
+                    className="px-2 py-0.5 text-[11px] font-medium rounded bg-white text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    Pharmacy (M, P)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValue('allowed_buildings', ['M', 'P', 'E'], { shouldDirty: true })}
+                    className="px-2 py-0.5 text-[11px] font-medium rounded bg-white text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    Zone 1 (M, P, E)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValue('allowed_buildings', ['S', 'F', 'A', 'B', 'H'], { shouldDirty: true })}
+                    className="px-2 py-0.5 text-[11px] font-medium rounded bg-white text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    Zone 2 (S, F, A, B, H)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setValue('allowed_buildings', ALL_CAMPUS_BUILDINGS.map(b => b.code), { shouldDirty: true })}
+                    className="px-2 py-0.5 text-[11px] font-medium rounded bg-white text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                  >
+                    All
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {ALL_CAMPUS_BUILDINGS.map(b => {
+                  const isChecked = allowedBuildings.includes(b.code);
+                  return (
+                    <label
+                      key={b.code}
+                      className={`flex items-start gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                        isChecked
+                          ? 'bg-blue-100/70 border-blue-300 text-blue-900 shadow-xs'
+                          : 'bg-white border-blue-200/60 text-slate-600 hover:bg-blue-50/50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        value={b.code}
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const current = allowedBuildings || [];
+                          const updated = e.target.checked
+                            ? [...current, b.code]
+                            : current.filter(c => c !== b.code);
+                          setValue('allowed_buildings', updated, { shouldDirty: true });
+                        }}
+                        className="mt-0.5 w-4 h-4 text-blue-600 rounded border-blue-300 focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs">{b.code}</span>
+                          <span className={`text-[9px] px-1 rounded font-medium ${
+                            b.zone === 'Zone 1' ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'
+                          }`}>
+                            {b.zone}
+                          </span>
+                        </div>
+                        <div className="text-[10px] truncate text-slate-500 mt-0.5" title={b.name}>
+                          {b.name.replace('Faculty of ', '')}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+              {allowedBuildings.length === 0 && (
+                <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200">
+                  ⚠️ No buildings selected. Please select at least one building (or it will default to M and P).
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Overloaded */}

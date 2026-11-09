@@ -987,7 +987,14 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
                     <>
                       {member.is_overloaded && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-[10px] font-medium">OL·{member.overload_percentage}%</span>}
                       {member.is_feeding_mother && <span className="bg-pink-100 text-pink-700 px-1.5 py-0.5 rounded text-[10px] font-medium">FM·{member.feeding_mother_days}d</span>}
-                      {member.has_health_issue && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">M/P</span>}
+                      {member.has_health_issue && (
+                        <span
+                          title={`Health issue — allowed buildings: ${(member.allowed_buildings?.length ? member.allowed_buildings : ['M', 'P']).join(', ')}`}
+                          className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                        >
+                          {(member.allowed_buildings?.length ? member.allowed_buildings : ['M', 'P']).join('/')}
+                        </span>
+                      )}
                       {member.can_supervise_oral && <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded text-[10px] font-medium">Oral</span>}
                     </>
                   )}
@@ -1241,10 +1248,12 @@ export function StaffTable({ staff, examDates, isLoading, onUpdate, onEdit, onDe
                             </span>
                           )}
                           {member.has_health_issue && (
-                            <span title="Health issue — prefers M/P buildings (near pharmacy)"
-                              className="flex items-center gap-0.5 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                            <span
+                              title={`Health issue — allowed buildings: ${(member.allowed_buildings?.length ? member.allowed_buildings : ['M', 'P']).join(', ')}`}
+                              className="flex items-center gap-0.5 bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[10px] font-medium"
+                            >
                               <HeartPulse className="w-3 h-3" />
-                              M/P
+                              {(member.allowed_buildings?.length ? member.allowed_buildings : ['M', 'P']).join('/')}
                             </span>
                           )}
                           {member.can_supervise_oral && (

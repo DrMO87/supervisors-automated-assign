@@ -37,6 +37,7 @@ export interface StaffFairnessRecord {
   workingDaysCount: number;
   configuredDaysCount: number;
   hasHealthIssue: boolean;
+  allowedBuildings?: string[];
   status: string;
   peerMinScore: number;
   deltaFromMin: number;
@@ -175,6 +176,7 @@ export function FairnessReportModal({
         workingDaysCount,
         configuredDaysCount,
         hasHealthIssue: Boolean(s.has_health_issue),
+        allowedBuildings: s.allowed_buildings,
         status: s.availability_status,
         peerMinScore: pMin,
         deltaFromMin,
@@ -262,7 +264,8 @@ export function FairnessReportModal({
     for (const r of sortedForExport) {
       const capStatus = r.isCompliant ? 'COMPLIANT' : 'EXCEEDED';
       const weeklyDayStatus = r.isWeeklyDaysCompliant ? `COMPLIANT (<= ${r.weeklyLimit}d)` : `EXCEEDED (> ${r.weeklyLimit}d)`;
-      csv += `"${r.name}","${r.job_title}","${r.supervision_role}","${r.cohort}","${r.employment_status}",${r.totalScore},${r.roomDuties},${r.reserveDuties},${r.maxDaysInSingleWeek},${r.weeklyLimit},"${weeklyDayStatus}",${r.totalDaysWorked},${r.configuredDaysCount},"${r.hasHealthIssue ? 'YES' : 'NO'}",${r.peerMinScore},${r.deltaFromMin},"${capStatus}"\n`;
+      const healthStr = r.hasHealthIssue ? `YES (${(r.allowedBuildings?.length ? r.allowedBuildings : ['M', 'P']).join('/')})` : 'NO';
+      csv += `"${r.name}","${r.job_title}","${r.supervision_role}","${r.cohort}","${r.employment_status}",${r.totalScore},${r.roomDuties},${r.reserveDuties},${r.maxDaysInSingleWeek},${r.weeklyLimit},"${weeklyDayStatus}",${r.totalDaysWorked},${r.configuredDaysCount},"${healthStr}",${r.peerMinScore},${r.deltaFromMin},"${capStatus}"\n`;
     }
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -448,8 +451,11 @@ export function FairnessReportModal({
                         <td className="py-2.5 px-3 font-semibold text-slate-900 flex items-center gap-1.5">
                           <span>{r.name}</span>
                           {r.hasHealthIssue && (
-                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded">
-                              Health
+                            <span
+                              className="px-1.5 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded"
+                              title={`Allowed buildings: ${(r.allowedBuildings?.length ? r.allowedBuildings : ['M', 'P']).join(', ')}`}
+                            >
+                              Health ({(r.allowedBuildings?.length ? r.allowedBuildings : ['M', 'P']).join('/')})
                             </span>
                           )}
                         </td>

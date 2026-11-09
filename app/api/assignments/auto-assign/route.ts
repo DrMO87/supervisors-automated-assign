@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 import { batchAssign, allocateReserveStaff, AutoAssignConfig, ReserveAssignment } from '@/lib/algorithms/auto-assignment';
 import { createSnapshot } from '@/lib/utils/snapshot-helpers';
+import { enrichStaffWithAllowedBuildings } from '@/lib/utils/staff-medical-buildings';
 import type {
   Staff,
   ExamSession,
@@ -61,7 +62,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     });
 
     // ── Fetch all required data in parallel ──────────────────────────────
-    const [staffResult, periodFreeStaffResult, sessionsResult, existingAssignmentsResult, roomsResult, ratiosSettingResult, constraintsSettingResult, calendarRulesResult, activePeriodResult, activePeriodSettingResult] =
+    const [staffResult, periodFreeStaffResult, sessionsResult, existingAssignmentsResult, roomsResult, ratiosSettingResult, constraintsSettingResult, calendarRulesResult, activePeriodResult, activePeriodSettingResult, allowedBuildingsResult] =
       await Promise.all([
         supabaseAdmin.from('staff').select('*').eq('availability_status', 'Available').limit(10000),
         supabaseAdmin.from('period_free_staff').select('*').gte('exam_date', startStr).lt('exam_date', endStr).limit(10000),
@@ -82,6 +83,7 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'calendar_rules').single(),
         supabaseAdmin.from('exam_periods').select('*').eq('is_active', true).maybeSingle(),
         supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'active_exam_period').maybeSingle(),
+        supabaseAdmin.from('system_settings').select('*').eq('setting_key', 'staff_allowed_buildings').maybeSingle(),
       ]);
 
     const activePeriod = activePeriodResult.data || activePeriodSettingResult.data?.setting_value || null;
@@ -98,7 +100,8 @@ const supabaseAuth = createRouteHandlerClient({ cookies });
     if (existingAssignmentsResult.error) throw existingAssignmentsResult.error;
     if (roomsResult.error) throw roomsResult.error;
 
-    const staff: Staff[] = staffResult.data || [];
+    const allowedBuildingsMap = (allowedBuildingsResult?.data?.setting_value as Record<string, string[]>) || {};
+    const staff: Staff[] = enrichStaffWithAllowedBuildings(staffResult.data || [], allowedBuildingsMap);
     const periodFreeStaff: PeriodFreeStaff[] = periodFreeStaffResult.data || [];
     const sessions: ExamSession[] = sessionsResult.data || [];
     const existingAssignments: Assignment[] = existingAssignmentsResult.data || [];

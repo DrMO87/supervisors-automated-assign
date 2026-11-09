@@ -15,6 +15,7 @@ import { StaffBulkEditModal } from '@/components/staff/staff-bulk-edit-modal';
 import { exportStaffToExcel, downloadFile } from '@/lib/utils/csv-helpers';
 import { logClientActivity } from '@/lib/utils/audit-logger';
 import { useExamPeriod } from '@/lib/hooks/exam-period-context';
+import { fetchStaffAllowedBuildingsMap, enrichStaffWithAllowedBuildings, saveStaffAllowedBuildings } from '@/lib/utils/staff-medical-buildings';
 
 export default function StaffPage() {
   const { activePeriod } = useExamPeriod();
@@ -58,14 +59,16 @@ export default function StaffPage() {
           .lte('exam_date', activePeriod.end_date);
       }
 
-      const [staffRes, examsRes] = await Promise.all([
+      const [staffRes, examsRes, allowedBuildingsMap] = await Promise.all([
         supabase.from('staff').select('*').order('name').limit(10000),
-        examsQuery
+        examsQuery,
+        fetchStaffAllowedBuildingsMap(),
       ]);
       if (staffRes.error) throw staffRes.error;
       if (examsRes.error) throw examsRes.error;
 
-      setStaff(staffRes.data || []);
+      const enrichedStaff = enrichStaffWithAllowedBuildings(staffRes.data || [], allowedBuildingsMap);
+      setStaff(enrichedStaff);
       const dates = Array.from(new Set((examsRes.data || []).map(e => e.exam_date))).sort();
       setExamDates(dates);
     } catch (error) {
@@ -80,12 +83,28 @@ export default function StaffPage() {
     if (!supabase) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { data: inserted, error } = await supabase.from('staff').insert([{ ...data, current_score: 0 }]).select('id').single();
-      if (error) throw error;
+      const { allowed_buildings, ...staffData } = data;
+      let insertedId = '';
+      try {
+        const { data: inserted, error } = await supabase.from('staff').insert([{ ...data, current_score: 0 }]).select('id').single();
+        if (error) throw error;
+        insertedId = inserted?.id;
+      } catch (colErr: any) {
+        if (colErr?.message?.includes('allowed_buildings') || colErr?.message?.includes('schema cache')) {
+          const { data: inserted, error } = await supabase.from('staff').insert([{ ...staffData, current_score: 0 }]).select('id').single();
+          if (error) throw error;
+          insertedId = inserted?.id;
+        } else {
+          throw colErr;
+        }
+      }
+      if (insertedId && allowed_buildings) {
+        await saveStaffAllowedBuildings(insertedId, allowed_buildings);
+      }
       await logClientActivity({
         action: 'INSERT',
         tableName: 'staff',
-        recordId: inserted?.id || 'staff-add',
+        recordId: insertedId || 'staff-add',
         summary: `Added staff member: ${data.name} (${data.job_title})`,
         newValues: data,
       });
@@ -103,8 +122,21 @@ export default function StaffPage() {
     if (!supabase || !selectedStaff) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { error } = await supabase.from('staff').update(data).eq('id', selectedStaff.id);
-      if (error) throw error;
+      const { allowed_buildings, ...staffData } = data;
+      try {
+        const { error } = await supabase.from('staff').update(data).eq('id', selectedStaff.id);
+        if (error) throw error;
+      } catch (colErr: any) {
+        if (colErr?.message?.includes('allowed_buildings') || colErr?.message?.includes('schema cache')) {
+          const { error } = await supabase.from('staff').update(staffData).eq('id', selectedStaff.id);
+          if (error) throw error;
+        } else {
+          throw colErr;
+        }
+      }
+      if (selectedStaff.id && allowed_buildings) {
+        await saveStaffAllowedBuildings(selectedStaff.id, allowed_buildings);
+      }
       await logClientActivity({
         action: 'UPDATE',
         tableName: 'staff',
@@ -272,12 +304,30 @@ export default function StaffPage() {
     if (!supabase || selectedStaffIds.length === 0) return;
     setIsSaving(true); try { await fetch('/api/history/snapshot', { method: 'POST' }); } catch(e) {}
     try {
-      const { error } = await supabase
-        .from('staff')
-        .update(updates)
-        .in('id', selectedStaffIds);
-      
-      if (error) throw error;
+      const { allowed_buildings, ...staffUpdates } = updates;
+      try {
+        const { error } = await supabase
+          .from('staff')
+          .update(updates)
+          .in('id', selectedStaffIds);
+        if (error) throw error;
+      } catch (colErr: any) {
+        if (colErr?.message?.includes('allowed_buildings') || colErr?.message?.includes('schema cache')) {
+          const { error } = await supabase
+            .from('staff')
+            .update(staffUpdates)
+            .in('id', selectedStaffIds);
+          if (error) throw error;
+        } else {
+          throw colErr;
+        }
+      }
+
+      if (allowed_buildings) {
+        for (const id of selectedStaffIds) {
+          await saveStaffAllowedBuildings(id, allowed_buildings);
+        }
+      }
       
       alert(`Successfully updated ${selectedStaffIds.length} staff members.`);
       setIsBulkEditModalOpen(false);

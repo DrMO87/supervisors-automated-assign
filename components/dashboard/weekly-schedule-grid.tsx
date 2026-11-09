@@ -19,6 +19,7 @@ import { SetupRequired } from '@/components/setup-required';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import { cn } from '@/lib/utils/cn';
 import { calculateRequiredStaff, getSessionGapMinutes } from '@/lib/algorithms/auto-assignment';
+import { enrichStaffWithAllowedBuildings } from '@/lib/utils/staff-medical-buildings';
 
 import type { CalendarRule } from '@/types/database.types';
 
@@ -151,10 +152,14 @@ export function WeeklyScheduleGrid({ weekStart }: WeeklyScheduleGridProps) {
       const staffingRatiosSetting = settingsRes.data?.find(s => s.setting_key === 'staffing_ratios');
       const ratios = staffingRatiosSetting?.setting_value?.ranges;
 
+      const allowedBuildingsSetting = settingsRes.data?.find(s => s.setting_key === 'staff_allowed_buildings');
+      const allowedBuildingsMap = (allowedBuildingsSetting?.setting_value as Record<string, string[]>) || {};
+      const enrichedStaff = enrichStaffWithAllowedBuildings(staffRes.data || [], allowedBuildingsMap);
+
       setInitialScheduleData({
         systemSettings: settingsRes.data || [],
         examSessions: sessionsRes.data || [],
-        staff: staffRes.data || [],
+        staff: enrichedStaff,
         rooms: roomsRes.data || [],
         periodFreeStaff: freeStaffRes.data || [],
         staffingRatios: ratios,
