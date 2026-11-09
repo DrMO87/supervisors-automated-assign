@@ -5,11 +5,11 @@ import { Dialog, Transition } from '@headlessui/react';
 import {
   X, Users, Calendar, Clock, Plus, Loader2, AlertCircle,
   CheckCircle, Building2, PersonStanding, Zap, ShieldCheck,
-  Check, AlertTriangle
+  Check, AlertTriangle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Staff, ExamSessionWithRelations, AssignmentRole, CalendarRule } from '@/types/database.types';
-import { getSessionPeriod, getDayUniquePeriods, timesOverlap } from '@/types/database.types';
+import { getSessionPeriod, getDayUniquePeriods, timesOverlap, normalizeTimeString } from '@/types/database.types';
 import { supabase } from '@/lib/supabase/client';
 import { useSchedulingStore } from '@/lib/stores/scheduling-store';
 import {
@@ -96,6 +96,36 @@ export function getStaffScore(s: Staff): string | number {
   const reserves = (s.free_staff_score || 0) * 0.25;
   const total = base + reserves;
   return Number.isInteger(total) ? total : total.toFixed(2);
+}
+
+export function getSupervisionRoleConfig(role?: string) {
+  switch (role) {
+    case 'Exam Supervisor':
+      return {
+        badgeBg: 'bg-purple-100 text-purple-800 border-purple-200',
+        shortName: 'Exam Sprv',
+        fullName: 'Exam Supervisor',
+      };
+    case 'Invigilator / Exam Supervisor':
+      return {
+        badgeBg: 'bg-teal-100 text-teal-800 border-teal-200',
+        shortName: 'Invig / Sprv',
+        fullName: 'Invigilator / Exam Supervisor',
+      };
+    case 'Committees Supervisor':
+      return {
+        badgeBg: 'bg-amber-100 text-amber-800 border-amber-200',
+        shortName: 'Committees Sprv',
+        fullName: 'Committees Supervisor',
+      };
+    case 'Invigilator':
+    default:
+      return {
+        badgeBg: 'bg-blue-100 text-blue-800 border-blue-200',
+        shortName: 'Invigilator',
+        fullName: 'Invigilator',
+      };
+  }
 }
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -186,6 +216,7 @@ export function AddRunningStaffModal({
   const { staff, examSessions, periodFreeStaff, systemSettings, staffingRatios } = useSchedulingStore();
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showRoster, setShowRoster] = useState(false);
 
   const globalDayPeriodsMap = useMemo(() => getDayUniquePeriods(examSessions), [examSessions]);
 
@@ -206,6 +237,12 @@ export function AddRunningStaffModal({
     }
   }, [message]);
 
+  // ── Period Time Detection ──────────────────────────────────────────────────
+  const dayUniquePeriods = useMemo(() => globalDayPeriodsMap.get(dateStr) || [], [globalDayPeriodsMap, dateStr]);
+  const currentIdx = useMemo(() => dayUniquePeriods.findIndex(dp => dp.period === period), [dayUniquePeriods, period]);
+  const currentPeriodInfo = useMemo(() => (currentIdx >= 0 ? dayUniquePeriods[currentIdx] : null), [dayUniquePeriods, currentIdx]);
+  const prevPeriodInfo = useMemo(() => (currentIdx > 0 ? dayUniquePeriods[currentIdx - 1] : null), [dayUniquePeriods, currentIdx]);
+
   // ── 1. Unfiltered sessions for the current period ──────────────────────────
   const currentPeriodSessions = useMemo(() => {
     return examSessions.filter(s =>
@@ -214,17 +251,38 @@ export function AddRunningStaffModal({
     );
   }, [examSessions, dateStr, period, globalDayPeriodsMap]);
 
+  // Normalized time range string for current period (e.g. "11:30 – 13:30")
+  const currentPeriodTime = useMemo(() => {
+    if (currentPeriodInfo?.time_range) return currentPeriodInfo.time_range;
+    if (currentPeriodSessions.length > 0) {
+      const s = currentPeriodSessions[0];
+      const start = normalizeTimeString(s.start_time);
+      const end = normalizeTimeString(s.end_time || '');
+      return end ? `${start} – ${end}` : start;
+    }
+    return '';
+  }, [currentPeriodInfo, currentPeriodSessions]);
+
   // ── 2. Unfiltered sessions for the immediately preceding period ────────────
   const previousPeriodSessions = useMemo(() => {
-    const dayUniquePeriods = globalDayPeriodsMap.get(dateStr) || [];
-    const currentIdx = dayUniquePeriods.findIndex(dp => dp.period === period);
-    if (currentIdx <= 0) return [];
-    const prevPeriodInfo = dayUniquePeriods[currentIdx - 1];
+    if (!prevPeriodInfo) return [];
     return examSessions.filter(s =>
       s.exam_date === dateStr &&
       getSessionPeriod(s, examSessions, globalDayPeriodsMap) === prevPeriodInfo.period
     );
-  }, [examSessions, dateStr, period, globalDayPeriodsMap]);
+  }, [examSessions, dateStr, prevPeriodInfo, globalDayPeriodsMap]);
+
+  // Normalized time range string for previous period (e.g. "09:00 – 11:00")
+  const prevPeriodTime = useMemo(() => {
+    if (prevPeriodInfo?.time_range) return prevPeriodInfo.time_range;
+    if (previousPeriodSessions.length > 0) {
+      const s = previousPeriodSessions[0];
+      const start = normalizeTimeString(s.start_time);
+      const end = normalizeTimeString(s.end_time || '');
+      return end ? `${start} – ${end}` : start;
+    }
+    return '';
+  }, [prevPeriodInfo, previousPeriodSessions]);
 
   // Transition gap in minutes between previous and current period
   const gapMinutes = useMemo(() => {
@@ -614,11 +672,17 @@ export function AddRunningStaffModal({
                       <PersonStanding className="w-6 h-6" />
                     </div>
                     <div>
-                      <Dialog.Title as="h3" className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                        Add Running Staff (Period {period})
+                      <Dialog.Title as="h3" className="text-lg font-bold text-gray-900 flex flex-wrap items-center gap-2">
+                        <span>Add Running Staff — Period {period}</span>
+                        {currentPeriodTime && (
+                          <span className="text-xs font-bold text-orange-700 bg-orange-100/90 border border-orange-200 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs">
+                            <Clock className="w-3 h-3 text-orange-600" />
+                            {currentPeriodTime}
+                          </span>
+                        )}
                       </Dialog.Title>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        Free staff from the previous period who can run to fill vacant rooms
+                        Free staff from {prevPeriodInfo ? `Period ${prevPeriodInfo.period} (${prevPeriodTime || prevPeriodInfo.time_range})` : 'the previous period'} who can run to fill vacant rooms in Period {period} {currentPeriodTime ? `(${currentPeriodTime})` : ''}
                       </p>
                     </div>
                   </div>
@@ -633,16 +697,26 @@ export function AddRunningStaffModal({
                 {/* ── Info & Zone Highlights Bar ────────────────────────── */}
                 <div className="flex flex-col gap-2 px-6 py-3 border-b border-gray-100 bg-gray-50 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-4 text-gray-600">
+                    <div className="flex flex-wrap items-center gap-4 text-gray-600">
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-gray-400" />
                         <span className="font-semibold text-gray-800">
                           {format(new Date(dateStr + 'T12:00:00Z'), 'EEEE, MMMM d, yyyy')}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-gray-400" />
-                        <span>Period {period} (Gap: {gapMinutes}m from previous)</span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-orange-500" />
+                        <span className="font-bold text-gray-900">Period {period}</span>
+                        {currentPeriodTime && (
+                          <span className="font-semibold text-gray-800 bg-white border border-gray-200 px-1.5 py-0.2 rounded shadow-2xs">
+                            {currentPeriodTime}
+                          </span>
+                        )}
+                        {prevPeriodInfo && (
+                          <span className="text-gray-500 text-[11px] ml-1">
+                            · Prev: <strong>P{prevPeriodInfo.period} ({prevPeriodTime || prevPeriodInfo.time_range})</strong> · <span className="text-orange-700 font-bold">{gapMinutes}m gap</span>
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -684,6 +758,19 @@ export function AddRunningStaffModal({
                       </div>
                     )}
 
+                    {/* Toggle Roster Button */}
+                    {runningCandidates.length > 0 && (
+                      <button
+                        onClick={() => setShowRoster(prev => !prev)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-700 bg-white hover:bg-gray-100 border border-gray-300 px-2.5 py-1 rounded-lg transition-colors shadow-2xs ml-1"
+                        title="View all free running candidates with their supervision roles and details"
+                      >
+                        <Users className="w-3 h-3 text-gray-500" />
+                        <span>{showRoster ? 'Hide Runner Roster' : `View All Runners (${runningCandidates.length})`}</span>
+                        {showRoster ? <ChevronUp className="w-3 h-3 text-gray-400" /> : <ChevronDown className="w-3 h-3 text-gray-400" />}
+                      </button>
+                    )}
+
                     {/* Quick Auto-Fill Button */}
                     {runningCandidates.length > 0 && vacantRooms.length > 0 && (
                       <div className="ml-auto flex items-center gap-2">
@@ -699,6 +786,60 @@ export function AddRunningStaffModal({
                       </div>
                     )}
                   </div>
+
+                  {/* ── Expandable Full Runners Roster ── */}
+                  {showRoster && runningCandidates.length > 0 && (
+                    <div className="mt-2 p-3 bg-white rounded-xl border border-gray-200 shadow-xs space-y-2">
+                      <div className="flex items-center justify-between text-xs border-b border-gray-100 pb-2">
+                        <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-primary-600" />
+                          All Free Running Candidates ({runningCandidates.length})
+                        </span>
+                        <span className="text-[11px] text-gray-400">
+                          {prevPeriodInfo ? `P${prevPeriodInfo.period} (${prevPeriodTime || prevPeriodInfo.time_range})` : 'Previous'} → P{period} {currentPeriodTime ? `(${currentPeriodTime})` : ''}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto custom-scrollbar p-1">
+                        {runningCandidates.map(c => {
+                          const roleConfig = getSupervisionRoleConfig(c.staff.supervision_role);
+                          const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
+                          const zoneConfig = c.fromGroup === 0 ? ZONE_CONFIG[0] : c.fromGroup === 1 ? ZONE_CONFIG[1] : ZONE_CONFIG.other;
+
+                          return (
+                            <div
+                              key={c.staff.id}
+                              className={`p-2 rounded-lg border ${zoneConfig.borderColor} bg-white hover:bg-gray-50/80 transition-all flex flex-col gap-1.5 text-xs shadow-2xs`}
+                            >
+                              <div className="flex items-start justify-between gap-1.5">
+                                <div>
+                                  <span className="font-bold text-gray-900 block leading-tight">{c.staff.name}</span>
+                                  <span className="text-[10px] text-gray-500">{c.staff.job_title}</span>
+                                </div>
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200 flex-shrink-0">
+                                  Score: {getStaffScore(c.staff)}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-gray-100">
+                                <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.2 rounded border ${roleConfig.badgeBg}`}>
+                                  <ShieldCheck className="w-2.5 h-2.5 flex-shrink-0" />
+                                  {roleConfig.fullName}
+                                </span>
+
+                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${zoneConfig.badgeBg}`}>
+                                  {zoneConfig.shortName}
+                                </span>
+
+                                <span className="text-[9px] text-gray-500 bg-gray-50 px-1 py-0.2 rounded border border-gray-200">
+                                  from {c.fromRoom} ({wasPrevSup ? 'Exam Sprv' : 'Invig'})
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ── Content ─────────────────────────────────────────── */}
@@ -727,7 +868,7 @@ export function AddRunningStaffModal({
                       </div>
                       <h4 className="text-base font-bold text-gray-700">First Period of the Day</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        Period {period} is the first scheduled period on this day. Running staff are drawn from the previous period.
+                        Period {period} {currentPeriodTime ? `(${currentPeriodTime})` : ''} is the first scheduled period on this day. Running staff are drawn from the previous period.
                       </p>
                     </div>
                   )}
@@ -739,7 +880,7 @@ export function AddRunningStaffModal({
                       </div>
                       <h4 className="text-base font-bold text-green-800">All Rooms Are Fully Staffed!</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        There are no vacant places in Period {period}. Filled rooms are untouched.
+                        There are no vacant places in Period {period} {currentPeriodTime ? `(${currentPeriodTime})` : ''}. Filled rooms are untouched.
                       </p>
                     </div>
                   )}
@@ -751,7 +892,7 @@ export function AddRunningStaffModal({
                       </div>
                       <h4 className="text-base font-bold text-gray-700">No Free Runners Available</h4>
                       <p className="text-xs text-gray-500 mt-1 max-w-sm">
-                        All staff who supervised in the previous period are already scheduled in Period {period}, on reserve duty, or on their off-day.
+                        All staff who supervised in the previous period {prevPeriodTime ? `(${prevPeriodTime})` : ''} are already scheduled in Period {period} {currentPeriodTime ? `(${currentPeriodTime})` : ''}, on reserve duty, or on their off-day.
                       </p>
                     </div>
                   )}
@@ -802,13 +943,18 @@ export function AddRunningStaffModal({
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-1">
                                   <span className="font-bold text-gray-800 flex items-center gap-1">
                                     <Building2 className="w-3.5 h-3.5 text-gray-400" />
                                     {room.roomName}
                                   </span>
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roomZoneConfig.badgeBg}`}>
                                     {roomZoneConfig.name}
+                                  </span>
+                                  <span>·</span>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-gray-700 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded">
+                                    <Clock className="w-3 h-3 text-gray-500" />
+                                    {normalizeTimeString(room.session.start_time)} – {normalizeTimeString(room.session.end_time || '')}
                                   </span>
                                   <span>·</span>
                                   <span>{room.session.student_count} students</span>
@@ -865,33 +1011,49 @@ export function AddRunningStaffModal({
                                         const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
                                         const isSameZone = roomZone === 0;
                                         const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
+                                        const roleConfig = getSupervisionRoleConfig(c.staff.supervision_role);
 
                                         return (
                                           <button
                                             key={c.staff.id}
                                             onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
-                                            className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                            className={`group inline-flex items-center flex-wrap gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
                                               isSameZone
                                                 ? 'bg-blue-50/90 border-blue-400 text-blue-900 hover:bg-blue-100 ring-1 ring-blue-300'
                                                 : 'bg-blue-50/40 border-blue-200 text-blue-800 hover:bg-blue-100/70'
                                             }`}
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            title={`Staff: ${c.staff.name} (${c.staff.job_title || ''})\nSupervision Role: ${c.staff.supervision_role}\nFrom: ${c.fromRoom} (${c.fromSubject})\nAssigned As: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-blue-600 group-hover:scale-125 transition-transform" />
-                                            <span className="font-bold">{c.staff.name}</span>
+                                            <span className="font-bold text-gray-900">{c.staff.name}</span>
 
-                                            {/* Role badge */}
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                              targetRole === 'Exam_Supervisor'
-                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                                : 'bg-blue-100 text-blue-800 border border-blue-200'
-                                            }`}>
-                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                            {/* Staff Supervision Role Badge */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${roleConfig.badgeBg}`}
+                                              title={`Staff Profile Supervision Role: ${roleConfig.fullName}`}
+                                            >
+                                              <ShieldCheck className="w-2.5 h-2.5" />
+                                              <span>{roleConfig.shortName}</span>
+                                            </span>
+
+                                            {/* Target Assignment Role */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                                targetRole === 'Exam_Supervisor'
+                                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                                                  : wasPrevSup
+                                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                  : 'bg-blue-100 text-blue-800 border-blue-200'
+                                              }`}
+                                              title={`Assigned in this room as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Previous Exam Supervisor stepped down to Invigilator)' : ''}`}
+                                            >
+                                              → {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                              {wasPrevSup && <span className="ml-0.5 text-[8px] font-normal text-amber-700">(Prev Sprv)</span>}
                                             </span>
 
                                             {/* Score */}
-                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
                                               Score: {getStaffScore(c.staff)}
                                             </span>
 
@@ -900,7 +1062,7 @@ export function AddRunningStaffModal({
                                             </span>
 
                                             {isSameZone && (
-                                              <span className="text-[9px] font-bold text-blue-800 bg-blue-200/80 px-1 py-0.2 rounded">
+                                              <span className="text-[9px] font-bold text-blue-800 bg-blue-200/80 px-1 py-0.5 rounded">
                                                 Optimal
                                               </span>
                                             )}
@@ -933,33 +1095,49 @@ export function AddRunningStaffModal({
                                         const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
                                         const isSameZone = roomZone === 1;
                                         const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
+                                        const roleConfig = getSupervisionRoleConfig(c.staff.supervision_role);
 
                                         return (
                                           <button
                                             key={c.staff.id}
                                             onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
-                                            className={`group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
+                                            className={`group inline-flex items-center flex-wrap gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border transition-all shadow-xs disabled:opacity-50 ${
                                               isSameZone
                                                 ? 'bg-emerald-50/90 border-emerald-400 text-emerald-900 hover:bg-emerald-100 ring-1 ring-emerald-300'
                                                 : 'bg-emerald-50/40 border-emerald-200 text-emerald-800 hover:bg-emerald-100/70'
                                             }`}
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            title={`Staff: ${c.staff.name} (${c.staff.job_title || ''})\nSupervision Role: ${c.staff.supervision_role}\nFrom: ${c.fromRoom} (${c.fromSubject})\nAssigned As: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-125 transition-transform" />
-                                            <span className="font-bold">{c.staff.name}</span>
+                                            <span className="font-bold text-gray-900">{c.staff.name}</span>
 
-                                            {/* Role badge */}
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                              targetRole === 'Exam_Supervisor'
-                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                                : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                            }`}>
-                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                            {/* Staff Supervision Role Badge */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${roleConfig.badgeBg}`}
+                                              title={`Staff Profile Supervision Role: ${roleConfig.fullName}`}
+                                            >
+                                              <ShieldCheck className="w-2.5 h-2.5" />
+                                              <span>{roleConfig.shortName}</span>
+                                            </span>
+
+                                            {/* Target Assignment Role */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                                targetRole === 'Exam_Supervisor'
+                                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                                                  : wasPrevSup
+                                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                  : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                              }`}
+                                              title={`Assigned in this room as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Previous Exam Supervisor stepped down to Invigilator)' : ''}`}
+                                            >
+                                              → {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                              {wasPrevSup && <span className="ml-0.5 text-[8px] font-normal text-amber-700">(Prev Sprv)</span>}
                                             </span>
 
                                             {/* Score */}
-                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
                                               Score: {getStaffScore(c.staff)}
                                             </span>
 
@@ -968,7 +1146,7 @@ export function AddRunningStaffModal({
                                             </span>
 
                                             {isSameZone && (
-                                              <span className="text-[9px] font-bold text-emerald-800 bg-emerald-200/80 px-1 py-0.2 rounded">
+                                              <span className="text-[9px] font-bold text-emerald-800 bg-emerald-200/80 px-1 py-0.5 rounded">
                                                 Optimal
                                               </span>
                                             )}
@@ -995,27 +1173,44 @@ export function AddRunningStaffModal({
 
                                         const targetRole = getTargetRoleForStaff(c.staff, room, c.previousRole);
                                         const wasPrevSup = c.previousRole === 'Exam_Supervisor' || c.previousRole === 'Head_Supervisor';
+                                        const roleConfig = getSupervisionRoleConfig(c.staff.supervision_role);
 
                                         return (
                                           <button
                                             key={c.staff.id}
                                             onClick={() => handleAssignSingle(c.staff, room, c.previousRole)}
                                             disabled={isLoading}
-                                            className="group inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
-                                            title={`From: ${c.fromRoom} (${c.fromSubject})\nRole: ${c.staff.supervision_role}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nAssign as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}\nScore: ${getStaffScore(c.staff)}`}
+                                            className="group inline-flex items-center flex-wrap gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800 transition-all shadow-xs disabled:opacity-50"
+                                            title={`Staff: ${c.staff.name} (${c.staff.job_title || ''})\nSupervision Role: ${c.staff.supervision_role}\nFrom: ${c.fromRoom} (${c.fromSubject})\nAssigned As: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Prev: Exam Supervisor -> Invigilator only)' : ''}\nScore: ${getStaffScore(c.staff)}`}
                                           >
                                             <Plus className="w-3.5 h-3.5 text-gray-500 group-hover:scale-125 transition-transform" />
-                                            <span className="font-bold">{c.staff.name}</span>
+                                            <span className="font-bold text-gray-900">{c.staff.name}</span>
 
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                                              targetRole === 'Exam_Supervisor'
-                                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                                                : 'bg-gray-200 text-gray-800 border border-gray-300'
-                                            }`}>
-                                              {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                            {/* Staff Profile Supervision Role Badge */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border inline-flex items-center gap-1 ${roleConfig.badgeBg}`}
+                                              title={`Profile Supervision Role: ${roleConfig.fullName}`}
+                                            >
+                                              <ShieldCheck className="w-2.5 h-2.5" />
+                                              <span>{roleConfig.shortName}</span>
                                             </span>
 
-                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                                            {/* Target Assignment Role */}
+                                            <span
+                                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                                targetRole === 'Exam_Supervisor'
+                                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-200'
+                                                  : wasPrevSup
+                                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                                  : 'bg-gray-200 text-gray-800 border-gray-300'
+                                              }`}
+                                              title={`Assigned in this room as: ${targetRole === 'Exam_Supervisor' ? 'Exam Supervisor' : 'Invigilator'}${wasPrevSup ? ' (Previous Exam Supervisor stepped down to Invigilator)' : ''}`}
+                                            >
+                                              → {targetRole === 'Exam_Supervisor' ? 'Exam Sprv' : 'Invig'}
+                                              {wasPrevSup && <span className="ml-0.5 text-[8px] font-normal text-amber-700">(Prev Sprv)</span>}
+                                            </span>
+
+                                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-200">
                                               Score: {getStaffScore(c.staff)}
                                             </span>
 
